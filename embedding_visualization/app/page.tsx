@@ -1,0 +1,203 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { AppHeader } from './components/AppHeader';
+import { AppFooter } from './components/AppFooter';
+import { EmbeddingSidebar } from './components/EmbeddingSidebar';
+import { DashboardPanel } from './components/DashboardPanel';
+import { SidebarInset, SidebarProvider } from '@/lib/ui-primitives/sidebar';
+import { useEmbeddingData } from '../lib/hooks/useEmbeddingData';
+import { useCollections } from '../lib/hooks/useCollections';
+import { useVisualizationPoints } from '../lib/hooks/useVisualizationPoints';
+import { useHighlightedIndices } from '../lib/hooks/useHighlightedIndices';
+import { useAppSearch } from '../lib/hooks/useAppSearch';
+import type { VisualizationState, HighlightMap } from '../lib/types/types';
+
+
+
+export default function Home() {
+  const { collections, loading: collectionsLoading, error: collectionsError } = useCollections();
+
+  // Default to the first available collection
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
+
+  // Auto-select first collection when collections load
+  useEffect(() => {
+    if (collections && !selectedCollection) {
+      const firstCollection = Object.keys(collections)[0];
+      if (firstCollection) {
+        setSelectedCollection(firstCollection);
+      }
+    }
+  }, [collections, selectedCollection]);
+
+  const { data, loading, error, categoryFieldOptions } = useEmbeddingData(selectedCollection);
+
+  const [visualizationState, setVisualizationState] = useState<VisualizationState>({
+    method: 'umap',
+    mode: '3d',
+    colorByField: null,
+    searchQuery: '',
+    selectedDimensions: [0, 1, 2],
+    distanceMetric: 'COSINE',
+  });
+
+  // Use the new custom hook for search logic
+  const {
+    selectedPoint,
+    setSelectedPoint,
+    semanticSearchResults,
+    setSemanticSearchResults,
+    searchQueryLabel,
+    searchType,
+    handleSemanticSearch,
+    handlePointClick,
+    searchLoading,
+    resetSearch
+  } = useAppSearch(
+    selectedCollection,
+    visualizationState.colorByField ?? null,
+    visualizationState.distanceMetric ?? 'COSINE'
+  );
+
+  // Update visualization state
+  const updateState = useCallback((newState: Partial<VisualizationState>) => {
+    setVisualizationState(prev => ({ ...prev, ...newState }));
+  }, []);
+
+  const visualizationPoints = useVisualizationPoints(data, visualizationState);
+  const { filteredPoints2d, filteredPoints3d, highlightedIndices } = visualizationPoints;
+
+  // Compute text search results from highlighted indices
+  const textSearchResults = useMemo(() => {
+    if (!highlightedIndices || highlightedIndices.size === 0) return [];
+    const points = visualizationState.mode === '2d' ? filteredPoints2d : filteredPoints3d;
+    return points.filter(p => highlightedIndices.has(p.index));
+  }, [highlightedIndices, filteredPoints2d, filteredPoints3d, visualizationState.mode]);
+
+  // Track previous search query to detect changes
+  const prevSearchQuery = useRef<string | undefined>(undefined);
+
+  // Auto-select first text search result and trigger semantic search
+  useEffect(() => {
+    const currentQuery = visualizationState.searchQuery?.trim();
+    const queryChanged = currentQuery !== prevSearchQuery.current;
+    prevSearchQuery.current = currentQuery;
+
+    // Only auto-select when query changes and we have results
+    if (queryChanged && currentQuery && textSearchResults.length > 0) {
+      handlePointClick(textSearchResults[0]);
+    }
+  }, [visualizationState.searchQuery, textSearchResults, handlePointClick]);
+
+  // Combine text search highlights with semantic search highlights
+  // Pass selectedPoint's index so it's included in highlights (semantic search returns similar items, not the query itself)
+  const combinedHighlightedIndices: HighlightMap | undefined = useHighlightedIndices(
+    highlightedIndices,
+    semanticSearchResults,
+    data,
+    selectedPoint?.index
+  );
+
+  // Reset state when collection changes
+  useEffect(() => {
+    resetSearch();
+    setVisualizationState(prev => ({ ...prev, colorByField: null }));
+  }, [selectedCollection, resetSearch]);
+
+  // Auto-select first search result when semantic search completes
+  // Only for text searches - point clicks already set selectedPoint in the handler
+  useEffect(() => {
+    if (semanticSearchResults && semanticSearchResults.length > 0 && searchType === 'text') {
+      const firstResultId = semanticSearchResults[0].id;
+      const points = visualizationState.mode === '3d' ? filteredPoints3d : filteredPoints2d;
+      const matchingPoint = points.find(p => p.id === firstResultId);
+      if (matchingPoint) {
+        setSelectedPoint(matchingPoint);
+      }
+    }
+  }, [semanticSearchResults, filteredPoints2d, filteredPoints3d, visualizationState.mode, setSelectedPoint, searchType]);
+
+  return (
+    <SidebarProvider>
+      {data && (
+        <EmbeddingSidebar
+          variant="inset"
+          state={visualizationState}
+          onStateChange={updateState}
+          embeddingDim={data.metadata.embedding_dim}
+          metadata={{
+            pca_2d_variance: data.metadata.pca_2d_variance,
+            pca_3d_variance: data.metadata.pca_3d_variance,
+          }}
+          selectedPoint={selectedPoint}
+          searchQuery={visualizationState.searchQuery}
+          highlightedCount={combinedHighlightedIndices?.size}
+          categoryField={visualizationState.colorByField}
+          categoryFieldOptions={categoryFieldOptions}
+          textSearchResults={textSearchResults}
+          onTextResultClick={handlePointClick}
+        />
+      )}
+      <SidebarInset className="pt-2">
+        <AppHeader
+          collections={collections}
+          collectionsLoading={collectionsLoading}
+          collectionsError={collectionsError}
+          selectedCollection={selectedCollection}
+          onCollectionChange={setSelectedCollection}
+          totalWords={data?.metadata.total_items}
+          embeddingDim={data?.metadata.embedding_dim}
+          onSemanticSearch={handleSemanticSearch}
+          searchLoading={searchLoading}
+        />
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
+          <div className="flex flex-1 flex-col gap-6 p-6 pt-4 min-w-0 min-h-0">
+            {loading ? (
+              <div className="flex flex-1 items-center justify-center rounded-xl border bg-card p-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Loading embedding data...</p>
+                </div>
+              </div>
+            ) : error ? (
+              <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
+                <h3 className="text-destructive font-semibold mb-2">Error Loading Data</h3>
+                <p className="text-destructive/90 mb-4">{error.message}</p>
+                <p className="text-sm text-muted-foreground">
+                  Make sure you have run the projection computation script:
+                  <code className="block mt-2 bg-background p-2 rounded border">
+                    uv run python interpretability/compute_projections.py
+                  </code>
+                </p>
+              </div>
+            ) : data ? (
+              <>
+                <div className="flex-1 min-h-0">
+                  <DashboardPanel
+                    state={visualizationState}
+                    points2d={filteredPoints2d}
+                    points3d={filteredPoints3d}
+                    highlightedIndices={combinedHighlightedIndices}
+                    onPointClick={handlePointClick}
+                    selectedPoint={selectedPoint}
+                    semanticSearchResults={semanticSearchResults}
+                    searchQueryLabel={searchQueryLabel}
+                  />
+                </div>
+                <AppFooter
+                    timestamp={data.metadata.timestamp}
+                    selectedCollection={selectedCollection}
+                />
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center rounded-xl border bg-muted p-12">
+                <p className="text-muted-foreground">Select a collection to view embeddings</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}

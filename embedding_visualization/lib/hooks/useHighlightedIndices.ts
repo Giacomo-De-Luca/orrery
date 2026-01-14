@@ -1,0 +1,59 @@
+import { useMemo } from 'react';
+import type { EmbeddingData, SemanticSearchResult, HighlightMap } from '../types/types';
+
+/**
+ * Combines highlighted indices from text search and semantic search results.
+ *
+ * Returns a Map where:
+ * - Keys: point indices to highlight
+ * - Values: similarity scores (0-1)
+ *   - Selected point: 1.0 (it's the center of semantic search)
+ *   - Text search matches: 1.0 (perfect match)
+ *   - Semantic search results: actual similarity score
+ */
+export function useHighlightedIndices(
+  textSearchHighlights: Set<number> | undefined,
+  semanticSearchResults: SemanticSearchResult[] | null,
+  data: EmbeddingData | null,
+  selectedPointIndex?: number
+): HighlightMap | undefined {
+  return useMemo(() => {
+    const highlightMap = new Map<number, number>();
+
+    // Add selected point with similarity 1.0 (it's the center of semantic search)
+    // This ensures the clicked point is always highlighted and can have lines drawn to it
+    if (selectedPointIndex !== undefined && semanticSearchResults && semanticSearchResults.length > 0) {
+      highlightMap.set(selectedPointIndex, 1.0);
+    }
+
+    // Add text search highlights (similarity = 1.0)
+    if (textSearchHighlights && textSearchHighlights.size > 0) {
+      textSearchHighlights.forEach(index => {
+        highlightMap.set(index, 1.0);
+      });
+    }
+
+    // Add semantic search highlights (with actual similarity scores)
+    if (semanticSearchResults && semanticSearchResults.length > 0 && data) {
+      // Create map of id → similarity for fast lookup
+      const idToSimilarity = new Map(
+        semanticSearchResults.map(r => [r.id, r.similarity])
+      );
+
+      // Find indices and add to map
+      data.ids.forEach((id, index) => {
+        if (idToSimilarity.has(id)) {
+          const similarity = idToSimilarity.get(id)!;
+          // If already present from text search or selected point, keep max similarity
+          const currentSimilarity = highlightMap.get(index);
+          if (currentSimilarity === undefined || similarity > currentSimilarity) {
+            highlightMap.set(index, similarity);
+          }
+        }
+      });
+    }
+
+    // Return undefined if empty for backward compatibility
+    return highlightMap.size > 0 ? highlightMap : undefined;
+  }, [semanticSearchResults, textSearchHighlights, data, selectedPointIndex]);
+}
