@@ -1,0 +1,23 @@
+{
+  "name": "@embedding-atlas/density-clustering",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A WebAssembly implementation of a density-based clustering algorithm",
+  "main": "density_clustering_wasm/js/index.js",
+  "module": "density_clustering_wasm/js/index.js",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "cargo build -p density_clustering_wasm --target wasm32-unknown-unknown --release",
+    "build:binding": "wasm-bindgen target/wasm32-unknown-unknown/release/density_clustering_wasm.wasm --target web --out-dir density_clustering_wasm/pkg",
+    "build": "npm run build:wasm && npm run build:binding",
+    "test": "vitest run"
+  },
+  "files": [
+    "density_clustering_wasm/js/index.js",
+    "density_clustering_wasm/pkg/density_clustering_wasm.js",
+    "density_clustering_wasm/pkg/density_clustering_wasm_bg.wasm"
+  ],
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  }
+}

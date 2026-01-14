@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./embedding_visualization/vector_db:/app/embedding_visualization/vector_db:ro
+      - ./embedding_visualization/public/data:/app/embedding_visualization/public/data:ro
+      - ./interpretability_backend:/app/interpretability_backend
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: uvicorn interpretability_backend.backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./embedding_visualization
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./embedding_visualization:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_GRAPHQL_URL=http://localhost:8000/graphql
+    command: npm run dev
+    depends_on:
+      - backend
+
+networks:
+  default:
+    name: embedding-viz

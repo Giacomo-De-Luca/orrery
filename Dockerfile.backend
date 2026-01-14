@@ -1,0 +1,33 @@
+# Use Python 3.12 as base image
+FROM python:3.12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+# gcc and python3-dev for building potential C dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for fast package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+# Copy project definition files
+COPY pyproject.toml uv.lock ./
+
+# Create virtual environment and install dependencies
+RUN uv sync --frozen
+
+# Copy the application code
+COPY interpretability_backend ./interpretability_backend
+
+# Set environment variables
+# Add the bin directory of the virtual environment to PATH
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app"
+
+# Command to run the application
+CMD ["uvicorn", "interpretability_backend.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

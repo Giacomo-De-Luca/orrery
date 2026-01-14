@@ -1,0 +1,70 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+## Random Test Files and notebooks
+test*.py
+test*.ipynb
+
+
+claude.md
+
+## Lacan Dataset:
+
+*.pkl
+*.pickle
+*.npy
+seminars.pdf
+seminars.txt
+writings.pdf
+writings.txt
+writing_sentences.tsv
+sentence_list.tsv
+
+
+# Virtual environments
+.venv
+
+Papers/
+vector_db/
+
+
+interpretability/resources
+embedding-atlas/
+tensorboard/
+embedding_visualization/vector_db
+square-ui/
+sentence-transformers/
+projecting_sentences/
+references/
+
+## embedding interpretability experiments
+interpretability/results/
+
+# embedding_visualization (Next.js) specific
+embedding_visualization/node_modules/
+embedding_visualization/.next/
+embedding_visualization/out/
+embedding_visualization/build/
+embedding_visualization/.vercel/
+embedding_visualization/*.tsbuildinfo
+embedding_visualization/.env*
+!embedding_visualization/.env.example
+
+# Projection data (now stored in ChromaDB, no need for JSON files)
+embedding_visualization/public/data/*.json
+!embedding_visualization/public/data/collections.json
+
+# General patterns (apply everywhere)
+.DS_Store
+*.pem
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+interpretability/results/

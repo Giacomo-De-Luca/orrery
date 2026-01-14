@@ -1,0 +1,12 @@
+[package]
+name = "density_clustering"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "density_clustering"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+num-traits = "0.2.18"
+serde = { version = "1.0.197", features = ["derive"] }
