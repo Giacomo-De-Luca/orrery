@@ -10,16 +10,11 @@ import { ScatterPlot2D } from './ScatterPlot2D';
 import { ScatterPlot3D } from './ScatterPlot3D';
 import { Legend } from './Legend';
 import { SimilarItemsTable } from './SimilarItemsTable';
-
-
-import type {
-  VisualizationState,
-  Point2D,
-  Point3D,
-  SemanticSearchResult,
-  HighlightMap,
-} from '../../lib/types/types';
+import { EmbeddingSidebar } from './EmbeddingSidebar';
+import type { CategoryFieldOption, Point2D, Point3D, VisualizationState, SemanticSearchResult, HighlightMap } from '../../lib/types/types';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
+import { useSidebar } from '@/lib/ui-primitives/sidebar';
+import { cn } from '@/lib/utils/utils';
 
 interface DashboardPanelProps {
   state: VisualizationState;
@@ -27,10 +22,22 @@ interface DashboardPanelProps {
   points3d: Point3D[];
   highlightedIndices?: HighlightMap;
   onPointClick: (point: Point2D | Point3D) => void;
+  onStateChange: (newState: Partial<VisualizationState>) => void;
   selectedPoint?: Point2D | Point3D | null;
   // Search results panel props
   semanticSearchResults: SemanticSearchResult[] | null;
   searchQueryLabel: string | null;
+  // Sidebar props
+  embeddingDim: number;
+  metadata: {
+    pca_2d_variance?: number[];
+    pca_3d_variance?: number[];
+  };
+  searchQuery?: string;
+  highlightedCount?: number;
+  categoryFieldOptions?: CategoryFieldOption[];
+  textSearchResults?: (Point2D | Point3D)[];
+  onTextResultClick?: (point: Point2D | Point3D) => void;
 }
 
 export function DashboardPanel({
@@ -39,10 +46,20 @@ export function DashboardPanel({
   points3d,
   highlightedIndices,
   onPointClick,
+  onStateChange,
   selectedPoint,
   semanticSearchResults,
   searchQueryLabel,
+  embeddingDim,
+  metadata,
+  searchQuery,
+  highlightedCount,
+  categoryFieldOptions,
+  textSearchResults,
+  onTextResultClick,
 }: DashboardPanelProps) {
+  const { state: sidebarState } = useSidebar();
+  const isExpanded = sidebarState === 'expanded';
   const is2D = state.mode === '2d';
   const colorByField = state.colorByField;
 
@@ -97,74 +114,99 @@ export function DashboardPanel({
 
   return (
 
-      <div className="relative h-full w-full overflow-hidden">
-        
-        {/* 1. LAYER: Plot Background (Z-0) */}
-        <div className="absolute inset-0 z-0">
-          <div className="h-full w-full rounded-lg text-card-foreground shadow-sm">
-            {plot}
-          </div>
+    <div className="relative h-full w-full overflow-hidden">
+
+      {/* 1. LAYER: Plot Background (Z-0) */}
+      <div className="absolute inset-0 z-0">
+        <div className="h-full w-full rounded-lg text-card-foreground shadow-sm">
+          {plot}
         </div>
-  
-        {/* 2. LAYER: Legend Overlay (Z-10) */}
-        {showLegend && colorByField && (
-          <div className="absolute inset-0 z-10 pointer-events-none">
-            <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-              {/* Horizontal Spacer */}
-              <ResizablePanel defaultSize={80} minSize={50} className="bg-transparent" />
-              
-              <ResizableHandle className="bg-transparent hover:bg-border/30 w-2 pointer-events-auto" />
-              
-              <ResizablePanel defaultSize={20} minSize={15} maxSize={50} className="pointer-events-none">
-                <div className="flex flex-col h-full pt-12 pb-2 pr-2 pl-2 pointer-events-none">
-                  <div className="flex flex-col rounded-lg border bg-background/90 backdrop-blur shadow-sm max-h-full pointer-events-auto">
-                    <ScrollArea className="overflow-y-auto p-4">
-                      <Legend
-                        categoryField={colorByField}
-                        categoryValues={categoryValues}
-                      />
-                    </ScrollArea>
-                  </div>
-                </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </div>
-        )}
-  
-        {/* 3. LAYER: Table Overlay (Z-20) */}
-        {showResultsTable && (
-          <div className="absolute inset-0 z-20 pointer-events-none">
-            <ResizablePanelGroup direction="vertical" className="h-full w-full">
-              
-              {/* Vertical Spacer - Allows clicking through to the plot above */}
-              <ResizablePanel defaultSize={70} minSize={10} className="bg-transparent" />
-  
-              {/* Handle - Needs pointer-events-auto to be draggable */}
-              <ResizableHandle className="bg-transparent hover:bg-border/30 h-2 pointer-events-auto" />
-  
-              {/* Table Panel - Bottom Floating Panel */}
-              <ResizablePanel 
-                defaultSize={30} 
-                minSize={5} 
-                maxSize={120} 
-                className="pointer-events-auto" // Re-enable clicks for the table
-              >
-                <div className="h-full w-full px-2 pb-2">
-                   {/* Added background/blur so text is readable over the plot points */}
-                  <ScrollArea className="h-full overflow-y-auto rounded-md shadow-lg">
-                    <SimilarItemsTable
-                      results={semanticSearchResults}
-                      queryLabel={searchQueryLabel}
+      </div>
+
+      {/* 2. LAYER: Legend Overlay (Z-10) */}
+      {showLegend && colorByField && (
+        <div className="absolute inset-0 z-10 pointer-events-none">
+          <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+            {/* Horizontal Spacer */}
+            <ResizablePanel defaultSize={80} minSize={50} className="bg-transparent" />
+
+            <ResizableHandle className="bg-transparent hover:bg-border/30 w-2 pointer-events-auto" />
+
+            <ResizablePanel defaultSize={20} minSize={15} maxSize={50} className="pointer-events-none">
+              <div className="flex flex-col h-full pt-12 pb-2 pr-2 pl-2 pointer-events-none">
+                <div className="flex flex-col rounded-lg border bg-background/90 backdrop-blur shadow-sm max-h-full pointer-events-auto">
+                  <ScrollArea className="overflow-y-auto p-4">
+                    <Legend
                       categoryField={colorByField}
+                      categoryValues={categoryValues}
                     />
-                     <ScrollBar orientation="vertical" />
                   </ScrollArea>
                 </div>
-              </ResizablePanel>
-  
-            </ResizablePanelGroup>
-          </div>
-        )}
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
+      )}
+
+      {/* 3. LAYER: Table Overlay (Z-20) */}
+      {showResultsTable && (
+        <div className={cn(
+          "absolute inset-0 z-20 pointer-events-none transition-all duration-300 ease-in-out",
+          isExpanded ? "pl-84" : "pl-0"
+        )}>
+          <ResizablePanelGroup direction="vertical" className="h-full w-full">
+
+            {/* Vertical Spacer - Allows clicking through to the plot above */}
+            <ResizablePanel defaultSize={70} minSize={10} className="bg-transparent" />
+
+            {/* Handle - Needs pointer-events-auto to be draggable */}
+            <ResizableHandle className="bg-transparent hover:bg-border/30 h-2 pointer-events-auto" />
+
+            {/* Table Panel - Bottom Floating Panel */}
+            <ResizablePanel
+              defaultSize={30}
+              minSize={5}
+              maxSize={120}
+              className="pointer-events-auto" // Re-enable clicks for the table
+            >
+              <div className="h-full w-full px-2 pb-2">
+                {/* Added background/blur so text is readable over the plot points */}
+                <ScrollArea className="h-full overflow-y-auto rounded-md shadow-lg">
+                  <SimilarItemsTable
+                    results={semanticSearchResults}
+                    queryLabel={searchQueryLabel}
+                    categoryField={colorByField}
+                  />
+                  <ScrollBar orientation="vertical" />
+                </ScrollArea>
+              </div>
+            </ResizablePanel>
+
+          </ResizablePanelGroup>
+        </div>
+      )}
+
+      {/* 4. LAYER: Sidebar Overlay (Z-40) */}
+      <div className="absolute inset-y-0 left-0 z-40 pointer-events-none">
+        <EmbeddingSidebar
+          state={state}
+          onStateChange={onStateChange}
+          embeddingDim={embeddingDim}
+          metadata={metadata}
+          selectedPoint={selectedPoint || null}
+          searchQuery={searchQuery}
+          highlightedCount={highlightedCount}
+          categoryField={colorByField}
+          categoryFieldOptions={categoryFieldOptions}
+          textSearchResults={textSearchResults}
+          onTextResultClick={onTextResultClick}
+          variant="floating"
+          className={cn(
+            "pointer-events-auto absolute top-2 bottom-2 z-40 w-80 shadow-2xl transition-all duration-300 ease-in-out",
+            isExpanded ? "left-4" : "-left-[400px] opacity-0"
+          )}
+        />
       </div>
-    );
-  }
+    </div>
+  );
+}

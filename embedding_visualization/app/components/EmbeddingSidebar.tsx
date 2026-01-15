@@ -53,7 +53,7 @@ export function EmbeddingSidebar({
   return (
     <Sidebar
       collapsible="offcanvas"
-      className={`pt-8 lg:pt-8 ${className ?? ''}`}
+      className={className}
       {...rest}
     >
       <SidebarHeader className="border-b px-4 py-3">

@@ -14,8 +14,9 @@ import {
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { Badge } from '@/lib/ui-primitives/badge';
 import { Separator } from '@/lib/ui-primitives/separator';
-import { SidebarTrigger } from '@/lib/ui-primitives/sidebar';
+import { SidebarTrigger, useSidebar } from '@/lib/ui-primitives/sidebar';
 import { Button } from '@/lib/ui-primitives/button';
+import { cn } from '@/lib/utils/utils';
 import { Input } from '@/lib/ui-primitives/input';
 import type { CollectionsManifest } from '../../lib/types/types';
 
@@ -61,6 +62,8 @@ export function AppHeader({
   onSemanticSearch,
   searchLoading = false,
 }: AppHeaderProps) {
+  const { state } = useSidebar();
+  const isExpanded = state === 'expanded';
   const [searchQuery, setSearchQuery] = useState('');
 
   const handleSearch = () => {
@@ -76,7 +79,12 @@ export function AppHeader({
   };
 
   return (
-    <header className="flex bg-transparent h-16 shrink-0 items-center gap-2transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-16">
+    <header
+      className={cn(
+        "flex bg-transparent h-16 shrink-0 items-center transition-all duration-300 ease-in-out",
+        isExpanded ? "pl-84" : "pl-0"
+      )}
+    >
       <div className="flex w-full items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
