@@ -120,25 +120,6 @@ export default function Home() {
 
   return (
     <SidebarProvider>
-      {data && (
-        <EmbeddingSidebar
-          variant="inset"
-          state={visualizationState}
-          onStateChange={updateState}
-          embeddingDim={data.metadata.embedding_dim}
-          metadata={{
-            pca_2d_variance: data.metadata.pca_2d_variance,
-            pca_3d_variance: data.metadata.pca_3d_variance,
-          }}
-          selectedPoint={selectedPoint}
-          searchQuery={visualizationState.searchQuery}
-          highlightedCount={combinedHighlightedIndices?.size}
-          categoryField={visualizationState.colorByField}
-          categoryFieldOptions={categoryFieldOptions}
-          textSearchResults={textSearchResults}
-          onTextResultClick={handlePointClick}
-        />
-      )}
       <SidebarInset className=" relative ">
         <div className="absolute top-0 left-0 right-0 z-50 p-2 pointer-events-none">
           <div className="pointer-events-auto  rounded-lg ">
@@ -156,49 +137,60 @@ export default function Home() {
           </div>
         </div>
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-            {loading ? (
-              <div className="flex flex-1 items-center justify-center rounded-xl border bg-card p-12">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                  <p className="text-muted-foreground">Loading embedding data...</p>
-                </div>
+          {loading ? (
+            <div className="flex flex-1 items-center justify-center rounded-xl border bg-card p-12">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading embedding data...</p>
               </div>
-            ) : error ? (
-              <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
-                <h3 className="text-destructive font-semibold mb-2">Error Loading Data</h3>
-                <p className="text-destructive/90 mb-4">{error.message}</p>
-                <p className="text-sm text-muted-foreground">
-                  Make sure you have run the projection computation script:
-                  <code className="block mt-2 bg-background p-2 rounded border">
-                    uv run python interpretability/compute_projections.py
-                  </code>
-                </p>
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-destructive/50 bg-destructive/10 p-6">
+              <h3 className="text-destructive font-semibold mb-2">Error Loading Data</h3>
+              <p className="text-destructive/90 mb-4">{error.message}</p>
+              <p className="text-sm text-muted-foreground">
+                Make sure you have run the projection computation script:
+                <code className="block mt-2 bg-background p-2 rounded border">
+                  uv run python interpretability/compute_projections.py
+                </code>
+              </p>
+            </div>
+          ) : data ? (
+            <>
+              <div className="flex-1 min-h-0">
+                <DashboardPanel
+                  state={visualizationState}
+                  points2d={filteredPoints2d}
+                  points3d={filteredPoints3d}
+                  highlightedIndices={combinedHighlightedIndices}
+                  onPointClick={handlePointClick}
+                  selectedPoint={selectedPoint}
+                  semanticSearchResults={semanticSearchResults}
+                  searchQueryLabel={searchQueryLabel}
+                  onStateChange={updateState}
+                  embeddingDim={data.metadata.embedding_dim}
+                  metadata={{
+                    pca_2d_variance: data.metadata.pca_2d_variance,
+                    pca_3d_variance: data.metadata.pca_3d_variance,
+                  }}
+                  searchQuery={visualizationState.searchQuery}
+                  highlightedCount={combinedHighlightedIndices?.size}
+                  categoryFieldOptions={categoryFieldOptions}
+                  textSearchResults={textSearchResults}
+                  onTextResultClick={handlePointClick}
+                />
               </div>
-            ) : data ? (
-              <>
-                <div className="flex-1 min-h-0">
-                  <DashboardPanel
-                    state={visualizationState}
-                    points2d={filteredPoints2d}
-                    points3d={filteredPoints3d}
-                    highlightedIndices={combinedHighlightedIndices}
-                    onPointClick={handlePointClick}
-                    selectedPoint={selectedPoint}
-                    semanticSearchResults={semanticSearchResults}
-                    searchQueryLabel={searchQueryLabel}
-                  />
-                </div>
-                {/*<AppFooter
+              {/*<AppFooter
                     timestamp={data.metadata.timestamp}
                     selectedCollection={selectedCollection}
                 />*/}
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center rounded-xl border bg-muted p-12">
-                <p className="text-muted-foreground">Select a collection to view embeddings</p>
-              </div>
-            )}
-          </div>
+            </>
+          ) : (
+            <div className="flex flex-1 items-center justify-center rounded-xl border bg-muted p-12">
+              <p className="text-muted-foreground">Select a collection to view embeddings</p>
+            </div>
+          )}
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );
