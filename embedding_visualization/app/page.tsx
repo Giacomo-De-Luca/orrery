@@ -139,20 +139,23 @@ export default function Home() {
           onTextResultClick={handlePointClick}
         />
       )}
-      <SidebarInset className="pt-2">
-        <AppHeader
-          collections={collections}
-          collectionsLoading={collectionsLoading}
-          collectionsError={collectionsError}
-          selectedCollection={selectedCollection}
-          onCollectionChange={setSelectedCollection}
-          totalWords={data?.metadata.total_items}
-          embeddingDim={data?.metadata.embedding_dim}
-          onSemanticSearch={handleSemanticSearch}
-          searchLoading={searchLoading}
-        />
+      <SidebarInset className=" relative ">
+        <div className="absolute top-0 left-0 right-0 z-50 p-2 pointer-events-none">
+          <div className="pointer-events-auto shadow-sm rounded-lg backdrop-blur-md border">
+            <AppHeader
+              collections={collections}
+              collectionsLoading={collectionsLoading}
+              collectionsError={collectionsError}
+              selectedCollection={selectedCollection}
+              onCollectionChange={setSelectedCollection}
+              totalWords={data?.metadata.total_items}
+              embeddingDim={data?.metadata.embedding_dim}
+              onSemanticSearch={handleSemanticSearch}
+              searchLoading={searchLoading}
+            />
+          </div>
+        </div>
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-          <div className="flex flex-1 flex-col gap-6 p-6 pt-4 min-w-0 min-h-0">
             {loading ? (
               <div className="flex flex-1 items-center justify-center rounded-xl border bg-card p-12">
                 <div className="text-center">
@@ -185,10 +188,10 @@ export default function Home() {
                     searchQueryLabel={searchQueryLabel}
                   />
                 </div>
-                <AppFooter
+                {/*<AppFooter
                     timestamp={data.metadata.timestamp}
                     selectedCollection={selectedCollection}
-                />
+                />*/}
               </>
             ) : (
               <div className="flex flex-1 items-center justify-center rounded-xl border bg-muted p-12">
@@ -196,7 +199,6 @@ export default function Home() {
               </div>
             )}
           </div>
-        </div>
       </SidebarInset>
     </SidebarProvider>
   );

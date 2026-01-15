@@ -10,6 +10,7 @@ import { ScatterPlot2D } from './ScatterPlot2D';
 import { ScatterPlot3D } from './ScatterPlot3D';
 import { Legend } from './Legend';
 import { SimilarItemsTable } from './SimilarItemsTable';
+
 import type {
   VisualizationState,
   Point2D,
@@ -93,63 +94,74 @@ export function DashboardPanel({
   );
 
   return (
-    <div className="h-full w-full">
-      <ResizablePanelGroup
-        direction="vertical"
-        className="h-full w-full rounded-lg border"
-      >
-        {/* Top section: Plot + Legend Overlay */}
-        <ResizablePanel defaultSize={showResultsTable ? 70 : 100} minSize={30} className="relative">
-          {/* Plot Background */}
-          <div className="absolute inset-0 z-0">
-            <div className="h-full w-full rounded-lg text-card-foreground shadow-sm">
-              {plot}
-            </div>
-          </div>
 
-          {/* Legend Overlay */}
-          {showLegend && colorByField && (
-            <div className="absolute inset-0 z-10 pointer-events-none">
-              <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-                {/* Spacer - transparent */}
-                <ResizablePanel defaultSize={80} minSize={50} className="bg-transparent" />
-                
-                <ResizableHandle className="bg-transparent hover:bg-border/30 w-2 pointer-events-auto" />
-                
-                {/* Legend Panel */}
-                <ResizablePanel defaultSize={20} minSize={15} maxSize={50} className="pointer-events-none">
-                  <div className="flex flex-col h-full pt-12 pb-2 pr-2 pl-2 pointer-events-none">
-                    <div className="flex flex-col overflow-hidden rounded-lg border bg-background/90 backdrop-blur shadow-sm max-h-full pointer-events-auto">
-                      <div className="overflow-y-auto p-2">
-                        <Legend
-                          categoryField={colorByField}
-                          categoryValues={categoryValues}
-                        />
-                      </div>
+      <div className="relative h-full w-full overflow-hidden">
+        
+        {/* 1. LAYER: Plot Background (Z-0) */}
+        <div className="absolute inset-0 z-0">
+          <div className="h-full w-full rounded-lg text-card-foreground shadow-sm">
+            {plot}
+          </div>
+        </div>
+  
+        {/* 2. LAYER: Legend Overlay (Z-10) */}
+        {showLegend && colorByField && (
+          <div className="absolute inset-0 z-10 pointer-events-none">
+            <ResizablePanelGroup direction="horizontal" className="h-full w-full">
+              {/* Horizontal Spacer */}
+              <ResizablePanel defaultSize={80} minSize={50} className="bg-transparent" />
+              
+              <ResizableHandle className="bg-transparent hover:bg-border/30 w-2 pointer-events-auto" />
+              
+              <ResizablePanel defaultSize={20} minSize={15} maxSize={50} className="pointer-events-none">
+                <div className="flex flex-col h-full pt-12 pb-2 pr-2 pl-2 pointer-events-none">
+                  <div className="flex flex-col overflow-y-auto rounded-lg border bg-background/90 backdrop-blur shadow-sm max-h-full pointer-events-auto">
+                    <div className="overflow-y-auto p-4">
+                      <Legend
+                        categoryField={colorByField}
+                        categoryValues={categoryValues}
+                      />
                     </div>
                   </div>
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </div>
-          )}
-        </ResizablePanel>
-
-        {/* Bottom section: Results table (only show when there are results) */}
-        {showResultsTable && (
-          <>
-            <ResizableHandle className="bg-transparent hover:bg-border/30 h-2" />
-            <ResizablePanel defaultSize={30} minSize={15} maxSize={60}>
-              <div className="h-full overflow-y-auto p-2">
-                <SimilarItemsTable
-                  results={semanticSearchResults}
-                  queryLabel={searchQueryLabel}
-                  categoryField={colorByField}
-                />
-              </div>
-            </ResizablePanel>
-          </>
+                </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </div>
         )}
-      </ResizablePanelGroup>
-    </div>
-  );
-}
+  
+        {/* 3. LAYER: Table Overlay (Z-20) */}
+        {showResultsTable && (
+          <div className="absolute inset-0 z-20 pointer-events-none">
+            <ResizablePanelGroup direction="vertical" className="h-full w-full">
+              
+              {/* Vertical Spacer - Allows clicking through to the plot above */}
+              <ResizablePanel defaultSize={70} minSize={10} className="bg-transparent" />
+  
+              {/* Handle - Needs pointer-events-auto to be draggable */}
+              <ResizableHandle className="bg-transparent hover:bg-border/30 h-2 pointer-events-auto" />
+  
+              {/* Table Panel - Bottom Floating Panel */}
+              <ResizablePanel 
+                defaultSize={30} 
+                minSize={5} 
+                maxSize={120} 
+                className="pointer-events-auto" // Re-enable clicks for the table
+              >
+                <div className="h-full w-full px-2 pb-2">
+                   {/* Added background/blur so text is readable over the plot points */}
+                  <div className="h-full overflow-y-auto rounded-md shadow-lg">
+                    <SimilarItemsTable
+                      results={semanticSearchResults}
+                      queryLabel={searchQueryLabel}
+                      categoryField={colorByField}
+                    />
+                  </div>
+                </div>
+              </ResizablePanel>
+  
+            </ResizablePanelGroup>
+          </div>
+        )}
+      </div>
+    );
+  }
