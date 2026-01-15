@@ -328,192 +328,182 @@ export function ScatterPlot3D({
     return calculateHighlightScale(points.length);
   }, [points.length]);
 
+  // 1. PRE-CALCULATE DATA ARRAYS
+  // This ensures we don't map() over 150k points when you click.
+  // These arrays are created ONCE and reused until 'points' actually changes.
+  const { allX, allY, allZ, allText, allCustomData } = useMemo(() => {
+    return {
+      allX: points.map(p => p.x),
+      allY: points.map(p => p.y),
+      allZ: points.map(p => p.z),
+      allText: points.map(formatHoverText),
+      allCustomData: points, // Pass the reference directly
+    };
+  }, [points]);
 
-    // Base traces:
-    const baseTraces = useMemo((): PlotlyData[] => {
-      const traces: PlotlyData[] = [];
-      const hasHighlights = highlightedIndices && highlightedIndices.size > 0;
-  
-      // --- 1. NON-HIGHLIGHTED (Background) ---
-      if (hasHighlights && !showOnlyHighlighted) {
-        const unhighlightedPoints = points.filter(p => !highlightedIndices.has(p.index));
-        
-        if (unhighlightedPoints.length > 0) {
-          const colors = unhighlightedPoints.map(p => {
-              return colorBy === 'category' && p.category 
-                  ? colorMap[p.category] || '#7f7f7f' 
-                  : '#e5a819ff';
-          });
-  
-          traces.push({
-            x: unhighlightedPoints.map(p => p.x),
-            y: unhighlightedPoints.map(p => p.y),
-            z: unhighlightedPoints.map(p => p.z),
-            mode: 'markers',
-            type: 'scatter3d',
-            name: 'Background',
-            marker: {
-              // FIX: Explicitly set sizemode to ensure 1:1 pixel matching
-              sizemode: 'diameter', 
-              size: Math.max(markerStyle.size * 0.6, 2),
-              color: colors,
-              opacity: 0.1, 
-            },
-            // FIX: Re-enable text so click events register
-            text: unhighlightedPoints.map(formatHoverText),
-            // FIX: Minimal hover info to allow clicking, but keep it cheap
-            hovertemplate: '<b>%{text}</b><extra></extra>', 
-            // FIX: Pass the array of point objects so handleClick can find the index
-            customdata: unhighlightedPoints as any, 
-            showlegend: false,
-          });
-        }
-      }
-  
-      // --- 2. HIGHLIGHTED ) ---
+  // 2. OPTIMIZED BASE TRACES
+  const baseTraces = useMemo((): PlotlyData[] => {
+    const traces: PlotlyData[] = [];
+    const hasHighlights = highlightedIndices && highlightedIndices.size > 0;
+    
+    // --- PART A: THE "BACKGROUND" (ALL POINTS) ---
+    // We render ALL points here. If highlighted, we just dim this entire layer.
+    // The highlighted points will be drawn AGAIN on top, covering their dim versions.
+    
+    // --- PART A: THE "BACKGROUND" (ALL POINTS) ---
+    if (!showOnlyHighlighted) {
+      let bgColors: any;
+      let bgOpacity: number;
+
       if (hasHighlights) {
-        const highlightedPoints = points.filter(p => highlightedIndices.has(p.index));
-        
-        if (highlightedPoints.length > 0) {
-          const x = highlightedPoints.map(p => p.x);
-          const y = highlightedPoints.map(p => p.y);
-          const z = highlightedPoints.map(p => p.z);
-          
-          const outerSizes: number[] = [];
-          const outerColors: string[] = [];
-          const outerOpacities: number[] = [];
-          
-          const innerSizes: number[] = [];
-          const innerColors: string[] = [];
-          const innerOpacities: number[] = [];
-          
-          const coreSizes: number[] = [];
-          const coreColors: string[] = [];
-          const customData: any[] = [];
-          const hoverTexts: string[] = [];
-  
-          highlightedPoints.forEach(point => {
-            const similarity = highlightedIndices!.get(point.index) ?? 1.0;
-            const luminosity = calculateLuminosity(similarity);
-            const colors = calculateSimilarityColors(similarity);
-  
-            // Layer 1: Outer Glow
-            outerSizes.push(Math.max(markerStyle.size * highlightScale.outerMultiplier, 30));
-            outerColors.push(colors.outerGlow);
-            outerOpacities.push(luminosity.outer);
-  
-            // Layer 2: Inner Glow
-            innerSizes.push(Math.max(markerStyle.size * highlightScale.innerMultiplier, 18));
-            innerColors.push(colors.glowColor);
-            innerOpacities.push(luminosity.inner);
-  
-            // Layer 3: Core
-            coreSizes.push(Math.max(markerStyle.size * highlightScale.coreMultiplier, 9));
-            coreColors.push(colors.coreColor);
-            
-            customData.push(point);
-            hoverTexts.push(formatHoverText(point));
-          });
-  
-          // 1. Batched Outer Glow
-          traces.push({
-            x, y, z,
-            mode: 'markers',
-            type: 'scatter3d',
-            marker: {
-              sizemode: 'diameter', // FIX: Explicit size mode
-              size: outerSizes,
-              color: outerColors,
-              opacity: 0.15, 
-              line: { width: 0 },
-            },
-            hoverinfo: 'skip', // We still skip hover on the GLOW only
-            showlegend: false,
-          });
-  
-          // 2. Batched Inner Glow
-          traces.push({
-            x, y, z,
-            mode: 'markers',
-            type: 'scatter3d',
-            marker: {
-              sizemode: 'diameter', // FIX: Explicit size mode
-              size: innerSizes,
-              color: innerColors,
-              opacity: 0.3, 
-              line: { width: 0 },
-            },
-            hoverinfo: 'skip',
-            showlegend: false,
-          });
-  
-          // 3. Batched Core (Clickable)
-          traces.push({
-            x, y, z,
-            mode: 'markers',
-            type: 'scatter3d',
-            marker: {
-              sizemode: 'diameter', // FIX: Explicit size mode
-              size: coreSizes,
-              color: coreColors,
-              opacity: 1,
-              line: { color: innerColors[0], width: 1 }, 
-            },
-            text: hoverTexts,
-            hovertemplate: '<b>%{text}</b><extra></extra>',
-            customdata: customData, // Ensure customdata is passed here
-            showlegend: false,
-          });
+        // MODE: DIMMED CONTEXT (GOLD)
+        // We use your original gold color here
+        bgColors = '#e5a819ff'; // grey : #334155
+        // We multiply your calculated opacity by 0.2 to get that "dimmed" look
+        bgOpacity = markerStyle.opacity * 0.2; 
+      } else {
+        // MODE: FULL VIEW (Standard Colors)
+        bgOpacity = markerStyle.opacity;
+        if (colorBy === 'category' && categoryValues.length > 0) {
+           bgColors = points.map(p => colorMap[p.category || ''] || '#7f7f7f');
+        } else {
+           bgColors = '#1f77b4';
         }
-        
-        return traces;
       }
-  
-      // --- 3. DEFAULT VIEW (No Selection) ---
-      if (colorBy === 'category' && categoryValues.length > 0) {
-        const pointsByCategory: Record<string, Point3D[]> = {};
-        points.forEach(point => {
-          const cat = point.category || 'unknown';
-          if (!pointsByCategory[cat]) pointsByCategory[cat] = [];
-          pointsByCategory[cat].push(point);
-        });
-  
-        return Object.entries(pointsByCategory).map(([cat, catPoints]) => ({
-          x: catPoints.map(p => p.x),
-          y: catPoints.map(p => p.y),
-          z: catPoints.map(p => p.z),
-          mode: 'markers',
-          type: 'scatter3d',
-          name: getCategoryLabel(categoryField, cat),
-          marker: {
-            sizemode: 'diameter', // FIX: Explicit size mode
-            size: Math.max(markerStyle.size * 0.7, 2),
-            color: colorMap[cat] || '#7f7f7f',
-            opacity: markerStyle.opacity,
-          },
-          text: catPoints.map(formatHoverText),
-          hovertemplate: '<b>%{text}</b><extra></extra>',
-          customdata: catPoints as any,
-        }));
-      }
-  
-      return [{
-        x: points.map(p => p.x),
-        y: points.map(p => p.y),
-        z: points.map(p => p.z),
+
+      traces.push({
+        x: allX,
+        y: allY,
+        z: allZ,
         mode: 'markers',
         type: 'scatter3d',
+        name: hasHighlights ? 'Context' : 'Data',
         marker: {
-          sizemode: 'diameter', // FIX: Explicit size mode
-          size: Math.max(markerStyle.size * 0.7, 2),
-          color: '#1f77b4',
-          opacity: markerStyle.opacity,
+          sizemode: 'diameter',
+          // Use 0.6 scale when highlighted (dimmed), 0.7 normally
+          size: Math.max(markerStyle.size * (hasHighlights ? 0.6 : 0.7), 2),
+          color: bgColors,
+          opacity: bgOpacity,
         },
-        text: points.map(formatHoverText),
+        text: allText,
         hovertemplate: '<b>%{text}</b><extra></extra>',
-        customdata: points as any,
-      }];
-    }, [points, colorBy, categoryField, categoryValues, colorMap, highlightedIndices, markerStyle, highlightScale, showOnlyHighlighted]);
+        customdata: allCustomData as any,
+        showlegend: false,
+      });
+    }
+
+    // --- PART B: THE "BLOOM" (HIGHLIGHTED POINTS ONLY) ---
+    // These are rendered ON TOP of the background trace.
+    if (hasHighlights) {
+      const highlightedPoints = points.filter(p => highlightedIndices.has(p.index));
+      
+      if (highlightedPoints.length > 0) {
+        // We map ONLY the ~50 highlighted points (Instant)
+        const hX = highlightedPoints.map(p => p.x);
+        const hY = highlightedPoints.map(p => p.y);
+        const hZ = highlightedPoints.map(p => p.z);
+        
+        const outerSizes: number[] = [];
+        const outerColors: string[] = [];
+        const outerOpacities: number[] = [];
+        
+        const innerSizes: number[] = [];
+        const innerColors: string[] = [];
+        const innerOpacities: number[] = [];
+        
+        const coreSizes: number[] = [];
+        const coreColors: string[] = [];
+        const coreTexts: string[] = [];
+        const coreCustomData: any[] = [];
+
+        highlightedPoints.forEach(point => {
+          const similarity = highlightedIndices!.get(point.index) ?? 1.0;
+          const luminosity = calculateLuminosity(similarity);
+          const colors = calculateSimilarityColors(similarity);
+
+          // Prepare styles
+          outerSizes.push(Math.max(markerStyle.size * highlightScale.outerMultiplier, 30));
+          outerColors.push(colors.outerGlow);
+          outerOpacities.push(luminosity.outer);
+
+          innerSizes.push(Math.max(markerStyle.size * highlightScale.innerMultiplier, 18));
+          innerColors.push(colors.glowColor);
+          innerOpacities.push(luminosity.inner);
+
+          coreSizes.push(Math.max(markerStyle.size * highlightScale.coreMultiplier, 9));
+          coreColors.push(colors.coreColor);
+          
+          coreTexts.push(formatHoverText(point));
+          coreCustomData.push(point);
+        });
+
+        // 1. Outer Glow (Transparent Halo)
+        traces.push({
+          x: hX, y: hY, z: hZ,
+          mode: 'markers',
+          type: 'scatter3d',
+          marker: {
+            sizemode: 'diameter',
+            size: outerSizes,
+            color: outerColors,
+            opacity: 0.15, 
+            line: { width: 0 },
+          },
+          hoverinfo: 'skip',
+          showlegend: false,
+        });
+
+        // 2. Inner Glow
+        traces.push({
+          x: hX, y: hY, z: hZ,
+          mode: 'markers',
+          type: 'scatter3d',
+          marker: {
+            sizemode: 'diameter',
+            size: innerSizes,
+            color: innerColors,
+            opacity: 0.3, 
+            line: { width: 0 },
+          },
+          hoverinfo: 'skip',
+          showlegend: false,
+        });
+
+        // 3. Core (Solid & Clickable - covers the dim background dot)
+        traces.push({
+          x: hX, y: hY, z: hZ,
+          mode: 'markers',
+          type: 'scatter3d',
+          marker: {
+            sizemode: 'diameter',
+            size: coreSizes,
+            color: coreColors,
+            opacity: 1,
+            line: { color: innerColors[0], width: 1 }, 
+          },
+          text: coreTexts,
+          hovertemplate: '<b>%{text}</b><extra></extra>',
+          customdata: coreCustomData as any,
+          showlegend: false,
+        });
+      }
+    }
+
+    return traces;
+  }, [
+    // Dependencies
+    allX, allY, allZ, allText, allCustomData, // Fast stable refs
+    points, // Needed for color mapping logic if state changes
+    highlightedIndices, 
+    markerStyle, 
+    highlightScale, 
+    showOnlyHighlighted, 
+    colorBy, 
+    isDark, 
+    categoryValues, 
+    colorMap
+  ]);
+
 
   // Selected point traces: constellation lines + golden glow (ONLY depends on selectedPoint)
   // This is fast to recalculate since it only has a few traces

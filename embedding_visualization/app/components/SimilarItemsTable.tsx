@@ -219,10 +219,10 @@ export function SimilarItemsTable({ results, queryLabel, categoryField }: Simila
 
   return (
     <Card className="min-w-0 backdrop-blur-md">
-      <CardHeader className=''>
+      <CardHeader className="flex flex-row items-center gap-4">
         <CardTitle>Similar Items</CardTitle>
         {queryLabel && (
-          <CardDescription>
+          <CardDescription className="ml-2">
             Items semantically similar to <span className="font-semibold text-foreground">{queryLabel}</span>
           </CardDescription>
         )}
