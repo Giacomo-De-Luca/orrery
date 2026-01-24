@@ -1,48 +1,16 @@
-# Embedding Analysis Platform
+# Embedding Visualization and Dashboard
 
-A comprehensive platform for generating, analyzing, and visualizing text embeddings with an interactive web interface. The system supports multiple data sources (HuggingFace datasets, local files, images), multiple embedding providers (SentenceTransformers, OpenAI, Cohere, Ollama), and provides a sophisticated web UI for 2D/3D visualization, semantic search, and clustering analysis.
+The project is a platform for generating, analysing and displaying word embeddings. Currently it allows to generate embeddings from either local datasets or hugging face. It uses either sentence-transformers or APIs to generate embeddings, and stores them in a ChromaDB. 
+
+Everything can be done in the frontend, from retriving embeddings, to visualizing them, to analysing them.
+
+Polish is not there, a lot of the functionalities are iffy at best, but the architecture is working, and the visualisation is quite good looking, - so, enjoy! 
+
+(I'm trying to make it work for sparse embeddings as well and qwen embeddings, there were some interpretability experiments in the backend folder, but the code was... raw.)
+
+*Note:* the first time it launches, there are no data to display, probably I should add a test little dataset. Anyways, click on the "Embed" button on the top right, it opens the collection manager page. There one can embed datasets or use the default "emotion one" (which is quite terrible as an example, since it doesn't have labels). Select the columns to embed, and click embed. Remotely the only provider tested that it's working is sentence-transformers. I will add more later. 
 
 ![Interface Screenshot](interface.png)
-
-## Key Features
-
-### 🚀 Complete End-to-End Pipeline
-- **Embed datasets** from HuggingFace or local files (parquet, JSON, CSV)
-- **Multi-provider support**: SentenceTransformers (local), OpenAI, Cohere, Ollama, HuggingFace API
-- **Image embedding** support with ViT models
-- **Pre-computed vectors** support for any embedding dimension
-- **Persistent storage** in ChromaDB vector database
-
-### 🎨 Advanced Visualization
-- **2D/3D scatter plots** with WebGL rendering for high performance (150k+ points tested)
-- **Multiple projection methods**: PCA, UMAP, or manual dimension selection
-- **Density clustering** with WASM-based algorithms (~500ms for 150k points)
-- **Dynamic coloring**: Categorical, sequential, and diverging color scales
-- **Intelligent auto-detection** of display fields (label, category) from metadata
-- **Responsive design** with resizable panels and dark mode support
-
-### 🔍 Semantic Search & Analysis
-- **Dual search modes**: Text filtering + semantic search by query or by ID
-- **Multiple distance metrics**: Cosine, L2 (Euclidean), Inner Product
-- **Auto-select workflow**: Type to filter → auto-select first match → see similar items
-- **Sortable results table** with dynamic metadata columns
-- **Constellation visualization**: Lines connecting similar points with opacity based on similarity
-- **Optimized performance**: Lazy loading of embedding models (only when needed for semantic search)
-
-### ⚡ Performance Optimizations
-- **Instant collection loading** (~40-100ms) with lazy embedding function loading
-- **Dimension caching** prevents unnecessary model test runs
-- **Model persistence** in memory for fast semantic search after first query
-- **Optimized projection data** queries skip embedding function initialization
-- **75-125x faster** collection switching compared to eager loading
-
-### 🎯 Interactive UI
-- **Frosted glass tooltips** with custom styling for hover interactions
-- **Multi-layer glow effects** for highlighted points based on similarity scores
-- **Smooth 3D camera animation** with spherical interpolation
-- **Aspect ratio preservation** for 2D plots (1:1 square)
-- **Show only highlighted** toggle for focused exploration
-- **Text labels** on highlighted points for clarity
 
 
 ## Quick Start
