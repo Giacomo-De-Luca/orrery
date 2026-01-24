@@ -449,13 +449,7 @@ export function ScatterPlot2D({
           cmin: numericData.min,
           cmax: numericData.max,
           opacity: markerStyle.opacity,
-          showscale: true,
-          colorbar: {
-            title: { text: categoryField || '', font: { color: isDark ? '#e2e8f0' : '#1e293b' } },
-            thickness: 10,
-            len: 0.6,
-            tickfont: { color: isDark ? '#e2e8f0' : '#1e293b' }
-          }
+          showscale: false, // Disabled - using custom Legend component instead
         },
         text: points.map(formatHoverText),
         hovertemplate: '<b>%{text}</b><extra></extra>',

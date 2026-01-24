@@ -67,3 +67,5 @@ yarn-error.log*
 .pnpm-debug.log*
 
 interpretability/results/
+
+wordnet_senses.tsv
