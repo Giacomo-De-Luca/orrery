@@ -349,17 +349,7 @@ export function ScatterPlot3D({
             cmin: numericData.min,
             cmax: numericData.max,
             opacity: dimOpacity,
-            showscale: true, // Native colorbar
-            colorbar: {
-              title: {
-                text: categoryField ?? undefined,
-                font: { color: isDark ? '#e2e8f0' : '#1e293b' }
-              },
-              thickness: 10,
-              len: 0.6,
-              x: 1.02,
-              tickfont: { color: isDark ? '#e2e8f0' : '#1e293b' }
-            }
+            showscale: false, // Disabled - using custom Legend component instead
           },
           text: allText,
           hoverinfo: 'none',
@@ -579,6 +569,9 @@ export function ScatterPlot3D({
   const handleClick = useCallback((event: PlotMouseEvent) => {
     if (!onPointClick || !event.points || event.points.length === 0) return;
     const now = Date.now();
+    console.log('Plot click event at', now);
+    // log camera for debugging
+    console.log('Current camera:', currentCameraRef.current.eye);
 
     // Check drag
     if (now - mouseDownTimeRef.current > 500) return;

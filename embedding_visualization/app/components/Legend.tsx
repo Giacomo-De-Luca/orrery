@@ -16,6 +16,8 @@ interface LegendProps {
   categoryCounts?: Record<string, number>;
   mutedCategories?: string[];
   onCategoryToggle?: (category: string) => void;
+  colorScaleType?: 'categorical' | 'sequential' | 'diverging' | 'monochrome';
+  numericRange?: { min: number; max: number };
 }
 
 /**
@@ -28,6 +30,7 @@ function formatCount(count: number): string {
 /**
  * Dynamic legend component that displays category colors with point counts.
  * Click on a category to toggle its visibility (mute/unmute).
+ * For continuous scales, displays a horizontal gradient bar with min/center/max labels.
  */
 export function Legend({
   className,
@@ -36,7 +39,48 @@ export function Legend({
   categoryCounts,
   mutedCategories = [],
   onCategoryToggle,
+  colorScaleType = 'categorical',
+  numericRange,
 }: LegendProps) {
+  // Check if this is a continuous scale (sequential or diverging)
+  const isContinuous = colorScaleType === 'sequential' || colorScaleType === 'diverging';
+
+  // Gradient definitions for continuous scales (matching scatter plot colors)
+  const viridisGradient = 'linear-gradient(to right, #440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725)';
+  const rdBuGradient = 'linear-gradient(to right, #67001f, #b2182b, #d6604d, #f4a582, #fddbc7, #f7f7f7, #d1e5f0, #92c5de, #4393c3, #2166ac, #053061)';
+
+  // For continuous scales, render a gradient bar
+  if (isContinuous && numericRange) {
+    const { min, max } = numericRange;
+    const center = (min + max) / 2;
+    const gradient = colorScaleType === 'sequential' ? viridisGradient : rdBuGradient;
+
+    return (
+      <Card
+        className={`w-fit min-w-48 ${className ?? ''}`}
+        variant="outline"
+      >
+        <CardHeader className="">
+          <CardTitle className="font-mono">{getCategoryDisplayName(categoryField ?? 'value')}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {/* Gradient bar */}
+          <div
+            className="h-4 w-full rounded"
+            style={{ background: gradient }}
+            aria-label={`Color scale from ${min} to ${max}`}
+          />
+          {/* Labels: min, center, max */}
+          <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
+            <span>{formatCount(min)}</span>
+            <span>{formatCount(center)}</span>
+            <span>{formatCount(max)}</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // Default to POS legend if no category info provided
   const isPosLegend = !categoryField || categoryField === 'pos';
   const values = categoryValues || (isPosLegend ? ['n', 'v', 'a', 'r', 's', 'unknown'] : []);
@@ -51,8 +95,8 @@ export function Legend({
       <CardHeader className="">
         <CardTitle className="font-mono">{getCategoryDisplayName(categoryField ?? 'pos')}</CardTitle>
       </CardHeader>
-        
-        
+
+
       <ScrollArea className="overflow-y-auto pointer-events-auto">
       <CardContent className="space-y-1 max-h-64">
         {values.map((value) => {

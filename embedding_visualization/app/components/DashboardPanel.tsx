@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -74,6 +74,33 @@ export function DashboardPanel({
   const points = is2D ? points2d : points3d;
   const { categoryValues, categoryCounts } = useCategoryData(points, colorByField);
 
+  // Check if we're using a continuous scale
+  const isContinuousScale = state.colorScaleType === 'sequential' || state.colorScaleType === 'diverging';
+
+  // Compute numeric range for continuous scales
+  const numericRange = useMemo(() => {
+    if (!isContinuousScale || !colorByField || points.length === 0) return undefined;
+
+    let min: number | undefined;
+    let max: number | undefined;
+
+    for (const point of points) {
+      const value = point.metadata?.[colorByField];
+      if (value === null || value === undefined || value === '') continue;
+
+      const numValue = typeof value === 'number' ? value : parseFloat(String(value));
+      if (isNaN(numValue)) continue;
+
+      if (min === undefined || numValue < min) min = numValue;
+      if (max === undefined || numValue > max) max = numValue;
+    }
+
+    if (min !== undefined && max !== undefined) {
+      return { min, max };
+    }
+    return undefined;
+  }, [isContinuousScale, colorByField, points]);
+
   // Toggle handler for muting/unmuting categories
   const handleCategoryToggle = useCallback((category: string) => {
     const muted = state.mutedCategories ?? [];
@@ -83,7 +110,11 @@ export function DashboardPanel({
     onStateChange({ mutedCategories: newMuted });
   }, [state.mutedCategories, onStateChange]);
 
-  const showLegend = colorByField && categoryValues.length > 0;
+  // Show legend for categorical scales with values, or continuous scales with numeric range
+  const showLegend = colorByField && (
+    (categoryValues.length > 0 && !isContinuousScale) ||
+    (isContinuousScale && numericRange !== undefined)
+  );
   const showResultsTable = semanticSearchResults && semanticSearchResults.length > 0;
 
   // Convert colorByField to the 'category' | 'none' format expected by scatter plots
@@ -151,6 +182,8 @@ export function DashboardPanel({
               categoryCounts={categoryCounts}
               mutedCategories={state.mutedCategories}
               onCategoryToggle={handleCategoryToggle}
+              colorScaleType={state.colorScaleType}
+              numericRange={numericRange}
             />
           </ScrollArea>
           {/* Horizontal Spacer 
