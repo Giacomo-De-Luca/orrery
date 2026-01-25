@@ -75,7 +75,7 @@ export function DashboardPanel({
   const { categoryValues, categoryCounts } = useCategoryData(points, colorByField);
 
   // Check if we're using a continuous scale
-  const isContinuousScale = state.colorScaleType === 'sequential' || state.colorScaleType === 'diverging';
+  const isContinuousScale = state.colorScaleType === 'sequential' || state.colorScaleType === 'diverging' || state.colorScaleType === 'monochrome';
 
   // Compute numeric range for continuous scales
   const numericRange = useMemo(() => {

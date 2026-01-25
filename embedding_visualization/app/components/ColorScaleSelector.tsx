@@ -8,8 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogFooter,
-  DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/lib/ui-primitives/button';
 import { Label } from '@/lib/ui-primitives/label';
@@ -71,23 +69,24 @@ export function ColorScaleSelector({
   onMonochromeColorChange,
 }: ColorScaleSelectorProps) {
   const [open, setOpen] = useState(false);
-  const [localType, setLocalType] = useState<ColorScaleType>(colorScaleType);
   const [localMonochromeColor, setLocalMonochromeColor] = useState(monochromeColor);
 
   const handleOpen = (isOpen: boolean) => {
-    if (isOpen) {
-      setLocalType(colorScaleType);
+    if (!isOpen) {
       setLocalMonochromeColor(monochromeColor);
     }
     setOpen(isOpen);
   };
 
-  const handleApply = () => {
-    onColorScaleTypeChange(localType);
-    if (localType === 'monochrome' && onMonochromeColorChange) {
-      onMonochromeColorChange(localMonochromeColor);
+  const handleTypeChange = (value: ColorScaleType) => {
+    onColorScaleTypeChange(value);
+  };
+
+  const handleColorChange = (color: string) => {
+    setLocalMonochromeColor(color);
+    if (onMonochromeColorChange) {
+      onMonochromeColorChange(color);
     }
-    setOpen(false);
   };
 
   return (
@@ -109,8 +108,8 @@ export function ColorScaleSelector({
 
         <div className="space-y-6 py-4">
           <RadioGroup
-            value={localType}
-            onValueChange={(value) => setLocalType(value as ColorScaleType)}
+            value={colorScaleType}
+            onValueChange={(value) => handleTypeChange(value as ColorScaleType)}
             className="space-y-4"
           >
             <div className="space-y-2">
@@ -169,16 +168,16 @@ export function ColorScaleSelector({
                 Opacity gradient using a single base color
               </p>
               <div className="ml-6">
-                <ColorScalePreview type="monochrome" baseColor={localMonochromeColor} />
+                <ColorScalePreview type="monochrome" baseColor={monochromeColor} />
               </div>
-              {localType === 'monochrome' && (
+              {colorScaleType === 'monochrome' && (
                 <div className="ml-6 mt-2 flex items-center gap-2">
                   <Label htmlFor="mono-color" className="text-sm">Base Color:</Label>
                   <input
                     id="mono-color"
                     type="color"
                     value={localMonochromeColor}
-                    onChange={(e) => setLocalMonochromeColor(e.target.value)}
+                    onChange={(e) => handleColorChange(e.target.value)}
                     className="h-8 w-12 cursor-pointer rounded border"
                   />
                 </div>
@@ -186,15 +185,6 @@ export function ColorScaleSelector({
             </div>
           </RadioGroup>
         </div>
-
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button onClick={handleApply}>
-            Apply
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

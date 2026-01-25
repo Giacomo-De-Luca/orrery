@@ -60,6 +60,27 @@ function sphericalToCartesian(r: number, theta: number, phi: number) {
   };
 }
 
+const getZoomLevel = (
+  eye: { x: number; y: number; z: number },
+  center: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
+): number => {
+  const dx = eye.x - center.x;
+  const dy = eye.y - center.y;
+  const dz = eye.z - center.z;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+};
+
+const getZoomMultiplier = (
+  eye: { x: number; y: number; z: number },
+  center: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 },
+  defaultDistance: number = Math.sqrt(0.9**2 * 3) // ~1.56 for your defaults
+): number => {
+  const distance = getZoomLevel(eye, center);
+  return defaultDistance / distance;
+};
+
+
+
 function formatHoverText(point: Point3D): string {
   const label = point.label || point.id;
   const doc = point.document || '';
@@ -326,7 +347,7 @@ export function ScatterPlot3D({
     const hasHighlights = highlightedIndices && highlightedIndices.size > 0;
 
     if (!showOnlyHighlighted) {
-      const dimOpacity = hasHighlights ? markerStyle.opacity * 0.6 : markerStyle.opacity;
+      const dimOpacity = hasHighlights ? markerStyle.opacity * 0.9 : markerStyle.opacity;
       const dimSize = hasHighlights ? Math.max(markerStyle.size * 0.6, 2) : Math.max(markerStyle.size * 0.7, 2);
 
       if (numericData && plotlyColorScale) {
@@ -572,6 +593,7 @@ export function ScatterPlot3D({
     console.log('Plot click event at', now);
     // log camera for debugging
     console.log('Current camera:', currentCameraRef.current.eye);
+    console.log('Zoom level:', getZoomMultiplier(currentCameraRef.current.eye, currentCameraRef.current.center));
 
     // Check drag
     if (now - mouseDownTimeRef.current > 500) return;
