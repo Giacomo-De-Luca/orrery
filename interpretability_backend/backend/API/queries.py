@@ -7,6 +7,7 @@ from .types import (
     Collection,
     CollectionMetadata,
     EmbeddingItem,
+    EmbeddingJob,
     FilterInput,
     HFConfigInfo,
     HFDatasetInfo,
@@ -31,6 +32,7 @@ from ..clients.local_data_client import (
     get_local_file_preview as get_local_preview,
 )
 from .chromadb_instance import get_chromadb_client
+from ..services.job_state import get_job_state_service, JobStatus
 
 
 @strawberry.type
@@ -54,6 +56,52 @@ class Query:
                 count=col["count"]
             )
             for col in collections
+        ]
+
+    @strawberry.field
+    def embedding_jobs(self, status: Optional[str] = None, info=None) -> List[EmbeddingJob]:
+        """List embedding jobs with their progress and configuration.
+
+        Args:
+            status: Optional filter - "running", "interrupted", or "completed"
+
+        Returns:
+            List of embedding jobs with progress information
+        """
+        job_service = get_job_state_service()
+
+        # Convert string status to JobStatus enum if provided
+        status_filter = None
+        if status:
+            try:
+                status_filter = JobStatus(status)
+            except ValueError:
+                pass  # Invalid status, return all jobs
+
+        jobs = job_service.list_jobs(status=status_filter)
+
+        return [
+            EmbeddingJob(
+                collection_name=job.collection_name,
+                status=job.status.value,
+                job_type=job.job_type,
+                # Progress from job state
+                items_embedded=job.items_embedded,
+                total_expected=job.total_expected,
+                batches_completed=job.batches_completed,
+                total_batches=job.total_batches,
+                percent_complete=job.percent_complete,
+                # Config summary for display
+                source=job.source,
+                columns=job.config.get("columns"),
+                embedding_model=job.config.get("embedding_model", {}).get("model_name")
+                    if job.config.get("embedding_model") else None,
+                batch_size=job.config.get("batch_size", 100),
+                started_at=job.started_at,
+                # Full config for resume verification
+                config=job.config
+            )
+            for job in jobs
         ]
 
     @strawberry.field

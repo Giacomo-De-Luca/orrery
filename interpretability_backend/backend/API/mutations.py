@@ -1,5 +1,6 @@
 """GraphQL mutation resolvers for embedding visualization backend."""
 
+import asyncio
 import strawberry
 from typing import Optional
 
@@ -27,6 +28,7 @@ from ..embed_dataset import (
 )
 from ..clients.huggingface_client import PortionConfig, PortionStrategy
 from .chromadb_instance import get_chromadb_client
+from ..services.progress_emitter import emit_progress_sync
 
 
 # Mapping from GraphQL enums to internal enums
@@ -56,8 +58,10 @@ class Mutation:
     """GraphQL mutation root."""
 
     @strawberry.mutation
-    def embed_huggingface_dataset(self, input: EmbedDatasetInput, info=None) -> EmbedDatasetResult:
+    async def embed_huggingface_dataset(self, input: EmbedDatasetInput, info=None) -> EmbedDatasetResult:
         """Embed a HuggingFace dataset into a ChromaDB collection.
+
+        Runs embedding in a background thread to allow WebSocket progress updates.
 
         Args:
             input: Configuration for embedding the dataset
@@ -98,16 +102,40 @@ class Mutation:
             portion=portion,
             metadata_columns=input.metadata_columns,
             embedding_model=embedding_model,
-            batch_size=input.batch_size or 100
+            batch_size=input.batch_size or 100,
+            resume=input.resume
         )
 
-        # Run embedding
-        result = do_hf_embed(config)
+        # Run embedding in background thread to allow event loop to process WebSocket updates
+        result = await asyncio.to_thread(do_hf_embed, config)
 
         # Compute projections if requested and embedding succeeded
         projections_computed = False
         if input.compute_projections and result.error is None and result.total_embedded > 0:
-            projections_computed = compute_projections_for_collection(input.collection_name)
+            # Emit status: computing projections
+            emit_progress_sync(
+                job_id=input.collection_name,
+                status="running",
+                items_processed=result.total_embedded,
+                total_items=result.total_embedded,
+                current_batch=0,
+                total_batches=0,
+                message="Computing projections (PCA/UMAP)..."
+            )
+            projections_computed = await asyncio.to_thread(
+                compute_projections_for_collection, input.collection_name
+            )
+
+        # Emit final completion status
+        emit_progress_sync(
+            job_id=input.collection_name,
+            status="completed",
+            items_processed=result.total_embedded,
+            total_items=result.total_embedded,
+            current_batch=0,
+            total_batches=0,
+            message="Complete!"
+        )
 
         return EmbedDatasetResult(
             collection_name=result.collection_name,
@@ -122,10 +150,11 @@ class Mutation:
         )
 
     @strawberry.mutation
-    def embed_local_file(self, input: EmbedLocalFileInput, info=None) -> EmbedDatasetResult:
+    async def embed_local_file(self, input: EmbedLocalFileInput, info=None) -> EmbedDatasetResult:
         """Embed a local file (parquet/json/csv) into a ChromaDB collection.
 
         Supports text, image, and pre-computed vector embeddings.
+        Runs embedding in a background thread to allow WebSocket progress updates.
 
         Args:
             input: Configuration for embedding the local file
@@ -158,16 +187,40 @@ class Mutation:
             sample_n=input.sample_n,
             sample_seed=input.sample_seed,
             embedding_model=embedding_model,
-            batch_size=input.batch_size or 100
+            batch_size=input.batch_size or 100,
+            resume=input.resume
         )
 
-        # Run embedding
-        result = do_local_embed(config)
+        # Run embedding in background thread to allow event loop to process WebSocket updates
+        result = await asyncio.to_thread(do_local_embed, config)
 
         # Compute projections if requested and embedding succeeded
         projections_computed = False
         if input.compute_projections and result.error is None and result.total_embedded > 0:
-            projections_computed = compute_projections_for_collection(input.collection_name)
+            # Emit status: computing projections
+            emit_progress_sync(
+                job_id=input.collection_name,
+                status="running",
+                items_processed=result.total_embedded,
+                total_items=result.total_embedded,
+                current_batch=0,
+                total_batches=0,
+                message="Computing projections (PCA/UMAP)..."
+            )
+            projections_computed = await asyncio.to_thread(
+                compute_projections_for_collection, input.collection_name
+            )
+
+        # Emit final completion status
+        emit_progress_sync(
+            job_id=input.collection_name,
+            status="completed",
+            items_processed=result.total_embedded,
+            total_items=result.total_embedded,
+            current_batch=0,
+            total_batches=0,
+            message="Complete!"
+        )
 
         return EmbedDatasetResult(
             collection_name=result.collection_name,

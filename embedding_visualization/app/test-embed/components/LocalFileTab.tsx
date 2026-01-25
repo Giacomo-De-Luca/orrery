@@ -14,13 +14,15 @@ import {
 } from '@/lib/ui-primitives/select';
 import { Label } from '@/lib/ui-primitives/label';
 import { Separator } from '@/lib/ui-primitives/separator';
-import type { EmbeddingProvider, DataType, PortionStrategy, LocalFileInfo, LocalFilePreview, EmbedDatasetResult, GeminiTaskType } from '@/lib/graphql/mutations';
+import type { EmbeddingProvider, DataType, PortionStrategy, LocalFileInfo, LocalFilePreview, EmbedDatasetResult, GeminiTaskType, EmbeddingJob } from '@/lib/graphql/mutations';
 
 import { FileUploadZone } from './FileUploadZone';
 import { DataTypeSelector } from './DataTypeSelector';
 import { PortionSelector } from './PortionSelector';
 import { DatasetInfoDisplay } from './DatasetInfoDisplay';
 import { ColumnSelector } from './ColumnSelector';
+import { EmbeddingProgressModal } from './EmbeddingProgressModal';
+import { JobsPanel } from './JobsPanel';
 import { EMBEDDING_PROVIDERS } from '@/lib/utils/embeddingProviders';
 
 interface LocalFileTabProps {
@@ -42,6 +44,7 @@ interface LocalFileTabProps {
     computeProjections?: boolean;
     batchSize?: number;
     embeddingModel?: { provider: EmbeddingProvider; modelName: string; ollamaUrl?: string; task?: string; taskType?: GeminiTaskType };
+    resume?: boolean;
   }) => Promise<EmbedDatasetResult | null>;
   refreshCollections: () => Promise<void>;
   localFileInfo: LocalFileInfo | null;
@@ -52,6 +55,8 @@ interface LocalFileTabProps {
   error: string | null;
   clearError: () => void;
   lastEmbedResult: EmbedDatasetResult | null;
+  /** Collection name of currently running job for progress tracking */
+  activeJobCollectionName?: string | null;
 }
 
 export function LocalFileTab({
@@ -67,6 +72,7 @@ export function LocalFileTab({
   error,
   clearError,
   lastEmbedResult,
+  activeJobCollectionName,
 }: LocalFileTabProps) {
   // Local file specific state
   const [filePath, setFilePath] = useState('');
@@ -196,6 +202,46 @@ export function LocalFileTab({
   const handleProviderChange = (provider: EmbeddingProvider) => {
     setEmbeddingProvider(provider);
     setModelName(EMBEDDING_PROVIDERS[provider].defaultModel);
+  };
+
+  const handleResumeJob = async (job: EmbeddingJob) => {
+    // Resume embedding with the stored configuration
+    // Config is stored with Python snake_case - need to transform for GraphQL
+    const config = job.config as Record<string, unknown>;
+
+    // Transform data_type from snake_case value to uppercase enum
+    const dataTypeValue = config.data_type as string | undefined;
+    const dataType = dataTypeValue?.toUpperCase() as DataType | undefined;
+
+    // Transform embedding_model from snake_case to camelCase
+    const storedModel = config.embedding_model as Record<string, unknown> | undefined;
+    const embeddingModel = storedModel ? {
+      provider: (storedModel.provider as string)?.toUpperCase() as EmbeddingProvider,
+      modelName: storedModel.model_name as string,
+      ollamaUrl: storedModel.ollama_url as string | undefined,
+      task: storedModel.task as string | undefined,
+      taskType: storedModel.task_type as GeminiTaskType | undefined,
+    } : undefined;
+
+    await embedLocalFile({
+      filePath: config.file_path as string,
+      collectionName: job.collectionName,
+      dataType,
+      columns: config.columns as string[] | undefined,
+      textTemplate: config.text_template as string | undefined,
+      imageColumn: config.image_column as string | undefined,
+      vectorColumn: config.vector_column as string | undefined,
+      idColumn: config.id_column as string | undefined,
+      metadataColumns: config.metadata_columns as string[] | undefined,
+      nRows: config.n_rows as number | undefined,
+      sampleN: config.sample_n as number | undefined,
+      sampleSeed: config.sample_seed as number | undefined,
+      computeProjections: true,
+      batchSize: config.batch_size as number | undefined,
+      embeddingModel,
+      resume: true,
+    });
+    await refreshCollections();
   };
 
   const isLoading = infoLoading || previewLoading;
@@ -482,19 +528,19 @@ export function LocalFileTab({
         </Card>
       )}
 
-      {/* Loading Overlay */}
-      {embedLoading && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <Card className="w-96">
-            <CardContent className="pt-6 text-center">
-              <Spinner className="h-8 w-8 mx-auto mb-4" />
-              <p className="text-lg font-medium">Embedding file...</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                This may take several minutes for large files.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+      {/* Progress Modal - shown during embedding */}
+      {embedLoading && activeJobCollectionName && (
+        <EmbeddingProgressModal
+          collectionName={activeJobCollectionName}
+        />
+      )}
+
+      {/* Interrupted Jobs Panel */}
+      {!embedLoading && (
+        <JobsPanel
+          statusFilter="interrupted"
+          onResumeJob={handleResumeJob}
+        />
       )}
     </div>
   );

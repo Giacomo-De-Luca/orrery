@@ -60,6 +60,7 @@ export default function TestEmbedPage() {
     error,
     clearError,
     lastEmbedResult,
+    activeJobCollectionName,
   } = useEmbedDataset();
 
   // Transform collections data for the manager tab
@@ -118,6 +119,7 @@ export default function TestEmbedPage() {
           error={error}
           clearError={clearError}
           lastEmbedResult={lastEmbedResult}
+          activeJobCollectionName={activeJobCollectionName}
         />
       )}
 
@@ -135,6 +137,7 @@ export default function TestEmbedPage() {
           error={error}
           clearError={clearError}
           lastEmbedResult={lastEmbedResult}
+          activeJobCollectionName={activeJobCollectionName}
         />
       )}
 

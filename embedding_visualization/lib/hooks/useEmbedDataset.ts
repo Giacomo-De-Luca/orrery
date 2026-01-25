@@ -65,6 +65,10 @@ export interface UseEmbedDatasetReturn {
 
   // Last embed result
   lastEmbedResult: EmbedDatasetResult | null;
+
+  // Active job tracking for progress display
+  activeJobCollectionName: string | null;
+  clearActiveJob: () => void;
 }
 
 // ========== Hook Implementation ==========
@@ -79,6 +83,9 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
   const [localFilePreview, setLocalFilePreview] = useState<LocalFilePreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastEmbedResult, setLastEmbedResult] = useState<EmbedDatasetResult | null>(null);
+
+  // Active job tracking for progress display
+  const [activeJobCollectionName, setActiveJobCollectionName] = useState<string | null>(null);
 
   // Loading states
   const [infoLoading, setInfoLoading] = useState(false);
@@ -195,6 +202,7 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
   const embedHFDataset = useCallback(async (input: EmbedDatasetInput): Promise<EmbedDatasetResult | null> => {
     setError(null);
     setLastEmbedResult(null);
+    setActiveJobCollectionName(input.collectionName);
 
     try {
       const { data, errors } = await embedHFMutation({
@@ -209,6 +217,7 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
 
       if (errors && errors.length > 0) {
         setError(errors.map(e => e.message).join(', '));
+        setActiveJobCollectionName(null);
         return null;
       }
 
@@ -219,10 +228,12 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
       }
 
       setLastEmbedResult(result);
+      setActiveJobCollectionName(null);
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to embed dataset';
       setError(message);
+      setActiveJobCollectionName(null);
       return null;
     }
   }, [embedHFMutation]);
@@ -303,6 +314,7 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
   const embedLocalFile = useCallback(async (input: EmbedLocalFileInput): Promise<EmbedDatasetResult | null> => {
     setError(null);
     setLastEmbedResult(null);
+    setActiveJobCollectionName(input.collectionName);
 
     try {
       const { data, errors } = await embedLocalMutation({
@@ -316,6 +328,7 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
 
       if (errors && errors.length > 0) {
         setError(errors.map(e => e.message).join(', '));
+        setActiveJobCollectionName(null);
         return null;
       }
 
@@ -326,10 +339,12 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
       }
 
       setLastEmbedResult(result);
+      setActiveJobCollectionName(null);
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to embed file';
       setError(message);
+      setActiveJobCollectionName(null);
       return null;
     }
   }, [embedLocalMutation]);
@@ -398,6 +413,10 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     setError(null);
   }, []);
 
+  const clearActiveJob = useCallback(() => {
+    setActiveJobCollectionName(null);
+  }, []);
+
   return {
     // HuggingFace operations
     fetchHFDatasetInfo,
@@ -431,5 +450,9 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
 
     // Last result
     lastEmbedResult,
+
+    // Active job tracking
+    activeJobCollectionName,
+    clearActiveJob,
   };
 }

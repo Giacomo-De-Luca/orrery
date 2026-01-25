@@ -122,11 +122,12 @@ class EmbedDatasetInput:
     id_column: Optional[str] = None  # Column to use as document ID
     portion: Optional[PortionInput] = None
     metadata_columns: Optional[List[str]] = None
-    metadata_columns: Optional[List[str]] = None
     compute_projections: bool = True  # Whether to compute PCA/UMAP after embedding
     batch_size: Optional[int] = 100
     # Embedding model configuration (default: SentenceTransformers with all-MiniLM-L6-v2)
     embedding_model: Optional[EmbeddingModelInput] = None
+    # Resume an interrupted job instead of starting fresh
+    resume: bool = False
 
 
 @strawberry.type
@@ -190,12 +191,13 @@ class EmbedLocalFileInput:
     n_rows: Optional[int] = None  # Limit rows
     sample_n: Optional[int] = None  # Random sample
     sample_seed: int = 42
-    sample_seed: int = 42
     compute_projections: bool = True
     batch_size: Optional[int] = 100
     # Embedding model configuration (default: SentenceTransformers with all-MiniLM-L6-v2)
     # Only used for TEXT data_type; IMAGE uses ViT, VECTOR uses pre-computed
     embedding_model: Optional[EmbeddingModelInput] = None
+    # Resume an interrupted job instead of starting fresh
+    resume: bool = False
 
 
 # ========== Search & Filter Types ==========
@@ -347,3 +349,42 @@ def build_where_clause(filters: Optional[List[FilterInput]]) -> Optional[Dict[st
             where[f.field] = {"$nin": f.value}
 
     return where if where else None
+
+
+# ========== Embedding Job Types ==========
+
+@strawberry.enum
+class JobStatusEnum(Enum):
+    """Status of an embedding job."""
+    RUNNING = "running"
+    INTERRUPTED = "interrupted"
+    COMPLETED = "completed"
+
+
+@strawberry.type
+class EmbeddingJob:
+    """Information about an embedding job."""
+    collection_name: str
+    status: str  # running, interrupted, completed
+    job_type: str  # huggingface, local_file
+
+    # Progress
+    items_embedded: int
+    total_expected: int
+    batches_completed: int
+    total_batches: int
+    percent_complete: float
+
+    # Config summary
+    source: str  # dataset_id or file_path
+    columns: Optional[List[str]] = None
+    embedding_model: Optional[str] = None
+    batch_size: int = 100
+    started_at: str = ""
+
+    # Full config for resume verification
+    config: Optional[JSON] = None
+
+
+# JobProgress is defined in subscriptions.py to avoid circular imports
+# when embedding functions import emit_progress_sync
