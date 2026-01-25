@@ -14,12 +14,14 @@ import {
 } from '@/lib/ui-primitives/select';
 import { Label } from '@/lib/ui-primitives/label';
 import { Separator } from '@/lib/ui-primitives/separator';
-import type { EmbeddingProvider, PortionStrategy, HFDatasetInfo, HFDatasetPreview, EmbedDatasetResult, GeminiTaskType } from '@/lib/graphql/mutations';
+import type { EmbeddingProvider, PortionStrategy, HFDatasetInfo, HFDatasetPreview, EmbedDatasetResult, GeminiTaskType, EmbeddingJob } from '@/lib/graphql/mutations';
 
 import { SplitSelector } from './SplitSelector';
 import { PortionSelector } from './PortionSelector';
 import { DatasetInfoDisplay } from './DatasetInfoDisplay';
 import { ColumnSelector } from './ColumnSelector';
+import { EmbeddingProgressModal } from './EmbeddingProgressModal';
+import { JobsPanel } from './JobsPanel';
 import { EMBEDDING_PROVIDERS } from '@/lib/utils/embeddingProviders';
 
 interface HuggingFaceTabProps {
@@ -43,6 +45,7 @@ interface HuggingFaceTabProps {
     computeProjections?: boolean;
     batchSize?: number;
     embeddingModel?: { provider: EmbeddingProvider; modelName: string; ollamaUrl?: string; task?: string; taskType?: GeminiTaskType };
+    resume?: boolean;
   }) => Promise<EmbedDatasetResult | null>;
   refreshCollections: () => Promise<void>;
   datasetInfo: HFDatasetInfo | null;
@@ -53,6 +56,8 @@ interface HuggingFaceTabProps {
   error: string | null;
   clearError: () => void;
   lastEmbedResult: EmbedDatasetResult | null;
+  /** Collection name of currently running job for progress tracking */
+  activeJobCollectionName?: string | null;
 }
 
 export function HuggingFaceTab({
@@ -68,6 +73,7 @@ export function HuggingFaceTab({
   error,
   clearError,
   lastEmbedResult,
+  activeJobCollectionName,
 }: HuggingFaceTabProps) {
   // HuggingFace specific state
   const [datasetId, setDatasetId] = useState('dair-ai/emotion');
@@ -267,6 +273,49 @@ export function HuggingFaceTab({
   const handleProviderChange = (provider: EmbeddingProvider) => {
     setEmbeddingProvider(provider);
     setModelName(EMBEDDING_PROVIDERS[provider].defaultModel);
+  };
+
+  const handleResumeJob = async (job: EmbeddingJob) => {
+    // Resume embedding with the stored configuration
+    // Config is stored with Python snake_case - need to transform for GraphQL
+    const config = job.config as Record<string, unknown>;
+
+    // Transform portion from snake_case strategy value to uppercase enum
+    const storedPortion = config.portion as Record<string, unknown> | undefined;
+    const portion = storedPortion ? {
+      strategy: (storedPortion.strategy as string)?.toUpperCase() as PortionStrategy,
+      n: storedPortion.n as number | undefined,
+      start: storedPortion.start as number | undefined,
+      end: storedPortion.end as number | undefined,
+      seed: storedPortion.seed as number | undefined,
+    } : undefined;
+
+    // Transform embedding_model from snake_case to camelCase
+    const storedModel = config.embedding_model as Record<string, unknown> | undefined;
+    const embeddingModel = storedModel ? {
+      provider: (storedModel.provider as string)?.toUpperCase() as EmbeddingProvider,
+      modelName: storedModel.model_name as string,
+      ollamaUrl: storedModel.ollama_url as string | undefined,
+      task: storedModel.task as string | undefined,
+      taskType: storedModel.task_type as GeminiTaskType | undefined,
+    } : undefined;
+
+    await embedHFDataset({
+      datasetId: config.dataset_id as string,
+      collectionName: job.collectionName,
+      config: config.config as string | undefined,
+      split: config.split as string | undefined,
+      columns: config.columns as string[] | undefined,
+      textTemplate: config.text_template as string | undefined,
+      idColumn: config.id_column as string | undefined,
+      metadataColumns: config.metadata_columns as string[] | undefined,
+      portion,
+      computeProjections: true,
+      batchSize: config.batch_size as number | undefined,
+      embeddingModel,
+      resume: true,
+    });
+    await refreshCollections();
   };
 
   const isLoading = infoLoading || previewLoading;
@@ -571,24 +620,24 @@ export function HuggingFaceTab({
         </Card>
       )}
 
-      {/* Loading Overlay */}
-      {embedLoading && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
-          <Card className="w-96">
-            <CardContent className="pt-6 text-center">
-              <Spinner className="h-8 w-8 mx-auto mb-4" />
-              <p className="text-lg font-medium">Embedding dataset...</p>
-              <p className="text-sm text-muted-foreground mt-2">
-                This may take several minutes for large datasets.
-              </p>
-              {portionStrategy === 'ALL' && availableSplits.length > 1 && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Embedding {availableSplits.length} splits sequentially
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+      {/* Progress Modal - shown during embedding */}
+      {embedLoading && activeJobCollectionName && (
+        <EmbeddingProgressModal
+          collectionName={activeJobCollectionName}
+          additionalMessage={
+            portionStrategy === 'ALL' && availableSplits.length > 1
+              ? `Embedding ${availableSplits.length} splits sequentially`
+              : undefined
+          }
+        />
+      )}
+
+      {/* Interrupted Jobs Panel */}
+      {!embedLoading && (
+        <JobsPanel
+          statusFilter="interrupted"
+          onResumeJob={handleResumeJob}
+        />
       )}
     </div>
   );

@@ -1,8 +1,14 @@
-"""FastAPI backend with GraphQL endpoint for embedding visualization."""
+"""FastAPI backend with GraphQL endpoint for embedding visualization.
+
+Supports:
+- GraphQL queries and mutations over HTTP
+- GraphQL subscriptions over WebSocket for real-time progress updates
+"""
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from strawberry.fastapi import GraphQLRouter
+from strawberry.subscriptions import GRAPHQL_TRANSPORT_WS_PROTOCOL, GRAPHQL_WS_PROTOCOL
 from .API import schema
 from .API.upload import router as upload_router
 
@@ -14,7 +20,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configure CORS
+# Configure CORS (including WebSocket origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -28,8 +34,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create GraphQL router
-graphql_app = GraphQLRouter(schema)
+# Create GraphQL router with WebSocket subscription support
+graphql_app = GraphQLRouter(
+    schema,
+    subscription_protocols=[
+        GRAPHQL_TRANSPORT_WS_PROTOCOL,
+        GRAPHQL_WS_PROTOCOL,
+    ],
+)
 
 # Mount upload router
 app.include_router(upload_router)

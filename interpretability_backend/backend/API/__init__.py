@@ -4,6 +4,7 @@ import strawberry
 
 from .queries import Query
 from .mutations import Mutation
+from .subscriptions import Subscription, JobProgress
 from .types import (
     # Scalars
     JSON,
@@ -35,12 +36,16 @@ from .types import (
     EmbeddingItem,
     SemanticSearchResult,
     ProjectionData,
+    # Job types
+    JobStatusEnum,
+    EmbeddingJob,
+    # Note: JobProgress is imported from subscriptions (not types) to avoid circular imports
     # Helper functions
     build_where_clause,
 )
 
-# Create the schema
-schema = strawberry.Schema(query=Query, mutation=Mutation)
+# Create the schema with subscription support
+schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
 
 __all__ = [
     # Schema
@@ -48,6 +53,7 @@ __all__ = [
     # Resolvers
     "Query",
     "Mutation",
+    "Subscription",
     # All types
     "JSON",
     "HFSplitInfo",
@@ -73,5 +79,8 @@ __all__ = [
     "EmbeddingItem",
     "SemanticSearchResult",
     "ProjectionData",
+    "JobStatusEnum",
+    "EmbeddingJob",
+    "JobProgress",
     "build_where_clause",
 ]

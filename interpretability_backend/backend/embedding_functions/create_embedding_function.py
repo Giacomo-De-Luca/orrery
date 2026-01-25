@@ -1,6 +1,7 @@
 """
 Factory for creating embedding functions.
 """
+import os
 from typing import Optional, Any
 from chromadb.utils import embedding_functions
 
@@ -8,7 +9,10 @@ from .config import EmbeddingModelConfig, EmbeddingProvider
 import json
 from pathlib import Path
 from chromadb.utils.embedding_functions import EmbeddingFunction
+from huggingface_hub import login
+from dotenv import load_dotenv
 
+load_dotenv()
 
 DIMENSIONS_FILE = Path(__file__).parent.parent / "utils" / "known_dimensions.json"
 
@@ -24,8 +28,9 @@ def _load_known_dimensions() -> dict[str, int]:
         return {}
 
 def _save_known_dimension(model_name: str, dimension: int, current_dims: dict[str, int]) -> None:
-    """Update the JSON file with a new model dimension."""    
+    """Update the JSON file with a new model dimension."""
     try:
+        current_dims[model_name] = dimension
         with open(DIMENSIONS_FILE, "w", encoding="utf-8") as f:
             json.dump(current_dims, f, indent=1, sort_keys=True)
             print(f"Updated known dimensions file with {model_name}: {dimension}")
@@ -55,6 +60,11 @@ def create_embedding_function(
     Raises:
         ValueError: If provider is not supported or API key is missing
     """
+    hf_api_key = os.getenv("HUGGINGFACE_API_KEY")
+    if hf_api_key:
+        # 'add_to_git_credential=False' prevents hanging on some systems asking for keychain access
+        login(token=hf_api_key, add_to_git_credential=False)
+
     if config is None:
         config = EmbeddingModelConfig()
 

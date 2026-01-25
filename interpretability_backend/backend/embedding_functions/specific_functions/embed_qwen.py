@@ -33,7 +33,7 @@ class EmbedTextQWEN(EmbeddingFunction[Documents]):
         ## To note that I'm using fp32 for mps if we don't use flash attention
         ## So it's possible that we should let for cuda also let the possibility of using fp32
         ## But I should test how much the performance degrades with fp16/32
-        self.model = AutoModel.from_pretrained(model, attn_implementation="flash_attention_2", torch_dtype=torch.float16).cuda() if device == 'cuda' else AutoModel.from_pretrained(model).to(device)
+        self.model = AutoModel.from_pretrained(model, attn_implementation="flash_attention_2", torch_dtype=torch.float16).cuda() if device == 'cuda' else AutoModel.from_pretrained(model, torch_dtype=torch.float16).to(device)
         self.model.eval()
         
     @staticmethod

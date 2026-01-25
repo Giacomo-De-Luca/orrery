@@ -46,6 +46,9 @@ The backend service powered by FastAPI, Strawberry GraphQL, and ChromaDB.
 - ChromaDB vector database integration
 - Embed HuggingFace datasets or local files (CSV, JSON, Parquet)
 - Multi-provider support (SentenceTransformers, OpenAI, Cohere, etc.)
+- **Real-time progress tracking** - WebSocket subscriptions for live embedding progress
+- **Resumable jobs** - interrupted embeddings can be resumed from where they left off
+- **Status messages** - detailed stage updates (sorting, loading model, computing projections)
 - **Lazy embedding function loading** - models only load when needed for semantic search
 - **Dimension caching** - prevents unnecessary test embeddings, uses stored metadata
 - **Model persistence** - embedding models stay in memory across requests for fast queries
@@ -86,12 +89,16 @@ Modern Next.js 15 web application for 2D/3D visualization, clustering, and seman
   - **HuggingFace**: Browse and embed any HF dataset (preview, column selection, model choice)
   - **Local File**: Upload and embed parquet/JSON/CSV files
   - **Collection Manager**: View, edit metadata, and delete existing collections
+  - Real-time progress modal during embedding with status messages
+  - Interrupted jobs panel with resume capability
 
 **Key Features:**
 - **Generic visualization** - works with any embedding collection stored in ChromaDB
 - **Auto-detection** - intelligently detects label and category fields from metadata
 - **Dynamic coloring** - categorical, sequential, and diverging color scales with presets
 - **Unified search** - text filtering with auto-select + semantic search + results display
+- **Live progress modal** - real-time embedding progress with status messages via WebSocket
+- **Resume interrupted jobs** - panel showing interrupted jobs with one-click resume
 - **Responsive design** - ResizeObserver-based sizing, resizable panels, dark mode
 - **Performance optimized** - WebGL rendering, logarithmic marker sizing, preserves zoom/pan
 

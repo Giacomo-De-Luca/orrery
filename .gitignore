@@ -9,7 +9,7 @@ wheels/
 ## Random Test Files and notebooks
 test*.py
 test*.ipynb
-
+.env
 
 claude.md
 

@@ -286,6 +286,7 @@ export interface EmbedDatasetInput {
   metadataColumns?: string[];
   computeProjections?: boolean;
   embeddingModel?: EmbeddingModelInput;
+  resume?: boolean; // Resume an interrupted job instead of starting fresh
 }
 
 export type DataType = 'TEXT' | 'IMAGE' | 'VECTOR';
@@ -305,6 +306,7 @@ export interface EmbedLocalFileInput {
   sampleSeed?: number;
   computeProjections?: boolean;
   embeddingModel?: EmbeddingModelInput;
+  resume?: boolean; // Resume an interrupted job instead of starting fresh
 }
 
 export interface EmbedDatasetResult {
@@ -323,4 +325,36 @@ export interface UpdateCollectionMetadataResult {
   name: string;
   metadata: Record<string, unknown>;
   error: string | null;
+}
+
+// ========== Job Types ==========
+
+export type JobStatus = 'running' | 'interrupted' | 'completed';
+
+export interface EmbeddingJob {
+  collectionName: string;
+  status: JobStatus;
+  jobType: 'huggingface' | 'local_file';
+  itemsEmbedded: number;
+  totalExpected: number;
+  batchesCompleted: number;
+  totalBatches: number;
+  percentComplete: number;
+  source: string;
+  columns: string[] | null;
+  embeddingModel: string | null;
+  batchSize: number;
+  startedAt: string;
+  config: Record<string, unknown>;
+}
+
+export interface JobProgress {
+  jobId: string;
+  status: 'running' | 'completed' | 'failed';
+  itemsProcessed: number;
+  totalItems: number;
+  currentBatch: number;
+  totalBatches: number;
+  error: string | null;
+  message: string | null;
 }

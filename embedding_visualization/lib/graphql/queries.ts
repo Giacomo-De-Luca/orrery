@@ -115,3 +115,45 @@ export const GET_COLLECTION_PREVIEW = gql`
     }
   }
 `;
+
+/**
+ * Query to get embedding jobs with their progress and status
+ */
+export const GET_EMBEDDING_JOBS = gql`
+  query GetEmbeddingJobs($status: String) {
+    embeddingJobs(status: $status) {
+      collectionName
+      status
+      jobType
+      itemsEmbedded
+      totalExpected
+      batchesCompleted
+      totalBatches
+      percentComplete
+      source
+      columns
+      embeddingModel
+      batchSize
+      startedAt
+      config
+    }
+  }
+`;
+
+/**
+ * Subscription to receive real-time progress updates for an embedding job
+ */
+export const EMBEDDING_PROGRESS_SUBSCRIPTION = gql`
+  subscription EmbeddingProgress($jobId: String!) {
+    embeddingProgress(jobId: $jobId) {
+      jobId
+      status
+      itemsProcessed
+      totalItems
+      currentBatch
+      totalBatches
+      error
+      message
+    }
+  }
+`;
