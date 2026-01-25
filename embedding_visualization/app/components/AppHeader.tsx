@@ -118,7 +118,7 @@ export function AppHeader({
             {totalWords && embeddingDim && (
               <>
                 <Badge variant="secondary" className="hidden sm:inline-flex">
-                  {totalWords.toLocaleString()} words
+                  {totalWords.toLocaleString()} points
                 </Badge>
                 <Badge variant="outline" className="hidden md:inline-flex">
                   {embeddingDim}D

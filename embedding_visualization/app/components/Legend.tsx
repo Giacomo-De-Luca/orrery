@@ -21,10 +21,22 @@ interface LegendProps {
 }
 
 /**
- * Format a number with thousand separators for display.
+ * Format a count with thousand separators for display.
  */
 function formatCount(count: number): string {
   return count.toLocaleString();
+}
+
+/**
+ * Format a numeric value without thousand separators (for ranges in gradients).
+ */
+function formatNumericValue(value: number): string {
+  // Round to reasonable precision, no locale formatting
+  if (Number.isInteger(value)) {
+    return Math.round(value).toString();
+  }
+  // For decimals, show up to 2 decimal places
+  return value.toFixed(2).replace(/\.?0+$/, '');
 }
 
 /**
@@ -42,39 +54,47 @@ export function Legend({
   colorScaleType = 'categorical',
   numericRange,
 }: LegendProps) {
-  // Check if this is a continuous scale (sequential or diverging)
-  const isContinuous = colorScaleType === 'sequential' || colorScaleType === 'diverging';
+  // Check if this is a continuous scale (sequential, diverging, or monochrome)
+  const isContinuous = colorScaleType === 'sequential' || colorScaleType === 'diverging' || colorScaleType === 'monochrome';
 
   // Gradient definitions for continuous scales (matching scatter plot colors)
   const viridisGradient = 'linear-gradient(to right, #440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725)';
   const rdBuGradient = 'linear-gradient(to right, #67001f, #b2182b, #d6604d, #f4a582, #fddbc7, #f7f7f7, #d1e5f0, #92c5de, #4393c3, #2166ac, #053061)';
+  const monochromeGradient = 'linear-gradient(to right, rgba(31, 119, 180, 0.1), rgba(31, 119, 180, 1))';
 
   // For continuous scales, render a gradient bar
   if (isContinuous && numericRange) {
     const { min, max } = numericRange;
     const center = (min + max) / 2;
-    const gradient = colorScaleType === 'sequential' ? viridisGradient : rdBuGradient;
+    let gradient = viridisGradient;
+    if (colorScaleType === 'sequential') {
+      gradient = viridisGradient;
+    } else if (colorScaleType === 'diverging') {
+      gradient = rdBuGradient;
+    } else if (colorScaleType === 'monochrome') {
+      gradient = monochromeGradient;
+    }
 
     return (
       <Card
-        className={`w-fit min-w-48 ${className ?? ''}`}
+        className={`w-fit gap-2 min-w-48 ${className ?? ''}`}
         variant="outline"
       >
         <CardHeader className="">
-          <CardTitle className="font-mono">{getCategoryDisplayName(categoryField ?? 'value')}</CardTitle>
+          <CardTitle className="font-mono text-xs">{getCategoryDisplayName(categoryField ?? 'value')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {/* Gradient bar */}
           <div
-            className="h-4 w-full rounded"
+            className="h-2 w-full rounded"
             style={{ background: gradient }}
             aria-label={`Color scale from ${min} to ${max}`}
           />
           {/* Labels: min, center, max */}
           <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
-            <span>{formatCount(min)}</span>
-            <span>{formatCount(center)}</span>
-            <span>{formatCount(max)}</span>
+            <span>{formatNumericValue(min)}</span>
+            <span>{formatNumericValue(center)}</span>
+            <span>{formatNumericValue(max)}</span>
           </div>
         </CardContent>
       </Card>
