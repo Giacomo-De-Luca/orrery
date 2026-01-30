@@ -272,8 +272,7 @@ export interface EmbeddingModelInput {
   ollamaUrl?: string; // Ollama: server URL (default: http://localhost:11434)
   task?: string; // QWEN: Query instruction prefix (used at query time only)
   taskType?: GeminiTaskType; // Gemini: Embedding optimization type
-  prompt?: string; // SentenceTransformers: Direct prompt string for models like Gemma Embedding
-  promptName?: string; // SentenceTransformers: Predefined prompt name (e.g., "Retrieval-document", "STS")
+  prompt?: string; // SentenceTransformers: Can be predefined name (e.g., "Retrieval-query") or custom string
 }
 
 export interface EmbedDatasetInput {

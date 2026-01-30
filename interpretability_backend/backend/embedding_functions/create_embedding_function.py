@@ -96,7 +96,6 @@ def create_embedding_function(
             model_name=model_name,
             device=device,
             prompt=config.prompt,
-            prompt_name=config.prompt_name
         )
         dim = get_dimension(ef)  # Use helper instead of test embedding
         return ef, dim

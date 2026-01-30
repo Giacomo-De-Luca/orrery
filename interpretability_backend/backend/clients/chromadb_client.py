@@ -77,8 +77,7 @@ class ChromaDBClient:
         name: str,
         load_embedding_function: bool = False,
         for_query: bool = False,
-        query_prompt: Optional[str] = None,
-        query_prompt_name: Optional[str] = None
+        query_prompt: Optional[str] = None
     ):
         """Get a collection by name.
 
@@ -87,8 +86,7 @@ class ChromaDBClient:
             load_embedding_function: If True, loads the embedding function for query operations.
                                      If False (default), returns collection without EF for read-only ops.
             for_query: If True, configures EF for query embedding (QWEN adds instruction prefix)
-            query_prompt: Override prompt string for query embedding
-            query_prompt_name: Override prompt name for query embedding
+            query_prompt: Override prompt for query embedding (can be known name or custom string)
 
         Returns:
             ChromaDB collection (with or without embedding function)
@@ -116,10 +114,9 @@ class ChromaDBClient:
                     task = metadata.get("embedding_task")  # QWEN: query instruction
                     task_type = metadata.get("embedding_task_type")  # Gemini: optimization type
 
-                    # Retrieve SentenceTransformers prompt params from metadata
+                    # Retrieve SentenceTransformers prompt from metadata
                     # Use override if provided, otherwise use stored value
                     prompt = query_prompt or metadata.get("embedding_prompt")
-                    prompt_name = query_prompt_name or metadata.get("embedding_prompt_name")
 
                     # For Gemini, map document task type to query task type when searching
                     # e.g., RETRIEVAL_DOCUMENT -> RETRIEVAL_QUERY
@@ -131,8 +128,7 @@ class ChromaDBClient:
                         model_name=model_name,
                         task=task,
                         task_type=task_type,
-                        prompt=prompt,
-                        prompt_name=prompt_name
+                        prompt=prompt
                     )
 
                     # Get embedding dimension from metadata (avoid test embedding)
@@ -211,8 +207,7 @@ class ChromaDBClient:
         n_results: int = 10,
         where: Optional[Dict[str, Any]] = None,
         distance_metric: str = "cosine",  # cosine, l2, or ip
-        query_prompt: Optional[str] = None,
-        query_prompt_name: Optional[str] = None
+        query_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
         """Perform semantic search on collection.
 
@@ -223,8 +218,7 @@ class ChromaDBClient:
             n_results: Number of results to return
             where: ChromaDB where filter
             distance_metric: Distance metric (cosine, l2, ip)
-            query_prompt: Direct prompt string to override for query embedding
-            query_prompt_name: Predefined prompt name to override for query embedding
+            query_prompt: Prompt to override for query embedding (can be known name or custom string)
 
         Returns:
             Query results with ids, distances, metadatas, documents
@@ -236,8 +230,7 @@ class ChromaDBClient:
             collection_name,
             load_embedding_function=needs_ef,
             for_query=needs_ef,
-            query_prompt=query_prompt,
-            query_prompt_name=query_prompt_name
+            query_prompt=query_prompt
         )
 
         # Validate inputs
@@ -381,7 +374,6 @@ class ChromaDBClient:
                 "has_projections": collection_metadata.get("has_projections", False),
                 # Prompt info (for models like Gemma Embedding)
                 "embedding_prompt": collection_metadata.get("embedding_prompt"),
-                "embedding_prompt_name": collection_metadata.get("embedding_prompt_name"),
             }
         }
 

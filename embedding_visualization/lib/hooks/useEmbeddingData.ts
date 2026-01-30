@@ -63,7 +63,6 @@ export function useEmbeddingData(collectionName: string | null): UseEmbeddingDat
                     embeddingProvider
                     embeddingModel
                     embeddingPrompt
-                    embeddingPromptName
                   }
                 }
               }
@@ -138,7 +137,6 @@ export function useEmbeddingData(collectionName: string | null): UseEmbeddingDat
             embedding_provider: collectionData.metadata.embeddingProvider,
             embedding_model: collectionData.metadata.embeddingModel,
             embedding_prompt: collectionData.metadata.embeddingPrompt,
-            embedding_prompt_name: collectionData.metadata.embeddingPromptName,
           },
         };
 
