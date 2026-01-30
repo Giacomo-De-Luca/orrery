@@ -330,7 +330,6 @@ class Query:
         filters: Optional[List[FilterInput]] = None,
         include_embeddings: bool = False,
         query_prompt: Optional[str] = None,
-        query_prompt_name: Optional[str] = None,
         info=None
     ) -> List[SemanticSearchResult]:
         """Perform semantic search on a collection.
@@ -343,8 +342,7 @@ class Query:
             similarity_measure: Similarity metric to use
             filters: List of filters to apply
             include_embeddings: Whether to include embedding vectors in results
-            query_prompt: Direct prompt string to use for query embedding (overrides collection default)
-            query_prompt_name: Predefined prompt name for query embedding (e.g., "Retrieval-query")
+            query_prompt: Prompt to use for query embedding (can be known name or custom string, overrides collection default)
 
         Returns:
             List of search results with similarities
@@ -362,8 +360,7 @@ class Query:
             n_results=n_results,
             where=where,
             distance_metric=similarity_measure.value,
-            query_prompt=query_prompt,
-            query_prompt_name=query_prompt_name
+            query_prompt=query_prompt
         )
 
         # Convert to SemanticSearchResult list

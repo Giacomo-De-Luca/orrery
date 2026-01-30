@@ -1,9 +1,9 @@
 'use client';
 
-import * as React from 'react';
 import { Badge } from '@/lib/ui-primitives/badge';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
 import type { Point2D, Point3D } from '../../lib/types/types';
+import { HighlightedText } from '../utils/highlightedText';
 
 interface TextSearchResultsListProps {
   results: (Point2D | Point3D)[];
@@ -11,6 +11,7 @@ interface TextSearchResultsListProps {
   onResultClick?: (point: Point2D | Point3D) => void;
   maxHeight?: number;
   categoryField?: string | null;
+  searchQuery?: string;
 }
 
 export function TextSearchResultsList({
@@ -19,6 +20,7 @@ export function TextSearchResultsList({
   onResultClick,
   maxHeight = 300,
   categoryField,
+  searchQuery,
 }: TextSearchResultsListProps) {
   if (results.length === 0) {
     return null;
@@ -55,7 +57,7 @@ export function TextSearchResultsList({
               </div>
               {point.document && point.document !== point.label && (
                 <p className="text-xs text-muted-foreground  mt-0.5">
-                  {point.document}
+                  <HighlightedText text={point.document} query={searchQuery} />
                  {/*{point.document.slice(0, 80)}
                   {point.document.length > 80 ? '...' : ''}*/}
                 </p>

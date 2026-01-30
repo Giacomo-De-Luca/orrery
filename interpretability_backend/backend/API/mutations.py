@@ -4,6 +4,8 @@ import asyncio
 import strawberry
 from typing import Optional
 
+from interpretability_backend.backend.services import job_state
+
 from .types import (
     DataTypeEnum,
     EmbedDatasetInput,
@@ -29,6 +31,7 @@ from ..embed_dataset import (
 from ..clients.huggingface_client import PortionConfig, PortionStrategy
 from .chromadb_instance import get_chromadb_client
 from ..services.progress_emitter import emit_progress_sync
+from ..services.job_state import get_job_state_service, JobStatus
 
 
 # Mapping from GraphQL enums to internal enums
@@ -71,6 +74,8 @@ class Mutation:
         """
         # Convert GraphQL input to EmbeddingConfig
         portion = None
+        job_state = get_job_state_service()
+
         if input.portion:
             portion = PortionConfig(
                 strategy=PORTION_STRATEGY_MAP[input.portion.strategy],
@@ -89,8 +94,7 @@ class Mutation:
                 ollama_url=input.embedding_model.ollama_url,
                 task=input.embedding_model.task,  # QWEN: query instruction
                 task_type=input.embedding_model.task_type,  # Gemini: optimization type
-                prompt=input.embedding_model.prompt,  # SentenceTransformers: direct prompt
-                prompt_name=input.embedding_model.prompt_name  # SentenceTransformers: predefined prompt
+                prompt=input.embedding_model.prompt  # SentenceTransformers: can be known name or custom string
             )
 
         config = EmbeddingConfig(
@@ -127,6 +131,10 @@ class Mutation:
             projections_computed = await asyncio.to_thread(
                 compute_projections_for_collection, input.collection_name
             )
+        
+        # Mark job as complete
+        job_state.complete_job(config.collection_name)
+
 
         # Emit final completion status
         emit_progress_sync(
@@ -173,8 +181,7 @@ class Mutation:
                 ollama_url=input.embedding_model.ollama_url,
                 task=input.embedding_model.task,  # QWEN: query instruction
                 task_type=input.embedding_model.task_type,  # Gemini: optimization type
-                prompt=input.embedding_model.prompt,  # SentenceTransformers: direct prompt
-                prompt_name=input.embedding_model.prompt_name  # SentenceTransformers: predefined prompt
+                prompt=input.embedding_model.prompt  # SentenceTransformers: can be known name or custom string
             )
 
         config = LocalFileEmbeddingConfig(

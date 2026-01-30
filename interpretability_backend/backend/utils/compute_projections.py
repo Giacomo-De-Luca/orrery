@@ -15,7 +15,7 @@ from typing import Optional, Union, List, Literal
 from ..embedding_functions.config import DB_PATH
 
 
-def compute_projections_for_collection(collection_name: str, projection_type: Optional[List[Literal["pca2d", "pca3d", "umap2d", "umap3d"]]] = None) -> bool:
+def compute_projections_for_collection(collection_name: str, projection_type: Optional[List[Literal["pca2d", "pca3d", "umap2d", "umap3d"]]] = ["pca2d", "pca3d", "umap2d", "umap3d"]) -> bool:
     """
     Compute PCA and UMAP projections for a collection.
 
@@ -61,6 +61,8 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
         load_batch_size = 5000
         embeddings_list = []
         ids_list = []
+        pca_2d_variance = None
+        pca_3d_variance = None
 
         for offset in tqdm(range(0, count, load_batch_size), desc="Loading embeddings"):
             limit = min(load_batch_size, count - offset)
@@ -103,7 +105,6 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
             print("PCA 2D complete, memory freed")
 
         if projection_type is not None and "pca3d" in projection_type:
-
 
             # Compute and store PCA 3D
             print("Computing PCA 3D projections...")
@@ -177,15 +178,22 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
         # Update collection metadata
         current_metadata = collection.metadata or {}
 
+        if pca_2d_variance is not None or pca_3d_variance is not None:
+         
+            current_metadata.update({
+                'pca_2d_variance': json.dumps(pca_2d_variance),
+                'pca_3d_variance': json.dumps(pca_3d_variance),
+                'has_projections': True,
+                'projections_computed_at': time.strftime('%Y-%m-%d %H:%M:%S')
+            })
         
-        current_metadata.update({
-            'pca_2d_variance': json.dumps(pca_2d_variance) if projection_type is not None and "pca2d" in projection_type else None,
-            'pca_3d_variance': json.dumps(pca_3d_variance) if projection_type is not None and "pca3d" in projection_type else None,
-            'has_projections': True,
-            'projections_computed_at': time.strftime('%Y-%m-%d %H:%M:%S')
-        })
-        collection.modify(metadata=current_metadata)
+        else: 
+            current_metadata.update({
+                'has_projections': True,
+                'projections_computed_at': time.strftime('%Y-%m-%d %H:%M:%S')
+            })
 
+        collection.modify(metadata=current_metadata)
         print("Projections computed and stored successfully!")
         return True
 

@@ -1,13 +1,13 @@
 """
 Modified fork of ChromaDB's SentenceTransformerEmbeddingFunction.
-Adds prompt/prompt_name support passed to encode() for EmbeddingGemma and similar models.
+Adds prompt support passed to encode() for EmbeddingGemma and similar models.
 
 ChromaDB's original implementation only passes **kwargs to the SentenceTransformer constructor,
-not to encode(). This fork adds prompt/prompt_name support to enable task-specific embeddings.
+not to encode(). This fork adds prompt support to enable task-specific embeddings.
 
-For EmbeddingGemma and similar models, use:
-- prompt: Direct prompt string (e.g., "task: search result | query: ")
-- prompt_name: Predefined prompt name (e.g., "Retrieval-query", "Retrieval-document", "STS")
+For EmbeddingGemma and similar models, pass a prompt that can be either:
+- A known prompt name (e.g., "Retrieval-query", "STS") → passed as prompt_name
+- A custom prompt string (e.g., "Classify: ") → passed as prompt
 
 See: https://huggingface.co/google/gemma-embedding-001
 """
@@ -15,6 +15,17 @@ from chromadb.api.types import EmbeddingFunction, Space, Embeddings, Documents
 from chromadb.utils.embedding_functions.schemas import validate_config_schema
 from typing import List, Dict, Any, Optional
 import numpy as np
+
+# Known prompt names that SentenceTransformers recognizes for models like EmbeddingGemma
+KNOWN_PROMPT_NAMES = {
+    "Retrieval-query",
+    "Retrieval-document",
+    "STS",
+    "Classification",
+    "Clustering",
+    "s2p",  # Sentence to passage
+    "s2s",  # Sentence to sentence
+}
 
 
 class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
@@ -29,7 +40,6 @@ class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
         device: str = "cpu",
         normalize_embeddings: bool = False,
         prompt: Optional[str] = None,
-        prompt_name: Optional[str] = None,
         **kwargs: Any,
     ):
         """Initialize SentenceTransformerEmbeddingFunction.
@@ -38,8 +48,7 @@ class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
             model_name: Identifier of the SentenceTransformer model
             device: Device used for computation (cpu, cuda, mps)
             normalize_embeddings: Whether to normalize returned vectors
-            prompt: Direct prompt string to prepend (e.g., "task: search result | query: ")
-            prompt_name: Predefined prompt name (e.g., "Retrieval-query", "STS")
+            prompt: Prompt string - can be a known name (e.g., "Retrieval-query") or custom string
             **kwargs: Additional arguments to pass to the SentenceTransformer model.
         """
         try:
@@ -54,7 +63,9 @@ class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
         self.device = device
         self.normalize_embeddings = normalize_embeddings
         self.prompt = prompt
-        self.prompt_name = prompt_name
+
+        # Resolve: if it's a known name, use prompt_name; otherwise use prompt
+        self._is_prompt_name = prompt in KNOWN_PROMPT_NAMES if prompt else False
 
         for key, value in kwargs.items():
             if not isinstance(value, (str, int, float, bool, list, dict, tuple)):
@@ -82,11 +93,12 @@ class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
             "normalize_embeddings": self.normalize_embeddings,
         }
 
-        # Add prompt or prompt_name if specified (prompt takes precedence)
+        # Add prompt - use prompt_name if it's a known name, otherwise use prompt directly
         if self.prompt is not None:
-            encode_kwargs["prompt"] = self.prompt
-        elif self.prompt_name is not None:
-            encode_kwargs["prompt_name"] = self.prompt_name
+            if self._is_prompt_name:
+                encode_kwargs["prompt_name"] = self.prompt
+            else:
+                encode_kwargs["prompt"] = self.prompt
 
         embeddings = self._model.encode(list(input), **encode_kwargs)
         return [np.array(embedding, dtype=np.float32) for embedding in embeddings]
@@ -108,7 +120,6 @@ class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
         device = config.get("device")
         normalize_embeddings = config.get("normalize_embeddings")
         prompt = config.get("prompt")
-        prompt_name = config.get("prompt_name")
         kwargs = config.get("kwargs", {})
 
         if model_name is None or device is None or normalize_embeddings is None:
@@ -119,7 +130,6 @@ class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
             device=device,
             normalize_embeddings=normalize_embeddings,
             prompt=prompt,
-            prompt_name=prompt_name,
             **kwargs,
         )
 
@@ -129,7 +139,6 @@ class SentenceTransformerEmbeddingFunction(EmbeddingFunction[Documents]):
             "device": self.device,
             "normalize_embeddings": self.normalize_embeddings,
             "prompt": self.prompt,
-            "prompt_name": self.prompt_name,
             "kwargs": self.kwargs,
         }
 

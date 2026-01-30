@@ -109,8 +109,7 @@ class EmbeddingModelInput:
     task: Optional[str] = None  # QWEN: Query instruction prefix (used at query time only)
     task_type: Optional[str] = None  # Gemini: Embedding optimization (SEMANTIC_SIMILARITY, RETRIEVAL_DOCUMENT, etc.)
     # SentenceTransformers: Prompt support for models like EmbeddingGemma
-    prompt: Optional[str] = None  # Direct prompt string (e.g., "task: search result | query: ")
-    prompt_name: Optional[str] = None  # Predefined prompt name (e.g., "Retrieval-query", "Retrieval-document", "STS")
+    prompt: Optional[str] = None  # Single field - can be predefined name (e.g., "Retrieval-query") or custom string
 
 
 @strawberry.input
@@ -254,8 +253,7 @@ class CollectionMetadata:
     embedded_columns: Optional[str] = None
     has_projections: Optional[bool] = None
     # Prompt info (for models like Gemma Embedding)
-    embedding_prompt: Optional[str] = None
-    embedding_prompt_name: Optional[str] = None
+    embedding_prompt: Optional[str] = None  # Single field - can be predefined name or custom string
 
 
 @strawberry.type
