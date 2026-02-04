@@ -173,7 +173,8 @@ export function SimilarItemsTable({ results, queryLabel, categoryField }: Simila
       minSize: 200,
       maxSize: 500,
       cell: ({ row }) => (
-        <div className="text-sm text-muted-foreground whitespace-normal line-clamp-3">
+<div className="text-sm text-muted-foreground whitespace-normal max-h-[80px] overflow-y-auto">
+          
           {row.getValue('document')}
         </div>
       ),
