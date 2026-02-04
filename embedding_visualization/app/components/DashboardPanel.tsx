@@ -45,6 +45,9 @@ interface DashboardPanelProps {
   onTextResultClick?: (point: Point2D | Point3D) => void;
   // Panel state
   activePanel: ActivePanel;
+  // Query prompt configuration
+  queryPromptName?: string | null;
+  onQueryPromptNameChange?: (value: string | null) => void;
 }
 
 export function DashboardPanel({
@@ -65,6 +68,8 @@ export function DashboardPanel({
   textSearchResults,
   onTextResultClick,
   activePanel,
+  queryPromptName,
+  onQueryPromptNameChange,
 }: DashboardPanelProps) {
   const isExpanded = activePanel !== null;
   const is2D = state.mode === '2d';
@@ -128,6 +133,8 @@ export function DashboardPanel({
       categoryValues={categoryValues}
       colorScaleType={state.colorScaleType}
       monochromeColor={state.monochromeColor}
+      sequentialScaleName={state.sequentialScaleName}
+      divergingScaleName={state.divergingScaleName}
       highlightedIndices={highlightedIndices}
       selectedPoint={selectedPoint as Point2D | null}
       onPointClick={onPointClick}
@@ -143,6 +150,8 @@ export function DashboardPanel({
       categoryValues={categoryValues}
       colorScaleType={state.colorScaleType}
       monochromeColor={state.monochromeColor}
+      sequentialScaleName={state.sequentialScaleName}
+      divergingScaleName={state.divergingScaleName}
       highlightedIndices={highlightedIndices}
       selectedPoint={selectedPoint as Point3D | null}
       onPointClick={onPointClick}
@@ -184,6 +193,9 @@ export function DashboardPanel({
               onCategoryToggle={handleCategoryToggle}
               colorScaleType={state.colorScaleType}
               numericRange={numericRange}
+              sequentialScaleName={state.sequentialScaleName}
+              divergingScaleName={state.divergingScaleName}
+              monochromeColor={state.monochromeColor}
             />
           </ScrollArea>
           {/* Horizontal Spacer 
@@ -261,6 +273,8 @@ export function DashboardPanel({
           selectedPointId={selectedPoint?.id}
           onResultClick={onTextResultClick}
           categoryField={colorByField}
+          queryPromptName={queryPromptName}
+          onQueryPromptNameChange={onQueryPromptNameChange}
           variant="floating"
           className={cn(
             "pointer-events-auto absolute top-20 bottom-2 z-40 w-80 shadow-2xl transition-all duration-300 ease-in-out",

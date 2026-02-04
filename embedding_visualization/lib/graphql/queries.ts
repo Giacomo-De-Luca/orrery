@@ -52,12 +52,14 @@ export const SEMANTIC_SEARCH = gql`
     $query: String!
     $nResults: Int = 10
     $similarityMeasure: SimilarityMeasure = COSINE
+    $queryPrompt: String
   ) {
     semanticSearch(
       collectionName: $collectionName
       query: $query
       nResults: $nResults
       similarityMeasure: $similarityMeasure
+      queryPrompt: $queryPrompt
     ) {
       id
       document
@@ -145,6 +147,48 @@ export const GET_EMBEDDING_JOBS = gql`
  */
 export const EMBEDDING_PROGRESS_SUBSCRIPTION = gql`
   subscription EmbeddingProgress($jobId: String!) {
+    embeddingProgress(jobId: $jobId) {
+      jobId
+      status
+      itemsProcessed
+      totalItems
+      currentBatch
+      totalBatches
+      error
+      message
+    }
+  }
+`;
+
+/**
+ * Mutation to extract topics from an existing collection
+ */
+export const EXTRACT_TOPICS = gql`
+  mutation ExtractTopics($collectionName: String!, $config: TopicConfigInput) {
+    extractTopics(input: { collectionName: $collectionName, config: $config }) {
+      collectionName
+      numTopics
+      numNoisePoints
+      topics {
+        topicId
+        keywords {
+          word
+          score
+        }
+        label
+        count
+      }
+      durationSeconds
+      error
+    }
+  }
+`;
+
+/**
+ * Subscription to receive real-time progress updates for topic extraction
+ */
+export const TOPIC_EXTRACTION_PROGRESS_SUBSCRIPTION = gql`
+  subscription TopicExtractionProgress($jobId: String!) {
     embeddingProgress(jobId: $jobId) {
       jobId
       status

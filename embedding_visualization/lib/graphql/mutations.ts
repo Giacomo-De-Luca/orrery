@@ -272,6 +272,7 @@ export interface EmbeddingModelInput {
   ollamaUrl?: string; // Ollama: server URL (default: http://localhost:11434)
   task?: string; // QWEN: Query instruction prefix (used at query time only)
   taskType?: GeminiTaskType; // Gemini: Embedding optimization type
+  prompt?: string; // SentenceTransformers: Can be predefined name (e.g., "Retrieval-query") or custom string
 }
 
 export interface EmbedDatasetInput {
@@ -287,6 +288,8 @@ export interface EmbedDatasetInput {
   computeProjections?: boolean;
   embeddingModel?: EmbeddingModelInput;
   resume?: boolean; // Resume an interrupted job instead of starting fresh
+  extractTopics?: boolean;
+  topicConfig?: TopicConfigInput;
 }
 
 export type DataType = 'TEXT' | 'IMAGE' | 'VECTOR';
@@ -307,6 +310,8 @@ export interface EmbedLocalFileInput {
   computeProjections?: boolean;
   embeddingModel?: EmbeddingModelInput;
   resume?: boolean; // Resume an interrupted job instead of starting fresh
+  extractTopics?: boolean;
+  topicConfig?: TopicConfigInput;
 }
 
 export interface EmbedDatasetResult {
@@ -357,4 +362,36 @@ export interface JobProgress {
   totalBatches: number;
   error: string | null;
   message: string | null;
+}
+
+// ========== Topic Extraction Types ==========
+
+export interface TopicConfigInput {
+  minTopicSize?: number;
+  nKeywords?: number;
+  useLlmLabels?: boolean;
+  llmProvider?: string;
+  llmModel?: string;
+  projectionType?: string;
+}
+
+export interface TopicKeyword {
+  word: string;
+  score: number;
+}
+
+export interface TopicInfo {
+  topicId: number;
+  keywords: TopicKeyword[];
+  label: string | null;
+  count: number;
+}
+
+export interface ExtractTopicsResult {
+  collectionName: string;
+  numTopics: number;
+  numNoisePoints: number;
+  topics: TopicInfo[];
+  durationSeconds: number;
+  error: string | null;
 }

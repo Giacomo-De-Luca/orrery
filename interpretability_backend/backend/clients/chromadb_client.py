@@ -72,7 +72,13 @@ class ChromaDBClient:
             for col in collections
         ]
 
-    def get_collection(self, name: str, load_embedding_function: bool = False, for_query: bool = False):
+    def get_collection(
+        self,
+        name: str,
+        load_embedding_function: bool = False,
+        for_query: bool = False,
+        query_prompt: Optional[str] = None
+    ):
         """Get a collection by name.
 
         Args:
@@ -80,6 +86,7 @@ class ChromaDBClient:
             load_embedding_function: If True, loads the embedding function for query operations.
                                      If False (default), returns collection without EF for read-only ops.
             for_query: If True, configures EF for query embedding (QWEN adds instruction prefix)
+            query_prompt: Override prompt for query embedding (can be known name or custom string)
 
         Returns:
             ChromaDB collection (with or without embedding function)
@@ -107,6 +114,10 @@ class ChromaDBClient:
                     task = metadata.get("embedding_task")  # QWEN: query instruction
                     task_type = metadata.get("embedding_task_type")  # Gemini: optimization type
 
+                    # Retrieve SentenceTransformers prompt from metadata
+                    # Use override if provided, otherwise use stored value
+                    prompt = query_prompt or metadata.get("embedding_prompt")
+
                     # For Gemini, map document task type to query task type when searching
                     # e.g., RETRIEVAL_DOCUMENT -> RETRIEVAL_QUERY
                     if for_query and provider == EmbeddingProvider.GEMINI:
@@ -116,7 +127,8 @@ class ChromaDBClient:
                         provider=provider,
                         model_name=model_name,
                         task=task,
-                        task_type=task_type
+                        task_type=task_type,
+                        prompt=prompt
                     )
 
                     # Get embedding dimension from metadata (avoid test embedding)
@@ -194,7 +206,8 @@ class ChromaDBClient:
         query_embeddings: Optional[List[List[float]]] = None,
         n_results: int = 10,
         where: Optional[Dict[str, Any]] = None,
-        distance_metric: str = "cosine"  # cosine, l2, or ip
+        distance_metric: str = "cosine",  # cosine, l2, or ip
+        query_prompt: Optional[str] = None
     ) -> Dict[str, Any]:
         """Perform semantic search on collection.
 
@@ -205,6 +218,7 @@ class ChromaDBClient:
             n_results: Number of results to return
             where: ChromaDB where filter
             distance_metric: Distance metric (cosine, l2, ip)
+            query_prompt: Prompt to override for query embedding (can be known name or custom string)
 
         Returns:
             Query results with ids, distances, metadatas, documents
@@ -212,7 +226,12 @@ class ChromaDBClient:
         # Only load EF if using query_texts (not query_embeddings)
         needs_ef = query_texts is not None
         # When embedding text queries, use query mode (QWEN adds instruction prefix)
-        collection = self.get_collection(collection_name, load_embedding_function=needs_ef, for_query=needs_ef)
+        collection = self.get_collection(
+            collection_name,
+            load_embedding_function=needs_ef,
+            for_query=needs_ef,
+            query_prompt=query_prompt
+        )
 
         # Validate inputs
         if query_texts is None and query_embeddings is None:
@@ -352,7 +371,13 @@ class ChromaDBClient:
                 "source_split": collection_metadata.get("source_split"),
                 "source_file": collection_metadata.get("source_file"),
                 "embedded_columns": collection_metadata.get("embedded_columns"),
-                "has_projections": collection_metadata.get("has_projections", False)
+                "has_projections": collection_metadata.get("has_projections", False),
+                # Prompt info (for models like Gemma Embedding)
+                "embedding_prompt": collection_metadata.get("embedding_prompt"),
+                # Topic extraction metadata
+                "has_topics": collection_metadata.get("has_topics", False),
+                "topic_count": collection_metadata.get("topic_count"),
+                "topics_extracted_at": collection_metadata.get("topics_extracted_at"),
             }
         }
 

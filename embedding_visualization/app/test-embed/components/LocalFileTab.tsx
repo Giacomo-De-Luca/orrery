@@ -14,9 +14,11 @@ import {
 } from '@/lib/ui-primitives/select';
 import { Label } from '@/lib/ui-primitives/label';
 import { Separator } from '@/lib/ui-primitives/separator';
-import type { EmbeddingProvider, DataType, PortionStrategy, LocalFileInfo, LocalFilePreview, EmbedDatasetResult, GeminiTaskType, EmbeddingJob } from '@/lib/graphql/mutations';
+import type { EmbeddingProvider, DataType, PortionStrategy, LocalFileInfo, LocalFilePreview, EmbedDatasetResult, GeminiTaskType, EmbeddingJob, TopicConfigInput } from '@/lib/graphql/mutations';
+import { Checkbox } from '@/lib/ui-primitives/checkbox';
 
 import { FileUploadZone } from './FileUploadZone';
+import { TopicConfigForm, DEFAULT_TOPIC_CONFIG, toTopicConfigInput, type TopicConfigState } from './TopicConfigForm';
 import { DataTypeSelector } from './DataTypeSelector';
 import { PortionSelector } from './PortionSelector';
 import { DatasetInfoDisplay } from './DatasetInfoDisplay';
@@ -43,8 +45,10 @@ interface LocalFileTabProps {
     sampleSeed?: number;
     computeProjections?: boolean;
     batchSize?: number;
-    embeddingModel?: { provider: EmbeddingProvider; modelName: string; ollamaUrl?: string; task?: string; taskType?: GeminiTaskType };
+    embeddingModel?: { provider: EmbeddingProvider; modelName: string; ollamaUrl?: string; task?: string; taskType?: GeminiTaskType; prompt?: string; promptName?: string };
     resume?: boolean;
+    extractTopics?: boolean;
+    topicConfig?: TopicConfigInput;
   }) => Promise<EmbedDatasetResult | null>;
   refreshCollections: () => Promise<void>;
   localFileInfo: LocalFileInfo | null;
@@ -116,6 +120,13 @@ export function LocalFileTab({
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [qwenTask, setQwenTask] = useState('Given a web search query, retrieve relevant passages that answer the query');
   const [geminiTaskType, setGeminiTaskType] = useState<GeminiTaskType>('SEMANTIC_SIMILARITY');
+  // SentenceTransformers prompt support (for models like Gemma Embedding)
+  const [promptName, setPromptName] = useState<string | null>(null);
+  const [customPrompt, setCustomPrompt] = useState('');
+
+  // Topic extraction
+  const [enableTopics, setEnableTopics] = useState(false);
+  const [topicConfig, setTopicConfig] = useState<TopicConfigState>(DEFAULT_TOPIC_CONFIG);
 
   // Reset columns when file changes
   useEffect(() => {
@@ -193,7 +204,11 @@ export function LocalFileTab({
         ollamaUrl: embeddingProvider === 'OLLAMA' ? ollamaUrl : undefined,
         task: embeddingProvider === 'QWEN' ? qwenTask : undefined,
         taskType: embeddingProvider === 'GEMINI' ? geminiTaskType : undefined,
+        promptName: embeddingProvider === 'SENTENCE_TRANSFORMERS' ? promptName ?? undefined : undefined,
+        prompt: embeddingProvider === 'SENTENCE_TRANSFORMERS' && customPrompt ? customPrompt : undefined,
       } : undefined,
+      extractTopics: enableTopics || undefined,
+      topicConfig: enableTopics ? toTopicConfigInput(topicConfig) : undefined,
     });
 
     await refreshCollections();
@@ -221,6 +236,8 @@ export function LocalFileTab({
       ollamaUrl: storedModel.ollama_url as string | undefined,
       task: storedModel.task as string | undefined,
       taskType: storedModel.task_type as GeminiTaskType | undefined,
+      prompt: storedModel.prompt as string | undefined,
+      promptName: storedModel.prompt_name as string | undefined,
     } : undefined;
 
     await embedLocalFile({
@@ -474,7 +491,62 @@ export function LocalFileTab({
                   </p>
                 </div>
               )}
+              {embeddingProvider === 'SENTENCE_TRANSFORMERS' && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="prompt-name">Prompt Name</Label>
+                    <Select
+                      value={promptName ?? 'none'}
+                      onValueChange={(v) => setPromptName(v === 'none' ? null : v)}
+                    >
+                      <SelectTrigger id="prompt-name">
+                        <SelectValue placeholder="None" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="Retrieval-document">Retrieval-document (RAG storage)</SelectItem>
+                        <SelectItem value="Retrieval-query">Retrieval-query (RAG search)</SelectItem>
+                        <SelectItem value="STS">STS (Sentence similarity)</SelectItem>
+                        <SelectItem value="Classification">Classification</SelectItem>
+                        <SelectItem value="Clustering">Clustering</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Task-specific prompt for models like Gemma Embedding
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-prompt">Custom Prompt (Advanced)</Label>
+                    <Input
+                      id="custom-prompt"
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="Leave empty to use prompt name"
+                    />
+                  </div>
+                </>
+              )}
             </div>
+
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Topic Extraction */}
+      {isDataLoaded && (
+        <Card>
+          <CardContent className="pt-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="local-enable-topics"
+                checked={enableTopics}
+                onCheckedChange={(checked) => setEnableTopics(checked === true)}
+              />
+              <Label htmlFor="local-enable-topics" className="cursor-pointer">Extract topics after embedding</Label>
+            </div>
+            {enableTopics && (
+              <TopicConfigForm value={topicConfig} onChange={setTopicConfig} />
+            )}
           </CardContent>
         </Card>
       )}

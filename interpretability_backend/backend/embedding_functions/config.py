@@ -55,6 +55,8 @@ class EmbeddingModelConfig:
     ollama_url: Optional[str] = None  # Default: http://localhost:11434
     task: Optional[str] = None  # QWEN: Query instruction prefix (used at query time only)
     task_type: Optional[str] = None  # Gemini: Embedding optimization type (SEMANTIC_SIMILARITY, RETRIEVAL_DOCUMENT, etc.)
+    # SentenceTransformers: Prompt support for models like EmbeddingGemma
+    prompt: Optional[str] = None  # Single field - can be predefined name or custom string
 
 
 @dataclass

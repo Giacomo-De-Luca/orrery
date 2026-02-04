@@ -14,9 +14,11 @@ import {
 } from '@/lib/ui-primitives/select';
 import { Label } from '@/lib/ui-primitives/label';
 import { Separator } from '@/lib/ui-primitives/separator';
-import type { EmbeddingProvider, PortionStrategy, HFDatasetInfo, HFDatasetPreview, EmbedDatasetResult, GeminiTaskType, EmbeddingJob } from '@/lib/graphql/mutations';
+import type { EmbeddingProvider, PortionStrategy, HFDatasetInfo, HFDatasetPreview, EmbedDatasetResult, GeminiTaskType, EmbeddingJob, TopicConfigInput } from '@/lib/graphql/mutations';
+import { Checkbox } from '@/lib/ui-primitives/checkbox';
 
 import { SplitSelector } from './SplitSelector';
+import { TopicConfigForm, DEFAULT_TOPIC_CONFIG, toTopicConfigInput, type TopicConfigState } from './TopicConfigForm';
 import { PortionSelector } from './PortionSelector';
 import { DatasetInfoDisplay } from './DatasetInfoDisplay';
 import { ColumnSelector } from './ColumnSelector';
@@ -44,8 +46,10 @@ interface HuggingFaceTabProps {
     portion?: { strategy: PortionStrategy; n?: number; start?: number; end?: number; seed?: number };
     computeProjections?: boolean;
     batchSize?: number;
-    embeddingModel?: { provider: EmbeddingProvider; modelName: string; ollamaUrl?: string; task?: string; taskType?: GeminiTaskType };
+    embeddingModel?: { provider: EmbeddingProvider; modelName: string; ollamaUrl?: string; task?: string; taskType?: GeminiTaskType; prompt?: string; promptName?: string };
     resume?: boolean;
+    extractTopics?: boolean;
+    topicConfig?: TopicConfigInput;
   }) => Promise<EmbedDatasetResult | null>;
   refreshCollections: () => Promise<void>;
   datasetInfo: HFDatasetInfo | null;
@@ -119,6 +123,13 @@ export function HuggingFaceTab({
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [qwenTask, setQwenTask] = useState('Given a web search query, retrieve relevant passages that answer the query');
   const [geminiTaskType, setGeminiTaskType] = useState<GeminiTaskType>('SEMANTIC_SIMILARITY');
+  // SentenceTransformers prompt support (for models like Gemma Embedding)
+  const [promptName, setPromptName] = useState<string | null>(null);
+  const [customPrompt, setCustomPrompt] = useState('');
+
+  // Topic extraction
+  const [enableTopics, setEnableTopics] = useState(false);
+  const [topicConfig, setTopicConfig] = useState<TopicConfigState>(DEFAULT_TOPIC_CONFIG);
 
   // Reset columns when dataset changes
   useEffect(() => {
@@ -208,7 +219,11 @@ export function HuggingFaceTab({
               ollamaUrl: embeddingProvider === 'OLLAMA' ? ollamaUrl : undefined,
               task: embeddingProvider === 'QWEN' ? qwenTask : undefined,
               taskType: embeddingProvider === 'GEMINI' ? geminiTaskType : undefined,
+              promptName: embeddingProvider === 'SENTENCE_TRANSFORMERS' ? promptName ?? undefined : undefined,
+              prompt: embeddingProvider === 'SENTENCE_TRANSFORMERS' && customPrompt ? customPrompt : undefined,
             },
+            extractTopics: enableTopics || undefined,
+            topicConfig: enableTopics ? toTopicConfigInput(topicConfig) : undefined,
           });
 
           if (result?.error) {
@@ -235,7 +250,11 @@ export function HuggingFaceTab({
             ollamaUrl: embeddingProvider === 'OLLAMA' ? ollamaUrl : undefined,
             task: embeddingProvider === 'QWEN' ? qwenTask : undefined,
             taskType: embeddingProvider === 'GEMINI' ? geminiTaskType : undefined,
+            promptName: embeddingProvider === 'SENTENCE_TRANSFORMERS' ? promptName ?? undefined : undefined,
+            prompt: embeddingProvider === 'SENTENCE_TRANSFORMERS' && customPrompt ? customPrompt : undefined,
           },
+          extractTopics: enableTopics || undefined,
+          topicConfig: enableTopics ? toTopicConfigInput(topicConfig) : undefined,
         });
       }
     } else {
@@ -263,7 +282,11 @@ export function HuggingFaceTab({
           ollamaUrl: embeddingProvider === 'OLLAMA' ? ollamaUrl : undefined,
           task: embeddingProvider === 'QWEN' ? qwenTask : undefined,
           taskType: embeddingProvider === 'GEMINI' ? geminiTaskType : undefined,
+          promptName: embeddingProvider === 'SENTENCE_TRANSFORMERS' ? promptName ?? undefined : undefined,
+          prompt: embeddingProvider === 'SENTENCE_TRANSFORMERS' && customPrompt ? customPrompt : undefined,
         },
+        extractTopics: enableTopics || undefined,
+        topicConfig: enableTopics ? toTopicConfigInput(topicConfig) : undefined,
       });
     }
 
@@ -298,6 +321,8 @@ export function HuggingFaceTab({
       ollamaUrl: storedModel.ollama_url as string | undefined,
       task: storedModel.task as string | undefined,
       taskType: storedModel.task_type as GeminiTaskType | undefined,
+      prompt: storedModel.prompt as string | undefined,
+      promptName: storedModel.prompt_name as string | undefined,
     } : undefined;
 
     await embedHFDataset({
@@ -564,7 +589,60 @@ export function HuggingFaceTab({
                   </p>
                 </div>
               )}
+              {embeddingProvider === 'SENTENCE_TRANSFORMERS' && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="prompt-name">Prompt Name</Label>
+                    <Select
+                      value={promptName ?? 'none'}
+                      onValueChange={(v) => setPromptName(v === 'none' ? null : v)}
+                    >
+                      <SelectTrigger id="prompt-name">
+                        <SelectValue placeholder="None" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="Retrieval-document">Retrieval-document (RAG storage)</SelectItem>
+                        <SelectItem value="Retrieval-query">Retrieval-query (RAG search)</SelectItem>
+                        <SelectItem value="STS">STS (Sentence similarity)</SelectItem>
+                        <SelectItem value="Classification">Classification</SelectItem>
+                        <SelectItem value="Clustering">Clustering</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Task-specific prompt for models like Gemma Embedding
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="custom-prompt">Custom Prompt (Advanced)</Label>
+                    <Input
+                      id="custom-prompt"
+                      value={customPrompt}
+                      onChange={(e) => setCustomPrompt(e.target.value)}
+                      placeholder="Leave empty to use prompt name"
+                    />
+                  </div>
+                </>
+              )}
             </div>
+
+            {/* Topic Extraction Toggle */}
+            <Separator />
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="hf-enable-topics"
+                  checked={enableTopics}
+                  onCheckedChange={(checked) => setEnableTopics(checked === true)}
+                />
+                <Label htmlFor="hf-enable-topics" className="cursor-pointer">Extract topics after embedding</Label>
+              </div>
+              {enableTopics && (
+                <TopicConfigForm value={topicConfig} onChange={setTopicConfig} />
+              )}
+            </div>
+
+            <Separator />
 
             {/* Embed Button */}
             {isDataLoaded && (
@@ -581,8 +659,6 @@ export function HuggingFaceTab({
           </CardContent>
         </Card>
       )}
-
-
 
       {/* Embed Result */}
       {lastEmbedResult && (

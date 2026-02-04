@@ -292,6 +292,7 @@ def embed_text_from_local(
             "embedding_dim": embedding_dim,
             "embedding_task": model_config.task,
             "embedding_task_type": model_config.task_type,
+            "embedding_prompt": model_config.prompt,
             "total_in_file": total,
             "created_at": time.strftime('%Y-%m-%d %H:%M:%S')
         }
@@ -403,13 +404,12 @@ def embed_text_from_local(
         if progress_callback:
             progress_callback(min(batch_start + config.batch_size, len(rows)), len(rows))
 
-    # Mark job as complete
-    job_state.complete_job(config.collection_name)
+  
 
     # Emit completion event to WebSocket subscribers
     emit_progress_sync(
         job_id=config.collection_name,
-        status="completed",
+        status="progress",
         items_processed=total_embedded,
         total_items=len(rows),
         current_batch=total_batches,

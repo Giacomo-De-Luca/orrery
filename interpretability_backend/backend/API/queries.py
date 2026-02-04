@@ -19,6 +19,8 @@ from .types import (
     ProjectionData,
     SemanticSearchResult,
     SimilarityMeasure,
+    TopicInfo,
+    TopicKeyword,
     build_where_clause,
 )
 
@@ -231,10 +233,39 @@ class Query:
             Projection data with PCA/UMAP projections from ChromaDB metadata.
             Generic structure - no hardcoded field names.
         """
+        import json
+
         client = get_chromadb_client()
 
         # Load projection data directly from ChromaDB metadata
         projection_data = client.get_projection_data(name)
+
+        # Parse topic summary if present
+        metadata = projection_data["metadata"].copy()
+        if metadata.get("has_topics"):
+            try:
+                # Get full collection info to access topic_summary
+                collection_info = client.get_collection_info(name)
+                topic_summary_str = collection_info.get("metadata", {}).get("topic_summary")
+
+                if topic_summary_str:
+                    topic_summary = topic_summary_str if isinstance(topic_summary_str, list) else json.loads(topic_summary_str)
+                    # Convert to TopicInfo objects
+                    topics = []
+                    for topic_data in topic_summary:
+                        keywords = [
+                            TopicKeyword(word=kw["word"], score=kw["score"])
+                            for kw in topic_data.get("keywords", [])
+                        ]
+                        topics.append(TopicInfo(
+                            topic_id=topic_data["topic_id"],
+                            keywords=keywords,
+                            label=topic_data.get("label"),
+                            count=topic_data.get("count", 0)
+                        ))
+                    metadata["topics"] = topics
+            except Exception as e:
+                print(f"Error parsing topic summary: {e}")
 
         return ProjectionData(
             ids=projection_data["ids"],
@@ -245,7 +276,7 @@ class Query:
             pca_3d=projection_data["pca_3d"],
             umap_2d=projection_data["umap_2d"],
             umap_3d=projection_data["umap_3d"],
-            metadata=CollectionMetadata(**projection_data["metadata"])
+            metadata=CollectionMetadata(**metadata)
         )
 
     @strawberry.field
@@ -329,6 +360,7 @@ class Query:
         similarity_measure: SimilarityMeasure = SimilarityMeasure.COSINE,
         filters: Optional[List[FilterInput]] = None,
         include_embeddings: bool = False,
+        query_prompt: Optional[str] = None,
         info=None
     ) -> List[SemanticSearchResult]:
         """Perform semantic search on a collection.
@@ -341,6 +373,7 @@ class Query:
             similarity_measure: Similarity metric to use
             filters: List of filters to apply
             include_embeddings: Whether to include embedding vectors in results
+            query_prompt: Prompt to use for query embedding (can be known name or custom string, overrides collection default)
 
         Returns:
             List of search results with similarities
@@ -357,7 +390,8 @@ class Query:
             query_embeddings=[query_embedding] if query_embedding else None,
             n_results=n_results,
             where=where,
-            distance_metric=similarity_measure.value
+            distance_metric=similarity_measure.value,
+            query_prompt=query_prompt
         )
 
         # Convert to SemanticSearchResult list

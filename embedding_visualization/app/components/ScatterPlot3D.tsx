@@ -5,10 +5,12 @@ import dynamic from 'next/dynamic';
 import type { PlotData, Layout, Config, PlotMouseEvent, PlotRelayoutEvent } from 'plotly.js';
 import type { Point3D, HighlightMap, ColorScaleType } from '../../lib/types/types';
 import { useTheme } from 'next-themes';
-import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergingScale, getMonochromeScale } from '../../lib/utils/categoryColors';
+import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergingScale, getMonochromeScale, type SequentialScaleName, type DivergingScaleName } from '../../lib/utils/categoryColors';
 import { calculateMarkerStyle, calculateLuminosity, calculateHighlightScale, calculateSimilarityColors } from '../../lib/utils/plotUtils';
 import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
 import { FrostedTooltip, type TooltipData } from './FrostedTooltip';
+import { easeInOutCubic, lerp, cartesianToSpherical, sphericalToCartesian, getZoomLevel, getZoomMultiplier, formatHoverText } from '../utils/rendeding';
+
 
 // Factory pattern: use pre-bundled plotly.js-dist-min to avoid glslify bundler issues
 const Plot = dynamic(async () => {
@@ -26,66 +28,15 @@ interface ScatterPlot3DProps {
   categoryValues?: string[];
   colorScaleType?: ColorScaleType;
   monochromeColor?: string;
+  sequentialScaleName?: SequentialScaleName;
+  divergingScaleName?: DivergingScaleName;
   highlightedIndices?: HighlightMap;
   selectedPoint?: Point3D | null;
   onPointClick?: (point: Point3D) => void;
   className?: string;
   showOnlyHighlighted?: boolean;
   showLabels?: boolean;
-  /** Categories to gray out (muted) in the visualization */
   mutedCategories?: string[];
-}
-
-// --- Animation Helpers ---
-const easeInOutCubic = (t: number): number => {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-};
-
-const lerp = (start: number, end: number, t: number) => {
-  return start + (end - start) * t;
-};
-
-function cartesianToSpherical(x: number, y: number, z: number) {
-  const r = Math.sqrt(x * x + y * y + z * z);
-  const theta = Math.atan2(y, x);
-  const phi = Math.acos(z / (r || 1));
-  return { r, theta, phi };
-}
-
-function sphericalToCartesian(r: number, theta: number, phi: number) {
-  return {
-    x: r * Math.sin(phi) * Math.cos(theta),
-    y: r * Math.sin(phi) * Math.sin(theta),
-    z: r * Math.cos(phi),
-  };
-}
-
-const getZoomLevel = (
-  eye: { x: number; y: number; z: number },
-  center: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
-): number => {
-  const dx = eye.x - center.x;
-  const dy = eye.y - center.y;
-  const dz = eye.z - center.z;
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
-};
-
-const getZoomMultiplier = (
-  eye: { x: number; y: number; z: number },
-  center: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 },
-  defaultDistance: number = Math.sqrt(0.9**2 * 3) // ~1.56 for your defaults
-): number => {
-  const distance = getZoomLevel(eye, center);
-  return defaultDistance / distance;
-};
-
-
-
-function formatHoverText(point: Point3D): string {
-  const label = point.label || point.id;
-  const doc = point.document || '';
-  const truncatedDoc = doc.length > 100 ? doc.substring(0, 100) + '...' : doc;
-  return `${label}<br>${truncatedDoc}`;
 }
 
 interface PlotlyGraphDiv extends HTMLDivElement {
@@ -109,6 +60,8 @@ export function ScatterPlot3D({
   categoryValues = [],
   colorScaleType = 'categorical',
   monochromeColor = '#1f77b4',
+  sequentialScaleName = 'sinebow',
+  divergingScaleName = 'blueGold',
   highlightedIndices,
   selectedPoint,
   onPointClick,
@@ -123,6 +76,7 @@ export function ScatterPlot3D({
   const { resolvedTheme } = useTheme();
   const theme = resolvedTheme ?? 'light';
   const isDark = theme === 'dark';
+
 
   // Theme colors
   const axisColor = isDark ? '#e2e8f0' : '#0f172a';
@@ -146,9 +100,8 @@ export function ScatterPlot3D({
     return { minX, maxX, minY, maxY, minZ, maxZ };
   }, [points]);
 
-  const defaultEye = { x: 0.9, y: 0.9, z: 0.9 };
+  //const defaultEye = { x: 0.9, y: 0.9, z: 0.9 };
   const defaultCenter = { x: 0, y: 0, z: 0 };
-  const currentCameraRef = useRef({ eye: defaultEye, center: defaultCenter });
   const animationFrameRef = useRef<number | undefined>(undefined);
   const isAnimatingRef = useRef(false);
   const lastClickTimeRef = useRef<number>(0);
@@ -157,11 +110,47 @@ export function ScatterPlot3D({
   const [tooltipData, setTooltipData] = useState<TooltipData | null>(null);
   const plotlyLibRef = useRef<any>(null);
 
+  // Calculate point count once for all zoom calculations
+  const pointCount = points.length;
+
+  const defaultEye = useMemo(() => {
+    if (pointCount === 0) return { x: 2.5, y: 2.5, z: 2.5 };
+
+    // INVERSE Logarithmic scaling:
+    // Fewer points (<100) -> Start Far Away (e.g., 2.0)
+    // Many points (>10k) -> Start Very Close (e.g., 0.6)
+    
+    const startDistance = 2.5; // Maximum distance (for sparse data)
+    const zoomInRate = 0.4;    // How fast to zoom in per power of 10
+    
+    // Formula: MaxDist - (Rate * log10(count))
+    // Example:
+    // 10 pts   (Log 1) -> 2.5 - 0.4 = 2.1 (Far)
+    // 1000 pts (Log 3) -> 2.5 - 1.2 = 1.3 (Medium)
+    // 100k pts (Log 5) -> 2.5 - 2.0 = 0.5 (Close)
+    const calculatedZoom = startDistance - (zoomInRate * Math.log10(pointCount));
+
+    // Clamp: Never go closer than 0.1 (inside the points) or further than 2.5
+    const zoom = Math.min(Math.max(calculatedZoom, 0.1), 2.5);
+
+    return { x: zoom, y: zoom, z: zoom };
+  }, [pointCount]);
+
+  const currentCameraRef = useRef({ eye: defaultEye, center: defaultCenter });
+
+
+
+
   useEffect(() => {
     import('plotly.js-dist-min').then((lib) => {
       plotlyLibRef.current = lib.default;
     });
   }, []);
+
+  const currentZoomMultiplier = useRef(getZoomMultiplier(currentCameraRef.current.eye, currentCameraRef.current.center));
+
+
+
 
   // --- Camera Animation Effect (Unchanged logic) ---
   useEffect(() => {
@@ -177,7 +166,17 @@ export function ScatterPlot3D({
     const targetCenterY = (selectedPoint.y - dataCenterY) / maxRange;
     const targetCenterZ = (selectedPoint.z - dataCenterZ) / maxRange;
 
-    const targetR = 0.4;
+    // Adaptive target radius based on dataset size (similar to defaultEye calculation)
+    // Small datasets (100 pts): ~0.32
+    // Medium datasets (10k pts): ~0.08
+    // Large datasets (100k+ pts): ~0.05 (very close)
+    //const baseTargetR = 0.4;
+    //const zoomRate = 0.08; // How much to zoom in per power of 10
+    //const calculatedTargetR = baseTargetR - (zoomRate * Math.log10(Math.max(pointCount, 1)));
+    //const targetR = Math.min(Math.max(calculatedTargetR, 0.05), 0.5);
+
+    const targetR = 0.15
+
     const targetPhi = 1.3;
     const duration = 2000;
 
@@ -197,7 +196,12 @@ export function ScatterPlot3D({
           startEye = { ...currentCameraRef.current.eye };
           startCenter = { ...currentCameraRef.current.center };
         }
-        startSpherical = cartesianToSpherical(startEye.x, startEye.y, startEye.z);
+        // Convert eye position RELATIVE to center (not absolute from origin)
+        startSpherical = cartesianToSpherical(
+          startEye.x - startCenter.x,
+          startEye.y - startCenter.y,
+          startEye.z - startCenter.z
+        );
         targetSpherical = { r: targetR, theta: startSpherical.theta + 0.5, phi: targetPhi };
         startTime = currentTime;
         initialized = true;
@@ -216,7 +220,16 @@ export function ScatterPlot3D({
       const curR = lerp(startSpherical.r, targetSpherical.r, ease);
       const curTheta = lerp(startSpherical.theta, targetSpherical.theta, ease);
       const curPhi = lerp(startSpherical.phi, targetSpherical.phi, ease);
-      const newEye = sphericalToCartesian(curR, curTheta, curPhi);
+
+      // Convert spherical to cartesian (gives position relative to center)
+      const relativeEye = sphericalToCartesian(curR, curTheta, curPhi);
+
+      // Add the interpolated center to get absolute eye position
+      const newEye = {
+        x: relativeEye.x + newCenter.x,
+        y: relativeEye.y + newCenter.y,
+        z: relativeEye.z + newCenter.z,
+      };
 
       currentCameraRef.current = { eye: newEye, center: newCenter };
       const currentScene = graphDivRef.current._fullLayout?.scene?._scene;
@@ -316,9 +329,9 @@ export function ScatterPlot3D({
     if (colorScaleType === 'monochrome') {
       scaleFunc = getMonochromeScale(monochromeColor, [0, 1]);
     } else if (colorScaleType === 'diverging') {
-      scaleFunc = getDivergingScale([0, 0.5, 1]);
+      scaleFunc = getDivergingScale([0, 0.5, 1], divergingScaleName);
     } else {
-      scaleFunc = getSequentialScale([0, 1]);
+      scaleFunc = getSequentialScale([0, 1], sequentialScaleName);
     }
 
     // Sample the function to create a gradient definition
@@ -327,7 +340,7 @@ export function ScatterPlot3D({
       const t = i / steps;
       return [t, scaleFunc(t)]; // [0.1, '#ff0000']
     });
-  }, [colorScaleType, monochromeColor]);
+  }, [colorScaleType, monochromeColor, sequentialScaleName, divergingScaleName]);
 
   const markerStyle = useMemo(() => calculateMarkerStyle(points.length), [points.length]);
   const highlightScale = useMemo(() => calculateHighlightScale(points.length), [points.length]);
@@ -381,7 +394,8 @@ export function ScatterPlot3D({
         // --- MODE: CATEGORICAL (Standard) ---
         const pointsByCategory: Record<string, Point3D[]> = {};
         points.forEach(point => {
-          const cat = point.category || 'unknown';
+          const raw = categoryField ? point.metadata?.[categoryField] : undefined;
+          const cat = (raw !== null && raw !== undefined && raw !== '') ? String(raw) : 'unknown';
           if (!pointsByCategory[cat]) pointsByCategory[cat] = [];
           pointsByCategory[cat].push(point);
         });
@@ -485,12 +499,16 @@ export function ScatterPlot3D({
         });
 
         // 3. Core
+        // Only make highlights clickable when base traces aren't shown (prevents duplicate clicks)
         traces.push({
           x: hX, y: hY, z: hZ, mode: 'markers', type: 'scatter3d',
           marker: {
             sizemode: 'diameter', size: coreSizes, color: coreColors, opacity: 1, line: { color: innerColors[0], width: 1 }
           },
-          text: coreTexts, hoverinfo: 'none', customdata: coreCustomData as any, showlegend: false
+          text: coreTexts,
+          hoverinfo: 'none',
+          customdata: showOnlyHighlighted ? (coreCustomData as any) : undefined,
+          showlegend: false
         });
       }
     }
@@ -523,7 +541,7 @@ export function ScatterPlot3D({
         traces.push({
           x: lineX, y: lineY, z: lineZ, mode: 'lines' as const, type: 'scatter3d' as const,
           name: 'Connections',
-          line: { color: isDark ? 'rgba(130, 160, 200, 0.12)' : 'rgba(100, 130, 170, 0.15)', width: 0.1 },
+          line: { color: isDark ? 'rgba(130, 160, 200, 0.60)' : 'rgba(100, 130, 170, 0.60)', width: 0.1 },
           hoverinfo: 'skip' as any, showlegend: false
         });
       }
@@ -569,16 +587,23 @@ export function ScatterPlot3D({
     width, height, aspectmode: 'data', autosize: true, uirevision: 'true', hovermode: 'closest', showlegend: false,
     paper_bgcolor: paperBg, font: { color: axisColor },
     scene: {
+      camera: {
+        eye: defaultEye,
+        center: defaultCenter,
+        up: { x: 0, y: 0, z: 1 }
+      },
       xaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false },
       yaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false },
       zaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false },
     },
     margin: { l: 0, r: 0, t: 0, b: 0 },
+
   }), [axisColor, gridColor, height, paperBg, sceneBg, width]);
 
   const config: Partial<Config> = { displayModeBar: true, displaylogo: false, responsive: true };
 
   const mouseDownTimeRef = useRef<number>(0);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -590,22 +615,20 @@ export function ScatterPlot3D({
   const handleClick = useCallback((event: PlotMouseEvent) => {
     if (!onPointClick || !event.points || event.points.length === 0) return;
     const now = Date.now();
-    console.log('Plot click event at', now);
-    // log camera for debugging
-    console.log('Current camera:', currentCameraRef.current.eye);
-    console.log('Zoom level:', getZoomMultiplier(currentCameraRef.current.eye, currentCameraRef.current.center));
 
-    // Check drag
+    // Check drag - ignore clicks that were part of a drag gesture
     if (now - mouseDownTimeRef.current > 500) return;
-
-    // Prevent double-firing (coalesce multiple events including re-render ghosts)
-    if (now - lastClickTimeRef.current < 600) return;
-    lastClickTimeRef.current = now;
 
     const point = event.points[0];
     if (!point.customdata || typeof point.customdata !== 'object') return;
 
-    onPointClick(point.customdata as unknown as Point3D);
+    const clickedPoint = point.customdata as unknown as Point3D;
+
+    // Log camera for debugging
+    currentZoomMultiplier.current = getZoomMultiplier(currentCameraRef.current.eye, currentCameraRef.current.center);
+    console.log('Point clicked:', clickedPoint.id, 'Camera:', currentCameraRef.current.eye, 'Zoom:', currentZoomMultiplier.current);
+
+    onPointClick(clickedPoint);
   }, [onPointClick]);
 
   useEffect(() => {

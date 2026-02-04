@@ -94,7 +94,7 @@ class EmbeddingModelInput:
     Model names are free-form strings - any valid model for the provider works.
 
     Examples:
-    - SentenceTransformers: "all-MiniLM-L6-v2", "all-mpnet-base-v2", "BAAI/bge-small-en-v1.5"
+    - SentenceTransformers: "all-MiniLM-L6-v2", "all-mpnet-base-v2", "google/gemma-embedding-001"
     - OpenAI: "text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"
     - Cohere: "embed-english-v3.0", "embed-multilingual-v3.0"
     - Ollama: "nomic-embed-text", "mxbai-embed-large"
@@ -108,6 +108,55 @@ class EmbeddingModelInput:
     ollama_url: Optional[str] = None  # Ollama: server URL (default: http://localhost:11434)
     task: Optional[str] = None  # QWEN: Query instruction prefix (used at query time only)
     task_type: Optional[str] = None  # Gemini: Embedding optimization (SEMANTIC_SIMILARITY, RETRIEVAL_DOCUMENT, etc.)
+    # SentenceTransformers: Prompt support for models like EmbeddingGemma
+    prompt: Optional[str] = None  # Single field - can be predefined name (e.g., "Retrieval-query") or custom string
+
+
+# ========== Topic Extraction Types ==========
+
+@strawberry.type
+class TopicKeyword:
+    """Keyword extracted for a topic with its c-TF-IDF score."""
+    word: str
+    score: float
+
+
+@strawberry.type
+class TopicInfo:
+    """Information about an extracted topic."""
+    topic_id: int
+    keywords: List[TopicKeyword]
+    label: Optional[str]
+    count: int
+
+
+@strawberry.input
+class TopicConfigInput:
+    """Topic extraction configuration (shared by standalone and embedded mutations)."""
+    min_topic_size: int = 10
+    n_keywords: int = 10
+    use_llm_labels: bool = False
+    llm_provider: str = "gemini"
+    llm_model: str = "gemini-3-flash-preview"
+    projection_type: str = "umap_2d"
+
+
+@strawberry.input
+class ExtractTopicsInput:
+    """Input for standalone topic extraction from an existing collection."""
+    collection_name: str
+    config: Optional[TopicConfigInput] = None
+
+
+@strawberry.type
+class ExtractTopicsResult:
+    """Result of topic extraction."""
+    collection_name: str
+    num_topics: int
+    num_noise_points: int
+    topics: List[TopicInfo]
+    duration_seconds: float
+    error: Optional[str] = None
 
 
 @strawberry.input
@@ -128,6 +177,9 @@ class EmbedDatasetInput:
     embedding_model: Optional[EmbeddingModelInput] = None
     # Resume an interrupted job instead of starting fresh
     resume: bool = False
+    # Topic extraction after embedding
+    extract_topics: bool = False
+    topic_config: Optional[TopicConfigInput] = None
 
 
 @strawberry.type
@@ -198,6 +250,9 @@ class EmbedLocalFileInput:
     embedding_model: Optional[EmbeddingModelInput] = None
     # Resume an interrupted job instead of starting fresh
     resume: bool = False
+    # Topic extraction after embedding
+    extract_topics: bool = False
+    topic_config: Optional[TopicConfigInput] = None
 
 
 # ========== Search & Filter Types ==========
@@ -250,6 +305,13 @@ class CollectionMetadata:
     source_file: Optional[str] = None  # Local file path
     embedded_columns: Optional[str] = None
     has_projections: Optional[bool] = None
+    # Prompt info (for models like Gemma Embedding)
+    embedding_prompt: Optional[str] = None  # Single field - can be predefined name or custom string
+    # Topic extraction metadata
+    has_topics: Optional[bool] = None
+    topic_count: Optional[int] = None
+    topics_extracted_at: Optional[str] = None
+    topics: Optional[List[TopicInfo]] = None  # Topic summary with keywords
 
 
 @strawberry.type
