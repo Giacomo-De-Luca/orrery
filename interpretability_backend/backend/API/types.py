@@ -128,6 +128,7 @@ class TopicInfo:
     keywords: List[TopicKeyword]
     label: Optional[str]
     count: int
+    subtopics: Optional[List[str]] = None
 
 
 @strawberry.input
@@ -354,6 +355,7 @@ class CollectionMetadata:
     topic_count: Optional[int] = None
     topics_extracted_at: Optional[str] = None
     topics: Optional[List[TopicInfo]] = None  # Topic summary with keywords
+    topic_hierarchy: Optional[JSON] = None  # {reduced_label: [subtopic_labels]}
     # Pre-computed field analysis (cached for fast frontend loading)
     field_analysis: Optional[JSON] = None
 

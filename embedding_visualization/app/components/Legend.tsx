@@ -133,12 +133,12 @@ export function Legend({
 
   return (
     <Card
-      className={`w-fit gap-2 ${className ?? ''}`}
-      variant="outline"
+      className={`w-fit py-2 ${className ?? ''}`}
+      variant="noBg"
     >
-      <CardHeader className="">
+      {/*<CardHeader className="">
         <CardTitle className="font-mono text-md">{getCategoryDisplayName(categoryField ?? 'pos')}</CardTitle>
-      </CardHeader>
+      </CardHeader> */}
 
 
       <ScrollArea className="overflow-y-auto pointer-events-auto" style={{ maskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)', WebkitMaskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)' }}>
@@ -151,7 +151,7 @@ export function Legend({
           return (
             <div
               className={cn(
-                "flex items-center gap-2 py-1 px-3 -mx-2 rounded-md transition-all",
+                "flex items-center gap-2 py-1 px-1 rounded-md transition-all",
                 isClickable && "cursor-pointer hover:bg-accent/50",
                 isMuted && "opacity-40"
               )}
@@ -190,7 +190,7 @@ export function Legend({
           );
         })}
       </CardContent>
-      <ScrollBar orientation="vertical" />
+      <ScrollBar className="px-0" orientation="vertical" />
       </ScrollArea>
     </Card>
   );
