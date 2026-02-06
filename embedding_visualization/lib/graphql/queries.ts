@@ -188,6 +188,7 @@ export const EXTRACT_TOPICS = gql`
         }
         label
         count
+        subtopics
       }
       durationSeconds
       error
@@ -212,6 +213,7 @@ export const REDUCE_TOPICS = gql`
         }
         label
         count
+        subtopics
       }
       topicMappings
       durationSeconds

@@ -393,6 +393,7 @@ export interface TopicInfo {
   keywords: TopicKeyword[];
   label: string | null;
   count: number;
+  subtopics?: string[] | null;
 }
 
 export interface ExtractTopicsResult {
