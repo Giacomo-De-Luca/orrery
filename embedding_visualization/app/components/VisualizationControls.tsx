@@ -127,6 +127,33 @@ export function VisualizationControls({
           </RadioGroup>
         </div>
 
+        {/* Nebula Cluster Effects (3D only) */}
+        {state.mode === '3d' && (
+          <>
+            <Separator />
+            <div className="space-y-3">
+              <Label htmlFor="nebula-mode" className="text-base">Nebula Effects</Label>
+              <Select
+                value={state.nebulaMode ?? 'off'}
+                onValueChange={(value) => onStateChange({ nebulaMode: value as 'off' | 'volume' | 'webgl' | 'bloom' })}
+              >
+                <SelectTrigger id="nebula-mode">
+                  <SelectValue placeholder="Off" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="off">Off</SelectItem>
+                  <SelectItem value="volume">Volume Cloud</SelectItem>
+                  <SelectItem value="webgl">Glow Particles (WebGL)</SelectItem>
+                  <SelectItem value="bloom">Bloom (Three.js)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Adds translucent cloud effects around topic clusters
+              </p>
+            </div>
+          </>
+        )}
+
         {/* Manual Dimension Selection */}
         {state.method === 'manual' && (
           <>

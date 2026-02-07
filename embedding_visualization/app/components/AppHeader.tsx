@@ -127,7 +127,7 @@ export function AppHeader({
           <div className="flex items-center gap-3">
             {totalWords && embeddingDim && (
               <>
-                <Badge variant="secondary" className="hidden sm:inline-flex">
+                <Badge variant="secondary" className="hidden backdrop-blur-sm sm:inline-flex">
                   {totalWords.toLocaleString()} points
                 </Badge>
                 <Badge variant="outline" className="hidden md:inline-flex">

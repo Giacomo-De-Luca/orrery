@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import {
   ResizableHandle,
   ResizablePanel,
@@ -13,6 +13,8 @@ import { SimilarItemsTable } from './SimilarItemsTable';
 import { EmbeddingSidebar } from './EmbeddingSidebar';
 import { SearchSidebar } from './SearchSidebar';
 import { AnalyticsSidebar } from './AnalyticsSidebar';
+import { Table2 } from 'lucide-react';
+import { Button } from '@/lib/ui-primitives/button';
 import type { Point2D, Point3D, VisualizationState, SemanticSearchResult, HighlightMap, TopicInfo } from '../../lib/types/types';
 import type { TopicSearchMode, TopicSearchResult } from '../../lib/hooks/useTopicSearch';
 import type { ColorFieldOption } from '../../lib/utils/fieldAnalysis';
@@ -217,6 +219,14 @@ export function DashboardPanel({
   );
   const showResultsTable = semanticSearchResults && semanticSearchResults.length > 0;
 
+  // Collapse/expand state for the results panel
+  const [resultsCollapsed, setResultsCollapsed] = useState(false);
+
+  // Auto-expand when new results arrive
+  useEffect(() => {
+    if (showResultsTable) setResultsCollapsed(false);
+  }, [showResultsTable]);
+
   // Convert colorByField to the 'category' | 'none' format expected by scatter plots
   const colorBy = colorByField ? 'category' : 'none';
 
@@ -261,6 +271,7 @@ export function DashboardPanel({
       hideUnclustered={state.hideUnclustered}
       categoricalPalette={state.categoricalPalette}
       nestedColorMap={nestedColorMap}
+      nebulaMode={state.nebulaMode}
     />
   );
 
@@ -312,7 +323,7 @@ export function DashboardPanel({
 
 
       {/* 3. LAYER: Table Overlay (Z-20) */}
-      {showResultsTable && (
+      {showResultsTable && !resultsCollapsed && (
         <div className={cn(
           "absolute inset-0 z-20 pointer-events-none transition-all duration-300 ease-in-out",
           isExpanded ? "pl-84" : "pl-0"
@@ -330,21 +341,40 @@ export function DashboardPanel({
               defaultSize={30}
               minSize={5}
               maxSize={120}
-              className="pointer-events-auto" // Re-enable clicks for the table
+              className="pointer-events-auto"
+              onResize={(size) => { if (size < 8) setResultsCollapsed(true); }}
             >
-              <div className="h-full w-full px-2 pb-2">
+              <div className={cn("h-full w-full px-2 pb-4",
+              isExpanded? "pr-4" : ""
+              )}
+              >
                 {/* Added background/blur so text is readable over the plot points */}
                 <div className="h-full border rounded-md shadow-lg overflow-hidden">
                   <SimilarItemsTable
                     results={semanticSearchResults}
                     queryLabel={searchQueryLabel}
                     categoryField={colorByField}
+                    onClose={() => setResultsCollapsed(true)}
                   />
                 </div>
               </div>
             </ResizablePanel>
 
           </ResizablePanelGroup>
+        </div>
+      )}
+
+      {/* 3b. LAYER: Collapsed Results Chip (Z-20) */}
+      {showResultsTable && resultsCollapsed && (
+        <div className="absolute bottom-4 right-4 z-20">
+          <Button
+            variant="circularghost"
+            size="icon"
+            onClick={() => setResultsCollapsed(false)}
+            aria-label="Show search results"
+          >
+            <Table2 className="h-4 w-4" />
+          </Button>
         </div>
       )}
 
