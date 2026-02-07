@@ -272,6 +272,7 @@ export function DashboardPanel({
       categoricalPalette={state.categoricalPalette}
       nestedColorMap={nestedColorMap}
       nebulaMode={state.nebulaMode}
+      showClusterLabels={state.showClusterLabels}
     />
   );
 

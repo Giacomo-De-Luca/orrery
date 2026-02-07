@@ -147,6 +147,7 @@ export interface VisualizationState {
   categoricalPalette?: string;  // Crameri categorical palette name (e.g., 'batlowS') for categorical coloring
   nestedColorMode?: boolean;  // When true, color by subtopics within topics (Tableau-style nested hues)
   nebulaMode?: 'off' | 'volume' | 'webgl' | 'bloom';  // 3D nebula cloud effects around topic clusters
+  showClusterLabels?: boolean;  // When true, show topic/subtopic names at cluster centroids
 }
 
 /**
