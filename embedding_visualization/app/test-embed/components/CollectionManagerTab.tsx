@@ -88,6 +88,7 @@ const CORE_FIELDS = new Set([
 const EXPANDABLE_FIELDS = new Set([
   'field_analysis',
   'topic_summary',
+  'topic_hierarchy',
 ]);
 
 /** Shows just the first line of a long value, with a chevron to expand/collapse the full content. */
@@ -173,7 +174,7 @@ function ExpandableMetadataValue({
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <ScrollArea className="max-h-48 mt-1 rounded-md border bg-muted/30">
+            <ScrollArea className="max-h-48 overflow-hidden mt-1 rounded-md border bg-muted/30">
               <pre className="text-xs p-3 whitespace-pre-wrap break-words font-mono leading-relaxed">
                 {fullText}
               </pre>

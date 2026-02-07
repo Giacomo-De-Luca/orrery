@@ -62,6 +62,7 @@ export const SEMANTIC_SEARCH = gql`
     $nResults: Int = 10
     $similarityMeasure: SimilarityMeasure = COSINE
     $queryPrompt: String
+    $filters: [FilterInput!]
   ) {
     semanticSearch(
       collectionName: $collectionName
@@ -69,6 +70,7 @@ export const SEMANTIC_SEARCH = gql`
       nResults: $nResults
       similarityMeasure: $similarityMeasure
       queryPrompt: $queryPrompt
+      filters: $filters
     ) {
       id
       document
@@ -88,12 +90,14 @@ export const SEMANTIC_SEARCH_BY_ID = gql`
     $itemId: String!
     $nResults: Int = 10
     $similarityMeasure: SimilarityMeasure = COSINE
+    $filters: [FilterInput!]
   ) {
     semanticSearchById(
       collectionName: $collectionName
       itemId: $itemId
       nResults: $nResults
       similarityMeasure: $similarityMeasure
+      filters: $filters
     ) {
       id
       document

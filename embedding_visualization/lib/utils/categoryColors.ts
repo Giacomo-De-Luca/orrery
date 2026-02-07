@@ -19,6 +19,7 @@ import {
 import { interpolateRgb } from 'd3-interpolate';
 import { color } from 'd3-color';
 import { makeCrameriInterpolator, getCrameriColors } from '../colorMaps/crameriScales';
+import { CATEGORY_PALETTES, DEFAULT_PALETTE_KEY, getPaletteColors } from './categoryPalettes';
 
 
 /**
@@ -205,43 +206,10 @@ export function generateGradientCSS(
 }
 
 
-// ============ D3-style category palettes ============
+// Re-export palette registry for convenience
+export { CATEGORY_PALETTES, BUILTIN_PALETTE_NAMES, DEFAULT_PALETTE_KEY, getPaletteColors } from './categoryPalettes';
+export type { CategoricalPalette } from './categoryPalettes';
 
-const category10 = [
-  '#1f77b4',
-  '#ff7f0e',
-  '#2ca02c',
-  '#d62728',
-  '#9467bd',
-  '#8c564b',
-  '#e377c2',
-  '#7f7f7f',
-  '#bcbd22',
-  '#17becf',
-];
-
-const category20 = [
-  '#1f77b4',
-  '#aec7e8',
-  '#ff7f0e',
-  '#ffbb78',
-  '#2ca02c',
-  '#98df8a',
-  '#d62728',
-  '#ff9896',
-  '#9467bd',
-  '#c5b0d5',
-  '#8c564b',
-  '#c49c94',
-  '#e377c2',
-  '#f7b6d2',
-  '#7f7f7f',
-  '#c7c7c7',
-  '#bcbd22',
-  '#dbdb8d',
-  '#17becf',
-  '#9edae5',
-];
 
 // ============ Preset palettes for known category types ============
 
@@ -302,37 +270,28 @@ export const CATEGORY_PRESETS: Record<string, CategoryColorPreset> = {
  * (100 distinct colors) if a palette name is provided.
  */
 export function generateCategoryColors(count: number, palette?: string): string[] {
-  if (count < 1) {
-    count = 1;
-  }
+  if (count < 1) count = 1;
 
-  // If a Crameri categorical palette is specified, use it
+  // Resolve color array: built-in registry first, then Crameri, then default
+  let colors: readonly string[] | null = null;
+
   if (palette) {
-    const crameriColors = getCrameriColors(palette);
-    if (crameriColors) {
-      if (count <= crameriColors.length) {
-        return crameriColors.slice(0, count);
-      }
-      // Wrap around if more categories than colors
-      const colors: string[] = [];
-      for (let i = 0; i < count; i++) {
-        colors[i] = crameriColors[i % crameriColors.length];
-      }
-      return colors;
-    }
+    colors = getPaletteColors(palette) ?? getCrameriColors(palette) ?? null;
   }
 
-  if (count <= category10.length) {
-    return category10.slice(0, count);
-  } else if (count <= category20.length) {
-    return category20.slice(0, count);
-  } else {
-    const colors: string[] = [];
-    for (let i = 0; i < count; i++) {
-      colors[i] = category20[i % category20.length];
-    }
-    return colors;
+  if (!colors) {
+    colors = CATEGORY_PALETTES[DEFAULT_PALETTE_KEY].colors;
   }
+
+  if (count <= colors.length) {
+    return colors.slice(0, count) as string[];
+  }
+
+  const result: string[] = [];
+  for (let i = 0; i < count; i++) {
+    result[i] = colors[i % colors.length] as string;
+  }
+  return result;
 }
 
 /**

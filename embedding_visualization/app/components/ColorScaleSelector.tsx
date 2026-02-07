@@ -26,6 +26,7 @@ import {
   type D3SequentialScaleName,
   type D3DivergingScaleName,
 } from '@/lib/utils/categoryColors';
+import { CATEGORY_PALETTES, BUILTIN_PALETTE_NAMES, DEFAULT_PALETTE_KEY } from '@/lib/utils/categoryPalettes';
 import {
   CRAMERI_SEQUENTIAL_NAMES,
   CRAMERI_DIVERGING_NAMES,
@@ -280,20 +281,28 @@ export function ColorScaleSelector({
                 </div>
                 {colorScaleType === 'categorical' && (
                   <div className="ml-6 mt-2 space-y-2">
-                    <ScaleGroupHeader>D3 Palettes</ScaleGroupHeader>
-                    <div
-                      className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
-                        !categoricalPalette ? 'bg-accent' : 'hover:bg-accent/50'
-                      }`}
-                      onClick={() => handleCategoricalPaletteChange(undefined)}
-                    >
-                      <div className="flex gap-0.5">
-                        {generateCategoryColors(8).map((c, i) => (
-                          <div key={i} className="h-3 w-3 rounded-sm" style={{ backgroundColor: c }} />
-                        ))}
-                      </div>
-                      <span className="text-sm">D3 Category (default)</span>
-                    </div>
+                    <ScaleGroupHeader>Built-in Palettes</ScaleGroupHeader>
+                    {BUILTIN_PALETTE_NAMES.map((name) => {
+                      const pal = CATEGORY_PALETTES[name];
+                      const isDefault = name === DEFAULT_PALETTE_KEY;
+                      const isSelected = isDefault ? !categoricalPalette : categoricalPalette === name;
+                      return (
+                        <div
+                          key={name}
+                          className={`flex items-center gap-3 p-2 rounded-md cursor-pointer transition-colors ${
+                            isSelected ? 'bg-accent' : 'hover:bg-accent/50'
+                          }`}
+                          onClick={() => handleCategoricalPaletteChange(isDefault ? undefined : name)}
+                        >
+                          <div className="flex gap-0.5">
+                            {pal.colors.slice(0, 8).map((c, i) => (
+                              <div key={i} className="h-3 w-3 rounded-sm" style={{ backgroundColor: c }} />
+                            ))}
+                          </div>
+                          <span className="text-sm">{pal.label}{isDefault ? ' (default)' : ''}</span>
+                        </div>
+                      );
+                    })}
 
                     <ScaleGroupHeader>Crameri Scientific (100 colors)</ScaleGroupHeader>
                     <ScrollArea className="max-h-48">
