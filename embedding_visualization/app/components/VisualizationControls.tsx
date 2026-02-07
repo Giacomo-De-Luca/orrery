@@ -306,6 +306,22 @@ export function VisualizationControls({
               </Label>
             </div>
           )}
+
+          {state.colorByField && state.mode === '3d' && (
+            <div className="flex items-center space-x-2 mt-2">
+              <Checkbox
+                id="show-cluster-labels"
+                checked={state.showClusterLabels ?? false}
+                onCheckedChange={(checked) => onStateChange({ showClusterLabels: checked === true })}
+              />
+              <Label
+                htmlFor="show-cluster-labels"
+                className="font-normal cursor-pointer text-sm"
+              >
+                Show cluster labels
+              </Label>
+            </div>
+          )}
         </div>
 
         <Separator />

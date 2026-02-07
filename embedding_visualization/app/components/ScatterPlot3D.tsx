@@ -55,6 +55,8 @@ interface ScatterPlot3DProps {
   nestedColorMap?: NestedColorMap | null;
   /** Nebula cloud effect mode: 'volume' for Plotly volume traces, 'webgl' for particle sprites, 'bloom' for Three.js bloom */
   nebulaMode?: 'off' | 'volume' | 'webgl' | 'bloom';
+  /** Show topic/subtopic names at cluster centroids */
+  showClusterLabels?: boolean;
 }
 
 interface PlotlyGraphDiv extends HTMLDivElement {
@@ -92,6 +94,7 @@ export function ScatterPlot3D({
   categoricalPalette,
   nestedColorMap,
   nebulaMode = 'off',
+  showClusterLabels = false,
 }: ScatterPlot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
@@ -702,8 +705,51 @@ export function ScatterPlot3D({
     };
   }, [showLabels, highlightedIndices, points, selectedPoint]);
 
+  // --- NEBULA / CLUSTER: Cluster data for nebula effects and cluster labels ---
+  const clusterDataMap = useMemo(() => {
+    if ((nebulaMode === 'off' && !showClusterLabels) || !categoryField) return new Map<string, ClusterData>();
+
+    // Apply same hideUnclustered filter as baseTraces
+    const displayPoints = hideUnclustered
+      ? points.filter(p => {
+          const topicId = p.metadata?.['topic_id'];
+          if (topicId === '-1' || topicId === -1) return false;
+          const topicLabel = p.metadata?.['topic_label'];
+          if (topicLabel === 'Unclustered' || topicLabel === 'unclustered') return false;
+          return true;
+        })
+      : points;
+
+    return groupPointsByCluster(displayPoints, categoryField, colorMap, nestedColorMap);
+  }, [nebulaMode, showClusterLabels, points, categoryField, colorMap, nestedColorMap, hideUnclustered]);
+
+  // --- Cluster label data for canvas overlay ---
+  const clusterLabelDataRef = useRef<{
+    labels: { x: number; y: number; z: number; label: string; color: string }[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!showClusterLabels || clusterDataMap.size === 0) {
+      clusterLabelDataRef.current = null;
+      return;
+    }
+    const labels: { x: number; y: number; z: number; label: string; color: string }[] = [];
+    for (const [key, cluster] of clusterDataMap) {
+      labels.push({
+        x: cluster.centroid.x,
+        y: cluster.centroid.y,
+        z: cluster.centroid.z,
+        label: key,
+        color: cluster.color,
+      });
+    }
+    clusterLabelDataRef.current = { labels };
+  }, [showClusterLabels, clusterDataMap]);
+
   // --- Canvas label overlay ---
-  const hasLabels = showLabels && highlightedIndices && highlightedIndices.size > 0;
+  const hasPointLabels = showLabels && highlightedIndices && highlightedIndices.size > 0;
+  const hasClusterLabels = showClusterLabels && clusterDataMap.size > 0;
+  const hasAnyLabels = hasPointLabels || hasClusterLabels;
 
   // Imperative: draw labels on the canvas overlay using CollisionGrid
   const renderLabels = useCallback(() => {
@@ -727,9 +773,12 @@ export function ScatterPlot3D({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
 
-    const data = labelRenderDataRef.current;
+    const pointData = labelRenderDataRef.current;
+    const clusterData = clusterLabelDataRef.current;
     const currentBounds = boundsRef.current;
-    if (!data || !currentBounds || data.points.length === 0) return;
+    const hasPointData = pointData && pointData.points.length > 0;
+    const hasClusterData = clusterData && clusterData.labels.length > 0;
+    if ((!hasPointData && !hasClusterData) || !currentBounds) return;
 
     // Get MVP from glplot internals
     const sceneLayout = (graphDivRef.current as any)?._fullLayout?.scene;
@@ -766,75 +815,119 @@ export function ScatterPlot3D({
       vpH = cssH;
     }
 
-    // Sort candidates: selected first, then by similarity descending
-    const sorted = data.points.map((p, i) => ({ ...p, i }));
-    sorted.sort((a, b) => {
-      const aSelected = a.index === data.selectedIndex ? 1 : 0;
-      const bSelected = b.index === data.selectedIndex ? 1 : 0;
-      if (aSelected !== bSelected) return bSelected - aSelected;
-      return (data.similarities.get(b.index) ?? 0) - (data.similarities.get(a.index) ?? 0);
-    });
-
     // Create collision grid over the full overlay canvas
     const gridBound: BoundingBox = { loX: 0, loY: 0, hiX: cssW, hiY: cssH };
     const grid = new CollisionGrid(gridBound, Math.max(cssW / 25, 1), Math.max(cssH / 50, 1));
 
-    const fontSize = 11;
-    const fontStr = `${fontSize}px Geist Mono, monospace`;
-    ctx.font = fontStr;
-    ctx.textBaseline = 'middle';
-    const offsetX = 8; // px right of projected point
+    // --- Pass 1: Cluster labels (highest priority — inserted first) ---
+    if (hasClusterData) {
+      const clusterFontSize = 13;
+      const clusterFontStr = `bold ${clusterFontSize}px Geist Mono, monospace`;
+      ctx.font = clusterFontStr;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'center';
 
-    for (const candidate of sorted) {
-      // Project to GL viewport coordinates, then shift by GL canvas offset
-      const screen = projectToScreen(candidate.x, candidate.y, candidate.z, mvp, vpW, vpH);
-      if (!screen) continue;
+      for (const cl of clusterData!.labels) {
+        const screen = projectToScreen(cl.x, cl.y, cl.z, mvp, vpW, vpH);
+        if (!screen) continue;
 
-      // Convert from GL-viewport-local coords to overlay-canvas coords
-      const sx = screen.x + glOffsetX;
-      const sy = screen.y + glOffsetY;
+        const sx = screen.x + glOffsetX;
+        const sy = screen.y + glOffsetY;
 
-      const isSelected = candidate.index === data.selectedIndex;
-      const similarity = data.similarities.get(candidate.index) ?? 0;
+        // Measure text and build bounding box with 4px padding
+        const textWidth = ctx.measureText(cl.label).width;
+        const pad = 4;
+        const realBox: BoundingBox = {
+          loX: sx - textWidth / 2 - pad,
+          loY: sy - clusterFontSize * 0.6 - pad,
+          hiX: sx + textWidth / 2 + pad,
+          hiY: sy + clusterFontSize * 0.6 + pad,
+        };
+        if (!grid.insert(realBox)) continue;
 
-      // Two-pass collision test (TensorBoard pattern):
-      // Pass 1: thin box (width=1px) to cheaply reject dense areas
-      const thinBox: BoundingBox = {
-        loX: sx + offsetX,
-        loY: sy - fontSize * 0.6,
-        hiX: sx + offsetX + 1,
-        hiY: sy + fontSize * 0.6,
-      };
-      if (!grid.insert(thinBox, true)) continue;
+        // Draw cluster label with stroke outline for contrast
+        ctx.globalAlpha = 1.0;
+        ctx.font = clusterFontStr;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 4;
+        ctx.lineJoin = 'round';
+        ctx.strokeText(cl.label, sx, sy);
+        ctx.fillStyle = cl.color;
+        ctx.fillText(cl.label, sx, sy);
+      }
+    }
 
-      // Pass 2: measure actual text width, build real bounding box
-      const textWidth = ctx.measureText(candidate.label).width;
-      const realBox: BoundingBox = {
-        loX: sx + offsetX - 2,
-        loY: sy - fontSize * 0.6 - 1,
-        hiX: sx + offsetX + textWidth + 2,
-        hiY: sy + fontSize * 0.6 + 1,
-      };
-      if (!grid.insert(realBox)) continue;
+    // --- Pass 2: Point labels (existing behavior) ---
+    if (hasPointData) {
+      const data = pointData!;
+      // Sort candidates: selected first, then by similarity descending
+      const sorted = data.points.map((p, i) => ({ ...p, i }));
+      sorted.sort((a, b) => {
+        const aSelected = a.index === data.selectedIndex ? 1 : 0;
+        const bSelected = b.index === data.selectedIndex ? 1 : 0;
+        if (aSelected !== bSelected) return bSelected - aSelected;
+        return (data.similarities.get(b.index) ?? 0) - (data.similarities.get(a.index) ?? 0);
+      });
 
-      // Draw label with stroke outline for contrast
-      const alpha = isSelected ? 1.0 : 0.4 + similarity * 0.6;
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.8)';
-      ctx.lineWidth = 3;
-      ctx.lineJoin = 'round';
-      ctx.strokeText(candidate.label, sx + offsetX, sy);
-      ctx.fillStyle = isDark ? '#e2e8f0' : '#1e293b';
-      ctx.fillText(candidate.label, sx + offsetX, sy);
+      const fontSize = 11;
+      const fontStr = `${fontSize}px Geist Mono, monospace`;
+      ctx.font = fontStr;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      const offsetX = 8; // px right of projected point
+
+      for (const candidate of sorted) {
+        // Project to GL viewport coordinates, then shift by GL canvas offset
+        const screen = projectToScreen(candidate.x, candidate.y, candidate.z, mvp, vpW, vpH);
+        if (!screen) continue;
+
+        // Convert from GL-viewport-local coords to overlay-canvas coords
+        const sx = screen.x + glOffsetX;
+        const sy = screen.y + glOffsetY;
+
+        const isSelected = candidate.index === data.selectedIndex;
+        const similarity = data.similarities.get(candidate.index) ?? 0;
+
+        // Two-pass collision test (TensorBoard pattern):
+        // Pass 1: thin box (width=1px) to cheaply reject dense areas
+        const thinBox: BoundingBox = {
+          loX: sx + offsetX,
+          loY: sy - fontSize * 0.6,
+          hiX: sx + offsetX + 1,
+          hiY: sy + fontSize * 0.6,
+        };
+        if (!grid.insert(thinBox, true)) continue;
+
+        // Pass 2: measure actual text width, build real bounding box
+        const textWidth = ctx.measureText(candidate.label).width;
+        const realBox: BoundingBox = {
+          loX: sx + offsetX - 2,
+          loY: sy - fontSize * 0.6 - 1,
+          hiX: sx + offsetX + textWidth + 2,
+          hiY: sy + fontSize * 0.6 + 1,
+        };
+        if (!grid.insert(realBox)) continue;
+
+        // Draw label with stroke outline for contrast
+        const alpha = isSelected ? 1.0 : 0.4 + similarity * 0.6;
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.strokeText(candidate.label, sx + offsetX, sy);
+        ctx.fillStyle = isDark ? '#e2e8f0' : '#1e293b';
+        ctx.fillText(candidate.label, sx + offsetX, sy);
+      }
     }
 
     ctx.globalAlpha = 1.0;
-  }, [width, height, isDark]);
+  }, [width, height, isDark, showClusterLabels, clusterDataMap]);
 
   // rAF-based camera polling: detect camera changes during 3D rotation/zoom/pan
   // (onRelayout does NOT fire during 3D mouse interaction)
   useEffect(() => {
-    if (!hasLabels || !plotReady || !graphDivRef.current) return;
+    if (!hasAnyLabels || !plotReady || !graphDivRef.current) return;
 
     let rafId: number;
     const lastCam = { ex: 0, ey: 0, ez: 0, cx: 0, cy: 0, cz: 0 };
@@ -877,38 +970,20 @@ export function ScatterPlot3D({
     renderLabels();
     rafId = requestAnimationFrame(pollCamera);
     return () => cancelAnimationFrame(rafId);
-  }, [hasLabels, plotReady, renderLabels]);
+  }, [hasAnyLabels, plotReady, renderLabels]);
 
   // Clear canvas when labels toggled off
   useEffect(() => {
-    if (!hasLabels && labelCanvasRef.current) {
+    if (!hasAnyLabels && labelCanvasRef.current) {
       const ctx = labelCanvasRef.current.getContext('2d');
       if (ctx) ctx.clearRect(0, 0, labelCanvasRef.current.width, labelCanvasRef.current.height);
     }
-  }, [hasLabels]);
+  }, [hasAnyLabels]);
 
-  // Re-render labels on resize
+  // Re-render labels on resize or when label data changes (e.g. search results arrive while camera is stationary)
   useEffect(() => {
-    if (hasLabels) renderLabels();
-  }, [width, height, hasLabels, renderLabels]);
-
-  // --- NEBULA: Cluster data for both volume and WebGL modes ---
-  const clusterDataMap = useMemo(() => {
-    if (nebulaMode === 'off' || !categoryField) return new Map<string, ClusterData>();
-
-    // Apply same hideUnclustered filter as baseTraces
-    const displayPoints = hideUnclustered
-      ? points.filter(p => {
-          const topicId = p.metadata?.['topic_id'];
-          if (topicId === '-1' || topicId === -1) return false;
-          const topicLabel = p.metadata?.['topic_label'];
-          if (topicLabel === 'Unclustered' || topicLabel === 'unclustered') return false;
-          return true;
-        })
-      : points;
-
-    return groupPointsByCluster(displayPoints, categoryField, colorMap, nestedColorMap);
-  }, [nebulaMode, points, categoryField, colorMap, nestedColorMap, hideUnclustered]);
+    if (hasAnyLabels) renderLabels();
+  }, [width, height, hasAnyLabels, renderLabels, showLabels, highlightedIndices, selectedPoint]);
 
   // --- NEBULA PLAN A: Plotly isosurface/volume traces ---
   const nebulaVolumeTraces = useMemo((): PlotlyData[] => {
@@ -1305,7 +1380,7 @@ export function ScatterPlot3D({
         }}
         onRelayout={handleRelayout}
       />
-      {hasLabels && (
+      {hasAnyLabels && (
         <canvas
           ref={labelCanvasRef}
           style={{
