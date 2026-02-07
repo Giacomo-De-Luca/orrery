@@ -383,18 +383,9 @@ export interface TopicConfigInput {
   reduction?: TopicReductionInput;
 }
 
-export interface TopicKeyword {
-  word: string;
-  score: number;
-}
-
-export interface TopicInfo {
-  topicId: number;
-  keywords: TopicKeyword[];
-  label: string | null;
-  count: number;
-  subtopics?: string[] | null;
-}
+// Import from canonical location and re-export to avoid duplication
+import type { TopicInfo } from '../types/types';
+export type { TopicKeyword, TopicInfo } from '../types/types';
 
 export interface ExtractTopicsResult {
   collectionName: string;

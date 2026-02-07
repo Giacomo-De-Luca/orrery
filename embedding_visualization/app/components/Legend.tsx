@@ -16,6 +16,7 @@ import {
 import { isCrameriScale, crameriGradientCSS } from '../../lib/colorMaps/crameriScales';
 import { cn } from '@/lib/utils/utils';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
+import type { NestedColorMap } from '../../lib/types/types';
 
 interface LegendProps {
   className?: string;
@@ -23,13 +24,15 @@ interface LegendProps {
   categoryValues?: string[];
   categoryCounts?: Record<string, number>;
   mutedCategories?: string[];
-  onCategoryToggle?: (category: string) => void;
+  onCategoryToggle?: (category: string, shiftKey: boolean) => void;
+  onCategoryReset?: () => void;
   colorScaleType?: 'categorical' | 'sequential' | 'diverging' | 'monochrome';
   numericRange?: { min: number; max: number };
   sequentialScaleName?: SequentialScaleName;
   divergingScaleName?: DivergingScaleName;
   monochromeColor?: string;
   categoricalPalette?: string;
+  nestedColorMap?: NestedColorMap | null;
 }
 
 /**
@@ -63,12 +66,14 @@ export function Legend({
   categoryCounts,
   mutedCategories = [],
   onCategoryToggle,
+  onCategoryReset,
   colorScaleType = 'categorical',
   numericRange,
   sequentialScaleName = 'sinebow',
   divergingScaleName = 'blueGold',
   monochromeColor = '#1f77b4',
   categoricalPalette,
+  nestedColorMap,
 }: LegendProps) {
   // Check if this is a continuous scale (sequential, diverging, or monochrome)
   const isContinuous = colorScaleType === 'sequential' || colorScaleType === 'diverging' || colorScaleType === 'monochrome';
@@ -131,6 +136,129 @@ export function Legend({
 
   const colorMap = buildCategoryColorMap(categoryField ?? 'pos', values, categoricalPalette);
 
+  // ---- NESTED (two-level) LEGEND ----
+  if (nestedColorMap) {
+    const topics = Object.keys(nestedColorMap.hierarchy);
+
+    return (
+      <Card
+        className={`w-fit py-2 ${className ?? ''}`}
+        variant="noBg"
+      >
+        <ScrollArea className="overflow-y-auto pointer-events-auto" style={{ maskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)', WebkitMaskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)' }}>
+        <CardContent className="space-y-0.5 max-h-80">
+          {topics.map((topic) => {
+            const isTopicMuted = mutedCategories.includes(topic);
+            const topicCount = nestedColorMap.topicCounts[topic];
+            const subtopics = nestedColorMap.hierarchy[topic];
+            const isClickable = !!onCategoryToggle;
+
+            return (
+              <div key={topic}>
+                {/* Topic header row */}
+                <div
+                  className={cn(
+                    "flex items-center gap-2 py-1 px-1 rounded-md transition-all",
+                    isClickable && "cursor-pointer hover:bg-accent/50",
+                    isTopicMuted && "opacity-40"
+                  )}
+                  onClick={(e) => onCategoryToggle?.(topic, e.shiftKey)}
+                  onDoubleClick={() => onCategoryReset?.()}
+                  role={isClickable ? "button" : undefined}
+                  tabIndex={isClickable ? 0 : undefined}
+                  onKeyDown={(e) => {
+                    if (isClickable && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      onCategoryToggle?.(topic, e.shiftKey);
+                    }
+                  }}
+                >
+                  <span
+                    className="h-3 w-3 rounded-sm shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: isTopicMuted ? '#9ca3af' : (nestedColorMap.topicColors[topic] || '#7f7f7f'),
+                    }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className={cn(
+                      "text-sm font-semibold flex-1 max-w-44 truncate",
+                      isTopicMuted && "line-through"
+                    )}
+                  >
+                    {topic}
+                  </span>
+                  {topicCount !== undefined && (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {formatCount(topicCount)}
+                    </span>
+                  )}
+                </div>
+
+                {/* Subtopic rows (hidden/collapsed when topic is muted) */}
+                {!isTopicMuted && subtopics.map((sub) => {
+                  const isSubMuted = mutedCategories.includes(sub);
+                  const subCount = nestedColorMap.subtopicCounts[sub];
+
+                  return (
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 py-0.5 px-1 pl-5 rounded-md transition-all",
+                        isClickable && "cursor-pointer hover:bg-accent/50",
+                        isSubMuted && "opacity-40"
+                      )}
+                      key={sub}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCategoryToggle?.(sub, e.shiftKey);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onCategoryReset?.();
+                      }}
+                      role={isClickable ? "button" : undefined}
+                      tabIndex={isClickable ? 0 : undefined}
+                      onKeyDown={(e) => {
+                        if (isClickable && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          onCategoryToggle?.(sub, e.shiftKey);
+                        }
+                      }}
+                    >
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shrink-0 transition-colors"
+                        style={{
+                          backgroundColor: isSubMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
+                        }}
+                        aria-hidden="true"
+                      />
+                      <span
+                        className={cn(
+                          "text-xs flex-1 max-w-40 truncate",
+                          isSubMuted && "line-through"
+                        )}
+                      >
+                        {sub}
+                      </span>
+                      {subCount !== undefined && (
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {formatCount(subCount)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </CardContent>
+        <ScrollBar className="px-0" orientation="vertical" />
+        </ScrollArea>
+      </Card>
+    );
+  }
+
+  // ---- FLAT (standard) LEGEND ----
   return (
     <Card
       className={`w-fit py-2 ${className ?? ''}`}
@@ -156,13 +284,14 @@ export function Legend({
                 isMuted && "opacity-40"
               )}
               key={value}
-              onClick={() => onCategoryToggle?.(value)}
+              onClick={(e) => onCategoryToggle?.(value, e.shiftKey)}
+              onDoubleClick={() => onCategoryReset?.()}
               role={isClickable ? "button" : undefined}
               tabIndex={isClickable ? 0 : undefined}
               onKeyDown={(e) => {
                 if (isClickable && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault();
-                  onCategoryToggle?.(value);
+                  onCategoryToggle?.(value, e.shiftKey);
                 }
               }}
             >

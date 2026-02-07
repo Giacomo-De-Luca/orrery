@@ -14,6 +14,34 @@ export interface CollectionInfo {
   source_file?: string;
   embedded_columns?: string[];
   has_projections?: boolean;
+  // Topic info (populated when topic extraction has been run)
+  has_topics?: boolean;
+  topics?: TopicInfo[];
+}
+
+// ============ Topic types (shared with mutations.ts) ============
+
+export interface TopicKeyword {
+  word: string;
+  score: number;
+}
+
+export interface TopicInfo {
+  topicId: number;
+  keywords: TopicKeyword[];
+  label: string | null;
+  count: number;
+  subtopics?: string[] | null;
+}
+
+// ============ Filter types (for backend ChromaDB where clauses) ============
+
+export type FilterOperator = 'EQ' | 'NE' | 'GT' | 'GTE' | 'LT' | 'LTE' | 'IN' | 'NIN';
+
+export interface FilterInput {
+  field: string;
+  operator: FilterOperator;
+  value: unknown;
 }
 
 export interface CollectionsManifest {
@@ -117,6 +145,7 @@ export interface VisualizationState {
   tooltipFields?: string[];  // Extra metadata fields to display in hover tooltip
   hideUnclustered?: boolean;  // When true, hide points with topic_id = -1 (unclustered/noise)
   categoricalPalette?: string;  // Crameri categorical palette name (e.g., 'batlowS') for categorical coloring
+  nestedColorMode?: boolean;  // When true, color by subtopics within topics (Tableau-style nested hues)
 }
 
 /**
@@ -195,6 +224,25 @@ export interface CategoryColorPreset {
  * - Text search: 1.0 (perfect match)
  */
 export type HighlightMap = Map<number, number>;
+
+// ============ Nested color map (topic → subtopic hierarchy) ============
+
+/**
+ * Nested color map for Tableau-style topic/subtopic coloring.
+ * Topics define base hues; subtopics get lightness variations within that hue.
+ */
+export interface NestedColorMap {
+  /** Map from subtopic label → hex color */
+  subtopicColors: Record<string, string>;
+  /** Map from topic label → hex color (base hue) */
+  topicColors: Record<string, string>;
+  /** Map from topic label → array of subtopic labels */
+  hierarchy: Record<string, string[]>;
+  /** Map from topic label → total point count */
+  topicCounts: Record<string, number>;
+  /** Map from subtopic label → point count */
+  subtopicCounts: Record<string, number>;
+}
 
 // ============ Color scale configuration ============
 

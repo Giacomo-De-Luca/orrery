@@ -34,6 +34,7 @@ interface VisualizationControlsProps {
   };
   colorFieldOptions?: ColorFieldOption[];
   availableFields?: string[];
+  nestedColorAvailable?: boolean;
 }
 
 export function VisualizationControls({
@@ -43,6 +44,7 @@ export function VisualizationControls({
   metadata,
   colorFieldOptions = [],
   availableFields = [],
+  nestedColorAvailable,
 }: VisualizationControlsProps) {
   // Handle field selection with auto-detection of scale type
   const handleFieldChange = (value: string) => {
@@ -257,6 +259,23 @@ export function VisualizationControls({
                 className="font-normal cursor-pointer text-sm"
               >
                 Hide unclustered points
+              </Label>
+            </div>
+          )}
+
+          {/* Nested subtopic coloring - only when topic_label is selected and subtopics exist */}
+          {nestedColorAvailable && state.colorByField === 'topic_label' && (
+            <div className="flex items-center space-x-2 mt-2">
+              <Checkbox
+                id="nested-color-mode"
+                checked={state.nestedColorMode ?? false}
+                onCheckedChange={(checked) => onStateChange({ nestedColorMode: checked === true })}
+              />
+              <Label
+                htmlFor="nested-color-mode"
+                className="font-normal cursor-pointer text-sm"
+              >
+                Color by subtopics
               </Label>
             </div>
           )}

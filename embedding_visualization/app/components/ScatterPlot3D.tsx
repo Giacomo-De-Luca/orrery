@@ -3,7 +3,7 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import type { PlotData, Layout, Config, PlotMouseEvent, PlotRelayoutEvent } from 'plotly.js';
-import type { Point3D, HighlightMap, ColorScaleType } from '../../lib/types/types';
+import type { Point3D, HighlightMap, ColorScaleType, NestedColorMap } from '../../lib/types/types';
 import { useTheme } from 'next-themes';
 import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergingScale, getMonochromeScale, type SequentialScaleName, type DivergingScaleName } from '../../lib/utils/categoryColors';
 import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crameriScales';
@@ -44,6 +44,8 @@ interface ScatterPlot3DProps {
   hideUnclustered?: boolean;
   /** Crameri categorical palette name for category coloring */
   categoricalPalette?: string;
+  /** Nested topic/subtopic color map for hierarchical coloring */
+  nestedColorMap?: NestedColorMap | null;
 }
 
 interface PlotlyGraphDiv extends HTMLDivElement {
@@ -79,6 +81,7 @@ export function ScatterPlot3D({
   tooltipFields,
   hideUnclustered = false,
   categoricalPalette,
+  nestedColorMap,
 }: ScatterPlot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
@@ -419,36 +422,69 @@ export function ScatterPlot3D({
           showlegend: false,
         });
       } else if (colorBy === 'category' && categoryValues.length > 0) {
-        // --- MODE: CATEGORICAL (Standard) ---
-        const pointsByCategory: Record<string, Point3D[]> = {};
-        displayPoints.forEach(point => {
-          const raw = categoryField ? point.metadata?.[categoryField] : undefined;
-          const cat = (raw !== null && raw !== undefined && raw !== '') ? String(raw) : 'unknown';
-          if (!pointsByCategory[cat]) pointsByCategory[cat] = [];
-          pointsByCategory[cat].push(point);
-        });
-
-        Object.entries(pointsByCategory).forEach(([cat, catPoints]) => {
-          const isMuted = mutedCategories.includes(cat);
-          traces.push({
-            x: catPoints.map(p => p.x),
-            y: catPoints.map(p => p.y),
-            z: catPoints.map(p => p.z),
-            mode: 'markers',
-            type: 'scatter3d',
-            name: getCategoryLabel(categoryField, cat),
-            marker: {
-              sizemode: 'diameter',
-              size: dimSize,
-              color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
-              opacity: isMuted ? 0.2 : dimOpacity,  // Even more muted when category is toggled off
-            },
-            text: catPoints.map(formatHoverText),
-            hoverinfo: 'none',
-            customdata: catPoints as any,
-            showlegend: false,
+        if (nestedColorMap) {
+          // --- MODE: NESTED CATEGORICAL ---
+          const pointsBySub: Record<string, Point3D[]> = {};
+          displayPoints.forEach(point => {
+            const sub = String(point.metadata?.['subtopic_label'] ?? point.metadata?.['topic_label'] ?? 'unknown');
+            if (!pointsBySub[sub]) pointsBySub[sub] = [];
+            pointsBySub[sub].push(point);
           });
-        });
+
+          Object.entries(pointsBySub).forEach(([sub, subPoints]) => {
+            const parentTopic = String(subPoints[0]?.metadata?.['topic_label'] ?? 'unknown');
+            const isMuted = mutedCategories.includes(sub) || mutedCategories.includes(parentTopic);
+            traces.push({
+              x: subPoints.map(p => p.x),
+              y: subPoints.map(p => p.y),
+              z: subPoints.map(p => p.z),
+              mode: 'markers',
+              type: 'scatter3d',
+              name: sub,
+              marker: {
+                sizemode: 'diameter',
+                size: dimSize,
+                color: isMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
+                opacity: isMuted ? 0.2 : dimOpacity,
+              },
+              text: subPoints.map(formatHoverText),
+              hoverinfo: 'none',
+              customdata: subPoints as any,
+              showlegend: false,
+            });
+          });
+        } else {
+          // --- MODE: CATEGORICAL (Standard) ---
+          const pointsByCategory: Record<string, Point3D[]> = {};
+          displayPoints.forEach(point => {
+            const raw = categoryField ? point.metadata?.[categoryField] : undefined;
+            const cat = (raw !== null && raw !== undefined && raw !== '') ? String(raw) : 'unknown';
+            if (!pointsByCategory[cat]) pointsByCategory[cat] = [];
+            pointsByCategory[cat].push(point);
+          });
+
+          Object.entries(pointsByCategory).forEach(([cat, catPoints]) => {
+            const isMuted = mutedCategories.includes(cat);
+            traces.push({
+              x: catPoints.map(p => p.x),
+              y: catPoints.map(p => p.y),
+              z: catPoints.map(p => p.z),
+              mode: 'markers',
+              type: 'scatter3d',
+              name: getCategoryLabel(categoryField, cat),
+              marker: {
+                sizemode: 'diameter',
+                size: dimSize,
+                color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
+                opacity: isMuted ? 0.2 : dimOpacity,
+              },
+              text: catPoints.map(formatHoverText),
+              hoverinfo: 'none',
+              customdata: catPoints as any,
+              showlegend: false,
+            });
+          });
+        }
       } else {
         // --- MODE: NO COLORING ---
         traces.push({
@@ -545,7 +581,7 @@ export function ScatterPlot3D({
   }, [
     points, highlightedIndices, markerStyle, highlightScale, showOnlyHighlighted,
     colorBy, isDark, categoryValues, colorMap, numericData, plotlyColorScale, categoryField,
-    mutedCategories, hideUnclustered
+    mutedCategories, hideUnclustered, nestedColorMap
   ]);
 
   // Selected point traces and layout/config remain similar...

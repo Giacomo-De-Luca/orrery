@@ -11,6 +11,7 @@ import { useCollections } from '../lib/hooks/useCollections';
 import { useVisualizationPoints } from '../lib/hooks/useVisualizationPoints';
 import { useHighlightedIndices } from '../lib/hooks/useHighlightedIndices';
 import { useAppSearch } from '../lib/hooks/useAppSearch';
+import { useTopicSearch } from '../lib/hooks/useTopicSearch';
 import type { VisualizationState, HighlightMap } from '../lib/types/types';
 
 
@@ -74,6 +75,12 @@ export default function Home() {
     }
   }, [selectedCollection, visualizationState.colorByField, router]);
 
+  // Get topics for selected collection
+  const selectedCollectionTopics = useMemo(() => {
+    if (!collections || !selectedCollection) return undefined;
+    return collections[selectedCollection]?.topics;
+  }, [collections, selectedCollection]);
+
   // Query prompt name for semantic search (null=none, 'auto'=auto-detect, or explicit value)
   const [queryPromptName, setQueryPromptName] = useState<string | null>(null);
 
@@ -111,6 +118,16 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleControls, toggleSearch, toggleAnalytics]);
 
+  // Topic search hook (instantiated before useAppSearch so topicFilters is available)
+  const topicSearch = useTopicSearch(
+    selectedCollectionTopics,
+    data,
+    selectedCollection,
+    visualizationState.distanceMetric ?? 'COSINE',
+    queryPromptName,
+    data?.metadata?.embedding_prompt,
+  );
+
   // Use the new custom hook for search logic
   const {
     selectedPoint,
@@ -128,7 +145,8 @@ export default function Home() {
     visualizationState.colorByField ?? null,
     visualizationState.distanceMetric ?? 'COSINE',
     queryPromptName,
-    data?.metadata?.embedding_prompt_name
+    data?.metadata?.embedding_prompt,
+    topicSearch.topicFilters
   );
 
   // Update visualization state
@@ -161,13 +179,14 @@ export default function Home() {
     }
   }, [visualizationState.searchQuery, textSearchResults, handlePointClick]);
 
-  // Combine text search highlights with semantic search highlights
+  // Combine text search highlights with semantic search highlights and topic highlights
   // Pass selectedPoint's index so it's included in highlights (semantic search returns similar items, not the query itself)
   const combinedHighlightedIndices: HighlightMap | undefined = useHighlightedIndices(
     highlightedIndices,
     semanticSearchResults,
     data,
-    selectedPoint?.index
+    selectedPoint?.index,
+    topicSearch.topicHighlightMap
   );
 
   // Initialize tooltipFields with smart defaults when data loads
@@ -293,6 +312,21 @@ export default function Home() {
                   queryPromptName={queryPromptName}
                   onQueryPromptNameChange={setQueryPromptName}
                   availableFields={data.availableFields}
+                  topics={selectedCollectionTopics}
+                  topicSearchMode={topicSearch.mode}
+                  onTopicSearchModeChange={topicSearch.setMode}
+                  topicDirectQuery={topicSearch.directQuery}
+                  onTopicDirectQueryChange={topicSearch.setDirectQuery}
+                  topicFilteredTopics={topicSearch.filteredTopics}
+                  topicSemanticQuery={topicSearch.semanticQuery}
+                  onTopicSemanticQueryChange={topicSearch.setSemanticQuery}
+                  onTopicSemanticSearch={topicSearch.searchTopicsBySimilarity}
+                  topicSemanticResults={topicSearch.semanticResults}
+                  topicSemanticLoading={topicSearch.semanticLoading}
+                  selectedTopicIds={topicSearch.selectedTopicIds}
+                  onToggleTopic={topicSearch.toggleTopic}
+                  onSelectAllTopics={topicSearch.selectAll}
+                  onClearAllTopics={topicSearch.clearAll}
                 />
               {/*<AppFooter
                     timestamp={data.metadata.timestamp}
