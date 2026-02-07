@@ -107,7 +107,7 @@ export function Legend({
     return (
       <Card
         className={`w-fit gap-2 min-w-48 ${className ?? ''}`}
-        variant="outline"
+        variant="noBg"
       >
         <CardHeader className="">
           <CardTitle className="font-mono text-xs">{getCategoryDisplayName(categoryField ?? 'value')}</CardTitle>
@@ -182,7 +182,7 @@ export function Legend({
                   />
                   <span
                     className={cn(
-                      "text-sm font-semibold flex-1 max-w-44 truncate",
+                      "text-sm font-semibold flex-1 max-w-44 truncate text-foreground/70",
                       isTopicMuted && "line-through"
                     )}
                   >
@@ -234,7 +234,7 @@ export function Legend({
                       />
                       <span
                         className={cn(
-                          "text-xs flex-1 max-w-40 truncate",
+                          "text-xs flex-1 max-w-40 truncate text-foreground/60",
                           isSubMuted && "line-through"
                         )}
                       >
@@ -304,7 +304,7 @@ export function Legend({
               />
               <span
                 className={cn(
-                  "text-sm flex-1 max-w-48 truncate",
+                  "text-sm flex-1 max-w-48 truncate text-foreground/70",
                   isMuted && "line-through"
                 )}
               >

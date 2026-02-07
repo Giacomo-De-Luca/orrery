@@ -11,7 +11,14 @@ import { calculateMarkerStyle, calculateLuminosity, calculateHighlightScale, cal
 import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
 import { FrostedTooltip, type TooltipData } from './FrostedTooltip';
 import { easeInOutCubic, lerp, cartesianToSpherical, sphericalToCartesian, getZoomLevel, getZoomMultiplier, formatHoverText } from '../utils/rendeding';
+import { groupPointsByCluster, computeDensityGrid, sampleNebulaParticles, hexToRgbNormalized, type ClusterData } from '../../lib/utils/clusterGeometry';
+import { NebulaRenderer } from '../../lib/utils/nebulaRenderer';
+import { BloomRenderer } from '../../lib/utils/bloomRenderer';
+import { computeMVP, buildDataToSceneMatrix, projectToScreen } from '../utils/labelPlacement';
+import { CollisionGrid, type BoundingBox } from '../../lib/utils/collisionGrid';
 
+// Hoisted identity matrix for WebGL nebula fallback (avoids per-frame allocation)
+const GL_IDENTITY_MATRIX = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
 
 // Factory pattern: use pre-bundled plotly.js-dist-min to avoid glslify bundler issues
 const Plot = dynamic(async () => {
@@ -46,6 +53,8 @@ interface ScatterPlot3DProps {
   categoricalPalette?: string;
   /** Nested topic/subtopic color map for hierarchical coloring */
   nestedColorMap?: NestedColorMap | null;
+  /** Nebula cloud effect mode: 'volume' for Plotly volume traces, 'webgl' for particle sprites, 'bloom' for Three.js bloom */
+  nebulaMode?: 'off' | 'volume' | 'webgl' | 'bloom';
 }
 
 interface PlotlyGraphDiv extends HTMLDivElement {
@@ -82,6 +91,7 @@ export function ScatterPlot3D({
   hideUnclustered = false,
   categoricalPalette,
   nestedColorMap,
+  nebulaMode = 'off',
 }: ScatterPlot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
@@ -151,8 +161,17 @@ export function ScatterPlot3D({
 
   const currentCameraRef = useRef({ eye: defaultEye, center: defaultCenter });
 
+  const defaultDistance = useMemo(() => {
+    const { x, y, z } = defaultEye;
+    return Math.sqrt(x * x + y * y + z * z);
+  }, [defaultEye]);
 
-
+  const labelCanvasRef = useRef<HTMLCanvasElement>(null);
+  const labelRenderDataRef = useRef<{
+    points: { x: number; y: number; z: number; label: string; index: number }[];
+    similarities: Map<number, number>;
+    selectedIndex: number | null;
+  } | null>(null);
 
   useEffect(() => {
     import('plotly.js-dist-min').then((lib) => {
@@ -161,6 +180,10 @@ export function ScatterPlot3D({
   }, []);
 
   const currentZoomMultiplier = useRef(getZoomMultiplier(currentCameraRef.current.eye, currentCameraRef.current.center));
+
+  // Ref to track bounds for projection (avoids stale closure)
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
 
 
 
@@ -178,6 +201,35 @@ export function ScatterPlot3D({
     const targetCenterX = (selectedPoint.x - dataCenterX) / maxRange;
     const targetCenterY = (selectedPoint.y - dataCenterY) / maxRange;
     const targetCenterZ = (selectedPoint.z - dataCenterZ) / maxRange;
+
+    // Debug: log Plotly scene internals to understand coordinate mapping
+    const sceneLayout = (graphDivRef.current._fullLayout?.scene) as any;
+    const glplot = sceneLayout?._scene?.glplot;
+    // Try multiple paths for model matrix
+    const modelPaths = {
+      'glplot.model': glplot?.model,
+      'glplot.cameraParams.model': glplot?.cameraParams?.model,
+      'glplot.objects[0].model': glplot?.objects?.[0]?.model,
+      'glplot._model': glplot?._model,
+    };
+    const foundModel = Object.entries(modelPaths).find(([, v]) => v != null);
+    console.log('[3D Camera Debug]', JSON.stringify({
+      clickedPoint: { x: selectedPoint.x, y: selectedPoint.y, z: selectedPoint.z },
+      computedTarget: { x: targetCenterX, y: targetCenterY, z: targetCenterZ },
+      dataBounds: bounds,
+      maxRange,
+      axisRanges: {
+        x: sceneLayout?.xaxis?.range ? [...sceneLayout.xaxis.range] : null,
+        y: sceneLayout?.yaxis?.range ? [...sceneLayout.yaxis.range] : null,
+        z: sceneLayout?.zaxis?.range ? [...sceneLayout.zaxis.range] : null,
+      },
+      aspectratio: sceneLayout?.aspectratio,
+      glplotBounds: glplot?.bounds ? [Array.from(glplot.bounds[0]), Array.from(glplot.bounds[1])] : null,
+      modelMatrixPath: foundModel ? foundModel[0] : null,
+      modelMatrix: foundModel ? Array.from(foundModel[1]).slice(0, 16) : null,
+      glplotKeys: glplot ? Object.keys(glplot).slice(0, 20) : null,
+      cameraFormat: glplot?.camera ? (Array.isArray(glplot.camera.eye) ? 'array' : typeof glplot.camera.eye) : null,
+    }, null, 2));
 
     // Adaptive target radius based on dataset size (similar to defaultEye calculation)
     // Small datasets (100 pts): ~0.32
@@ -627,29 +679,364 @@ export function ScatterPlot3D({
     return traces;
   }, [selectedPoint, highlightedIndices, points, markerStyle, highlightScale, isDark]);
 
-  const labelTraces = useMemo((): PlotlyData[] => {
-    if (!showLabels || !highlightedIndices || highlightedIndices.size === 0) return [];
+  // Populate label render data (no React state — just a ref for the canvas renderer)
+  useEffect(() => {
+    if (!showLabels || !highlightedIndices || highlightedIndices.size === 0) {
+      labelRenderDataRef.current = null;
+      return;
+    }
     const highlightedPoints = points.filter(p => highlightedIndices.has(p.index));
-    if (highlightedPoints.length === 0) return [];
+    if (highlightedPoints.length === 0) {
+      labelRenderDataRef.current = null;
+      return;
+    }
 
-    return [{
-      x: highlightedPoints.map(p => p.x),
-      y: highlightedPoints.map(p => p.y),
-      z: highlightedPoints.map(p => p.z),
-      mode: 'text' as const, type: 'scatter3d' as const,
-      text: highlightedPoints.map(p => p.label || p.id),
-      textposition: 'top center' as const,
-      textfont: { size: 11, color: isDark ? '#e2e8f0' : '#1e293b' },
-      hoverinfo: 'skip' as const, showlegend: false
-    }];
-  }, [showLabels, highlightedIndices, points, isDark]);
+    labelRenderDataRef.current = {
+      points: highlightedPoints.map(p => ({
+        x: p.x, y: p.y, z: p.z,
+        label: p.label || p.id,
+        index: p.index,
+      })),
+      similarities: highlightedIndices,
+      selectedIndex: selectedPoint?.index ?? null,
+    };
+  }, [showLabels, highlightedIndices, points, selectedPoint]);
 
-  const plotData = useMemo(() => [...baseTraces, ...selectedTraces, ...labelTraces], [baseTraces, selectedTraces, labelTraces]);
+  // --- Canvas label overlay ---
+  const hasLabels = showLabels && highlightedIndices && highlightedIndices.size > 0;
+
+  // Imperative: draw labels on the canvas overlay using CollisionGrid
+  const renderLabels = useCallback(() => {
+    const canvas = labelCanvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = width;
+    const cssH = height;
+
+    // Resize canvas backing store to match CSS size * DPR
+    const bw = Math.round(cssW * dpr);
+    const bh = Math.round(cssH * dpr);
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const data = labelRenderDataRef.current;
+    const currentBounds = boundsRef.current;
+    if (!data || !currentBounds || data.points.length === 0) return;
+
+    // Get MVP from glplot internals
+    const sceneLayout = (graphDivRef.current as any)?._fullLayout?.scene;
+    const glplot = sceneLayout?._scene?.glplot;
+    const cameraParams = glplot?.cameraParams || glplot?.camera;
+    const projection = cameraParams?.projection || cameraParams?._projection;
+    const view = cameraParams?.view || cameraParams?._view;
+    if (!projection || !view) return;
+
+    const model = glplot?.model || buildDataToSceneMatrix(currentBounds);
+    const mvp = computeMVP(projection, view, model);
+
+    // Get the actual GL canvas position relative to our overlay container.
+    // Plotly's GL canvas may be offset within the plot div (margins, modebar, etc.)
+    const gl = glplot?.gl as WebGLRenderingContext | null;
+    const glCanvas = gl?.canvas as HTMLCanvasElement | undefined;
+    const containerRect = container.getBoundingClientRect();
+
+    let glOffsetX = 0;
+    let glOffsetY = 0;
+    let vpW: number;
+    let vpH: number;
+
+    if (glCanvas && gl) {
+      const glRect = glCanvas.getBoundingClientRect();
+      // Offset of GL canvas within our overlay container (in CSS pixels)
+      glOffsetX = glRect.left - containerRect.left;
+      glOffsetY = glRect.top - containerRect.top;
+      // Viewport size in CSS pixels (what projectToScreen maps into)
+      vpW = glRect.width;
+      vpH = glRect.height;
+    } else {
+      vpW = cssW;
+      vpH = cssH;
+    }
+
+    // Sort candidates: selected first, then by similarity descending
+    const sorted = data.points.map((p, i) => ({ ...p, i }));
+    sorted.sort((a, b) => {
+      const aSelected = a.index === data.selectedIndex ? 1 : 0;
+      const bSelected = b.index === data.selectedIndex ? 1 : 0;
+      if (aSelected !== bSelected) return bSelected - aSelected;
+      return (data.similarities.get(b.index) ?? 0) - (data.similarities.get(a.index) ?? 0);
+    });
+
+    // Create collision grid over the full overlay canvas
+    const gridBound: BoundingBox = { loX: 0, loY: 0, hiX: cssW, hiY: cssH };
+    const grid = new CollisionGrid(gridBound, Math.max(cssW / 25, 1), Math.max(cssH / 50, 1));
+
+    const fontSize = 11;
+    const fontStr = `${fontSize}px Geist Mono, monospace`;
+    ctx.font = fontStr;
+    ctx.textBaseline = 'middle';
+    const offsetX = 8; // px right of projected point
+
+    for (const candidate of sorted) {
+      // Project to GL viewport coordinates, then shift by GL canvas offset
+      const screen = projectToScreen(candidate.x, candidate.y, candidate.z, mvp, vpW, vpH);
+      if (!screen) continue;
+
+      // Convert from GL-viewport-local coords to overlay-canvas coords
+      const sx = screen.x + glOffsetX;
+      const sy = screen.y + glOffsetY;
+
+      const isSelected = candidate.index === data.selectedIndex;
+      const similarity = data.similarities.get(candidate.index) ?? 0;
+
+      // Two-pass collision test (TensorBoard pattern):
+      // Pass 1: thin box (width=1px) to cheaply reject dense areas
+      const thinBox: BoundingBox = {
+        loX: sx + offsetX,
+        loY: sy - fontSize * 0.6,
+        hiX: sx + offsetX + 1,
+        hiY: sy + fontSize * 0.6,
+      };
+      if (!grid.insert(thinBox, true)) continue;
+
+      // Pass 2: measure actual text width, build real bounding box
+      const textWidth = ctx.measureText(candidate.label).width;
+      const realBox: BoundingBox = {
+        loX: sx + offsetX - 2,
+        loY: sy - fontSize * 0.6 - 1,
+        hiX: sx + offsetX + textWidth + 2,
+        hiY: sy + fontSize * 0.6 + 1,
+      };
+      if (!grid.insert(realBox)) continue;
+
+      // Draw label with stroke outline for contrast
+      const alpha = isSelected ? 1.0 : 0.4 + similarity * 0.6;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.8)' : 'rgba(255, 255, 255, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+      ctx.strokeText(candidate.label, sx + offsetX, sy);
+      ctx.fillStyle = isDark ? '#e2e8f0' : '#1e293b';
+      ctx.fillText(candidate.label, sx + offsetX, sy);
+    }
+
+    ctx.globalAlpha = 1.0;
+  }, [width, height, isDark]);
+
+  // rAF-based camera polling: detect camera changes during 3D rotation/zoom/pan
+  // (onRelayout does NOT fire during 3D mouse interaction)
+  useEffect(() => {
+    if (!hasLabels || !plotReady || !graphDivRef.current) return;
+
+    let rafId: number;
+    const lastCam = { ex: 0, ey: 0, ez: 0, cx: 0, cy: 0, cz: 0 };
+
+    const pollCamera = () => {
+      const sceneLayout = (graphDivRef.current as any)?._fullLayout?.scene;
+      const glplot = sceneLayout?._scene?.glplot;
+      const camera = glplot?.camera;
+
+      if (camera) {
+        let ex: number, ey: number, ez: number, ccx: number, ccy: number, ccz: number;
+        if (Array.isArray(camera.eye)) {
+          [ex, ey, ez] = camera.eye;
+          [ccx, ccy, ccz] = camera.center || [0, 0, 0];
+        } else {
+          ex = camera.eye?.x ?? 0; ey = camera.eye?.y ?? 0; ez = camera.eye?.z ?? 0;
+          ccx = camera.center?.x ?? 0; ccy = camera.center?.y ?? 0; ccz = camera.center?.z ?? 0;
+        }
+
+        const changed =
+          Math.abs(ex - lastCam.ex) > 1e-6 || Math.abs(ey - lastCam.ey) > 1e-6 ||
+          Math.abs(ez - lastCam.ez) > 1e-6 || Math.abs(ccx - lastCam.cx) > 1e-6 ||
+          Math.abs(ccy - lastCam.cy) > 1e-6 || Math.abs(ccz - lastCam.cz) > 1e-6;
+
+        if (changed) {
+          lastCam.ex = ex; lastCam.ey = ey; lastCam.ez = ez;
+          lastCam.cx = ccx; lastCam.cy = ccy; lastCam.cz = ccz;
+
+          // Keep currentCameraRef in sync
+          currentCameraRef.current.eye = { x: ex, y: ey, z: ez };
+          currentCameraRef.current.center = { x: ccx, y: ccy, z: ccz };
+
+          renderLabels();
+        }
+      }
+      rafId = requestAnimationFrame(pollCamera);
+    };
+
+    // Render once immediately, then start polling
+    renderLabels();
+    rafId = requestAnimationFrame(pollCamera);
+    return () => cancelAnimationFrame(rafId);
+  }, [hasLabels, plotReady, renderLabels]);
+
+  // Clear canvas when labels toggled off
+  useEffect(() => {
+    if (!hasLabels && labelCanvasRef.current) {
+      const ctx = labelCanvasRef.current.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, labelCanvasRef.current.width, labelCanvasRef.current.height);
+    }
+  }, [hasLabels]);
+
+  // Re-render labels on resize
+  useEffect(() => {
+    if (hasLabels) renderLabels();
+  }, [width, height, hasLabels, renderLabels]);
+
+  // --- NEBULA: Cluster data for both volume and WebGL modes ---
+  const clusterDataMap = useMemo(() => {
+    if (nebulaMode === 'off' || !categoryField) return new Map<string, ClusterData>();
+
+    // Apply same hideUnclustered filter as baseTraces
+    const displayPoints = hideUnclustered
+      ? points.filter(p => {
+          const topicId = p.metadata?.['topic_id'];
+          if (topicId === '-1' || topicId === -1) return false;
+          const topicLabel = p.metadata?.['topic_label'];
+          if (topicLabel === 'Unclustered' || topicLabel === 'unclustered') return false;
+          return true;
+        })
+      : points;
+
+    return groupPointsByCluster(displayPoints, categoryField, colorMap, nestedColorMap);
+  }, [nebulaMode, points, categoryField, colorMap, nestedColorMap, hideUnclustered]);
+
+  // --- NEBULA PLAN A: Plotly isosurface/volume traces ---
+  const nebulaVolumeTraces = useMemo((): PlotlyData[] => {
+    if (nebulaMode !== 'volume' || clusterDataMap.size === 0) return [];
+    // Performance guard: skip if too many clusters
+    if (clusterDataMap.size > 30) return [];
+
+    const traces: PlotlyData[] = [];
+
+    for (const [, cluster] of clusterDataMap) {
+      if (cluster.points.length < 10) continue;
+
+      const grid = computeDensityGrid(cluster, 18, 2.5);
+      if (grid.maxValue === 0) continue;
+
+      const color = cluster.color;
+      const isoMin = grid.maxValue * 0.03;
+
+      // Outer halo — very low threshold, low opacity, large coverage
+      traces.push({
+        type: 'isosurface' as any,
+        x: grid.x,
+        y: grid.y,
+        z: grid.z,
+        value: grid.value,
+        isomin: isoMin,
+        isomax: grid.maxValue * 0.4,
+        surface: { count: 2, fill: 0.8 },
+        caps: { x: { show: false }, y: { show: false }, z: { show: false } },
+        colorscale: [[0, color], [1, color]] as any,
+        showscale: false,
+        opacity: 0.08,
+        hoverinfo: 'skip',
+        showlegend: false,
+        lighting: { ambient: 1, diffuse: 0, specular: 0, roughness: 1 },
+      } as any);
+
+      // Inner core — higher threshold, more visible
+      traces.push({
+        type: 'isosurface' as any,
+        x: grid.x,
+        y: grid.y,
+        z: grid.z,
+        value: grid.value,
+        isomin: grid.maxValue * 0.25,
+        isomax: grid.maxValue,
+        surface: { count: 3, fill: 0.9 },
+        caps: { x: { show: false }, y: { show: false }, z: { show: false } },
+        colorscale: [[0, color], [1, color]] as any,
+        showscale: false,
+        opacity: 0.15,
+        hoverinfo: 'skip',
+        showlegend: false,
+        lighting: { ambient: 1, diffuse: 0, specular: 0, roughness: 1 },
+      } as any);
+    }
+
+    return traces;
+  }, [nebulaMode, clusterDataMap]);
+
+  // --- NEBULA PLAN B: Scatter3d glow particle traces ---
+  const nebulaGlowTraces = useMemo((): PlotlyData[] => {
+    if (nebulaMode !== 'webgl' || clusterDataMap.size === 0) return [];
+    if (clusterDataMap.size > 30) return [];
+
+    const traces: PlotlyData[] = [];
+
+    for (const [, cluster] of clusterDataMap) {
+      if (cluster.points.length < 10) continue;
+
+      const particles = sampleNebulaParticles(cluster, 200, 1.8);
+      const px: number[] = [], py: number[] = [], pz: number[] = [];
+      const sizes: number[] = [];
+
+      for (let i = 0; i < particles.positions.length / 3; i++) {
+        px.push(particles.positions[i * 3]);
+        py.push(particles.positions[i * 3 + 1]);
+        pz.push(particles.positions[i * 3 + 2]);
+        sizes.push(particles.sizes[i] * 1.5);
+      }
+
+      // Outer glow layer — large, very transparent
+      traces.push({
+        x: px, y: py, z: pz,
+        mode: 'markers', type: 'scatter3d',
+        marker: {
+          sizemode: 'diameter',
+          size: sizes.map(s => s * 2.5),
+          color: cluster.color,
+          opacity: 0.04,
+          line: { width: 0 },
+        },
+        hoverinfo: 'skip',
+        showlegend: false,
+      });
+
+      // Inner glow layer — smaller, slightly more visible
+      traces.push({
+        x: px, y: py, z: pz,
+        mode: 'markers', type: 'scatter3d',
+        marker: {
+          sizemode: 'diameter',
+          size: sizes,
+          color: cluster.color,
+          opacity: 0.1,
+          line: { width: 0 },
+        },
+        hoverinfo: 'skip',
+        showlegend: false,
+      });
+    }
+
+    return traces;
+  }, [nebulaMode, clusterDataMap]);
+
+  const plotData = useMemo(() => [
+    ...nebulaVolumeTraces,   // Volume nebula behind points
+    ...nebulaGlowTraces,     // Glow particle nebula behind points
+    ...baseTraces,
+    ...selectedTraces,
+  ], [nebulaVolumeTraces, nebulaGlowTraces, baseTraces, selectedTraces]);
 
   const layout = useMemo<Partial<Layout>>(() => ({
-    width, height, aspectmode: 'data', autosize: true, uirevision: 'true', hovermode: 'closest', showlegend: false,
-    paper_bgcolor: paperBg, font: { color: axisColor },
+    width, height, autosize: true, uirevision: 'true', hovermode: 'closest', showlegend: false,
+    paper_bgcolor: paperBg, 
+    font: { family: 'Courier New, monospace', color: axisColor },
     scene: {
+      aspectmode: 'data',
       camera: {
         eye: defaultEye,
         center: defaultCenter,
@@ -745,6 +1132,166 @@ export function ScatterPlot3D({
     };
   }, [plotReady, tooltipFields]);
 
+  // --- NEBULA PLAN B: WebGL particle sprites ---
+  const nebulaRenderersRef = useRef<Map<string, NebulaRenderer>>(new Map());
+
+  useEffect(() => {
+    const renderers = nebulaRenderersRef.current;
+    if (nebulaMode !== 'webgl' || !plotReady || !graphDivRef.current || clusterDataMap.size === 0) {
+      // Cleanup if mode changed away from webgl
+      for (const renderer of renderers.values()) {
+        renderer.dispose();
+      }
+      renderers.clear();
+      return;
+    }
+
+    const sceneLayout = (graphDivRef.current._fullLayout?.scene) as any;
+    const glplot = sceneLayout?._scene?.glplot;
+    if (!glplot) return;
+
+    // Use Plotly's existing GL context directly (avoids WebGL2 compatibility issues)
+    const gl = glplot.gl as WebGLRenderingContext | null;
+    if (!gl) return;
+
+    // Create/update renderers for each cluster
+    const activeKeys = new Set<string>();
+    for (const [key, cluster] of clusterDataMap) {
+      if (cluster.points.length < 10) continue;
+      activeKeys.add(key);
+
+      let renderer = renderers.get(key);
+      if (!renderer) {
+        renderer = new NebulaRenderer(gl);
+        renderers.set(key, renderer);
+      }
+
+      const particles = sampleNebulaParticles(cluster, 300, 1.5);
+      renderer.updateParticles(particles.positions, particles.opacities, particles.sizes);
+    }
+
+    // Dispose removed clusters
+    for (const [key, renderer] of renderers) {
+      if (!activeKeys.has(key)) {
+        renderer.dispose();
+        renderers.delete(key);
+      }
+    }
+
+    // Hook into glplot's render loop
+    const originalOnRender = glplot.onrender;
+
+    glplot.onrender = () => {
+      if (originalOnRender) originalOnRender();
+
+      const cameraParams = glplot.cameraParams || glplot.camera;
+      if (!cameraParams) return;
+
+      // Extract matrices
+      const projection = cameraParams.projection || cameraParams._projection;
+      const view = cameraParams.view || cameraParams._view;
+      const model = glplot.model || GL_IDENTITY_MATRIX;
+
+      if (!projection || !view) return;
+
+      // Save GL state (including alpha blend factors for blendFuncSeparate)
+      const prevBlend = gl.isEnabled(gl.BLEND);
+      const prevDepthMask = gl.getParameter(gl.DEPTH_WRITEMASK);
+      const prevBlendSrcRgb = gl.getParameter(gl.BLEND_SRC_RGB);
+      const prevBlendDstRgb = gl.getParameter(gl.BLEND_DST_RGB);
+      const prevBlendSrcAlpha = gl.getParameter(gl.BLEND_SRC_ALPHA);
+      const prevBlendDstAlpha = gl.getParameter(gl.BLEND_DST_ALPHA);
+      const prevProgram = gl.getParameter(gl.CURRENT_PROGRAM);
+
+      // Set up additive blending
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+      gl.depthMask(false);
+
+      // Draw each cluster's nebula
+      for (const [key, renderer] of renderers) {
+        const cluster = clusterDataMap.get(key);
+        if (!cluster) continue;
+        const rgb = hexToRgbNormalized(cluster.color);
+        renderer.draw(projection, view, model, rgb);
+      }
+
+      // Restore GL state
+      gl.depthMask(prevDepthMask);
+      if (!prevBlend) gl.disable(gl.BLEND);
+      else {
+        gl.blendFuncSeparate(prevBlendSrcRgb, prevBlendDstRgb, prevBlendSrcAlpha, prevBlendDstAlpha);
+      }
+      if (prevProgram) gl.useProgram(prevProgram);
+    };
+
+    return () => {
+      // Unhook render callback
+      if (glplot) {
+        glplot.onrender = originalOnRender || null;
+      }
+      // Dispose all renderers
+      for (const renderer of renderers.values()) {
+        renderer.dispose();
+      }
+      renderers.clear();
+    };
+  }, [nebulaMode, plotReady, clusterDataMap]);
+
+  // --- NEBULA PLAN C: Three.js bloom (shared WebGL2 context) ---
+  const bloomRendererRef = useRef<BloomRenderer | null>(null);
+
+  useEffect(() => {
+    if (nebulaMode !== 'bloom' || !plotReady || !graphDivRef.current || clusterDataMap.size === 0) {
+      if (bloomRendererRef.current) {
+        bloomRendererRef.current.dispose();
+        bloomRendererRef.current = null;
+      }
+      return;
+    }
+
+    const sceneLayout = (graphDivRef.current._fullLayout?.scene) as any;
+    const glplot = sceneLayout?._scene?.glplot;
+    if (!glplot) return;
+
+    const gl = glplot.gl;
+    const canvas = gl?.canvas as HTMLCanvasElement | undefined;
+    if (!gl || !canvas) return;
+
+    // Verify WebGL2 (monkey-patch should have upgraded it)
+    if (!(gl instanceof WebGL2RenderingContext)) {
+      console.warn('[Bloom] WebGL2 required but not available — skipping bloom');
+      return;
+    }
+
+    const bloom = new BloomRenderer(gl, canvas);
+    bloomRendererRef.current = bloom;
+    bloom.updateClusters(clusterDataMap);
+
+    // Hook into glplot's render loop (same pattern as WebGL nebula)
+    const originalOnRender = glplot.onrender;
+
+    glplot.onrender = () => {
+      if (originalOnRender) originalOnRender();
+
+      const cameraParams = glplot.cameraParams || glplot.camera;
+      if (!cameraParams) return;
+
+      const projection = cameraParams.projection || cameraParams._projection;
+      const view = cameraParams.view || cameraParams._view;
+      const model = glplot.model || GL_IDENTITY_MATRIX;
+      if (!projection || !view) return;
+
+      bloom.render(projection, view, model);
+    };
+
+    return () => {
+      if (glplot) glplot.onrender = originalOnRender || null;
+      bloom.dispose();
+      bloomRendererRef.current = null;
+    };
+  }, [nebulaMode, plotReady, clusterDataMap]);
+
   return (
     <div ref={containerRef} className={className ?? 'h-full w-full'} style={{ position: 'relative' }}>
       <Plot
@@ -758,6 +1305,20 @@ export function ScatterPlot3D({
         }}
         onRelayout={handleRelayout}
       />
+      {hasLabels && (
+        <canvas
+          ref={labelCanvasRef}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: `${width}px`,
+            height: `${height}px`,
+            pointerEvents: 'none',
+            zIndex: 10,
+          }}
+        />
+      )}
       <FrostedTooltip data={tooltipData} />
     </div>
   );

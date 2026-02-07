@@ -146,6 +146,7 @@ export interface VisualizationState {
   hideUnclustered?: boolean;  // When true, hide points with topic_id = -1 (unclustered/noise)
   categoricalPalette?: string;  // Crameri categorical palette name (e.g., 'batlowS') for categorical coloring
   nestedColorMode?: boolean;  // When true, color by subtopics within topics (Tableau-style nested hues)
+  nebulaMode?: 'off' | 'volume' | 'webgl' | 'bloom';  // 3D nebula cloud effects around topic clusters
 }
 
 /**
