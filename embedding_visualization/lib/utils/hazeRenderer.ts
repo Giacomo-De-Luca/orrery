@@ -68,7 +68,9 @@ const CORE_SCALE_MULT = 1.5;
 
 let hazeTexture: THREE.Texture | null = null;
 function getHazeTexture(): THREE.Texture {
-  if (!hazeTexture) hazeTexture = new THREE.TextureLoader().load('/feathered60.png');
+  if (!hazeTexture) {
+    hazeTexture = new THREE.TextureLoader().load('/feathered60.png');
+  }
   return hazeTexture;
 }
 
@@ -160,16 +162,32 @@ export class HazeRenderer {
         ? SMALL_CLUSTER_SCALE_BOOST * (1 - n / SMALL_CLUSTER_THRESHOLD) + 1.0
         : 1.0;
 
-      // Shuffle-pick indices (Fisher-Yates partial)
+      // Shuffle points (Fisher-Yates) then Poisson-disk reject to spread sprites evenly
       const indices = Array.from({ length: cluster.points.length }, (_, i) => i);
-      for (let i = 0; i < Math.min(hazeCount, indices.length); i++) {
-        const j = i + Math.floor(Math.random() * (indices.length - i));
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
         [indices[i], indices[j]] = [indices[j], indices[i]];
       }
 
-      // Place haze sprites at sampled point positions
-      for (let i = 0; i < hazeCount && i < indices.length; i++) {
-        const p = cluster.points[indices[i]];
+      const minDist = extent * 0.03;
+      const minDist2 = minDist * minDist;
+      const accepted: { x: number; y: number; z: number }[] = [];
+
+      for (const idx of indices) {
+        const c = cluster.points[idx];
+        let tooClose = false;
+        for (const a of accepted) {
+          if ((c.x - a.x) ** 2 + (c.y - a.y) ** 2 + (c.z - a.z) ** 2 < minDist2) {
+            tooClose = true;
+            break;
+          }
+        }
+        if (!tooClose) accepted.push(c);
+        if (accepted.length >= hazeCount) break;
+      }
+
+      // Place haze sprites at accepted positions
+      for (const p of accepted) {
 
         const material = new THREE.SpriteMaterial({
           map: texture,
