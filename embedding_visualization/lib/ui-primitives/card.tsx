@@ -25,7 +25,7 @@ const cardVariant = cva(
         circularghost:
           "hover:bg-accent backdrop-blur-md border-glass hover:text-accent-foreground rounded-full aspect-square dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",
-        noBg: "bg-transparent backdrop-blur-none dark:bg-transparent shadow-none",
+        noBg: "bg-transparent dark:bg-transparent shadow-none",
         glassEdge: "glass-edge border border-white/15 dark:border-white/10",
       },
     },
