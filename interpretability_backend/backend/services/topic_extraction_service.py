@@ -1072,7 +1072,8 @@ def generate_llm_labels_for_collection(
         total_work = (total_topics if label_scope in ("both", "topics_only") else 0) + \
                      (total_subtopics if label_scope in ("both", "subtopics_only") else 0)
 
-        # Update job state with total count
+        # Update job state with total count now that we know it
+        job_state_service.update_total_expected(job_id, total_expected=total_work, total_batches=1)
         job_state_service.update_progress(job_id, 0, 0)
 
         progress_idx = 0

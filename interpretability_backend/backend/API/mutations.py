@@ -141,7 +141,8 @@ class Mutation:
                 message="Computing projections (PCA/UMAP)..."
             )
             projections_computed = await asyncio.to_thread(
-                compute_projections_for_collection, input.collection_name
+                compute_projections_for_collection, input.collection_name,
+                job_id=input.collection_name,
             )
 
         # Extract topics if requested and projections succeeded
@@ -239,7 +240,8 @@ class Mutation:
                 message="Computing projections (PCA/UMAP)..."
             )
             projections_computed = await asyncio.to_thread(
-                compute_projections_for_collection, input.collection_name
+                compute_projections_for_collection, input.collection_name,
+                job_id=input.collection_name,
             )
 
         # Extract topics if requested and projections succeeded

@@ -12,6 +12,7 @@ import { Badge } from '@/lib/ui-primitives/badge';
 import { Separator } from '@/lib/ui-primitives/separator';
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { X, ChevronDown, ChevronRight } from 'lucide-react';
+import { ProgressModal } from './EmbeddingProgressModal';
 import { Label } from '@/lib/ui-primitives/label';
 import { Input } from '@/lib/ui-primitives/input';
 import { Slider } from '@/lib/ui-primitives/slider';
@@ -471,6 +472,15 @@ export function TopicExtractionCard({
           </CardContent>
         </CollapsibleContent>
       </Card>
+      {/* LLM Labeling Progress Modal */}
+      {llmLabelsLoading && (
+        <ProgressModal
+          jobId={`${collectionName}_llm_labeling`}
+          title="Generating LLM Labels"
+          subtitle="Each topic is labeled individually via LLM API calls."
+          itemsLabel="topics"
+        />
+      )}
     </Collapsible>
   );
 }
