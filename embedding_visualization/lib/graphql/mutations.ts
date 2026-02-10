@@ -339,7 +339,7 @@ export type JobStatus = 'running' | 'interrupted' | 'completed';
 export interface EmbeddingJob {
   collectionName: string;
   status: JobStatus;
-  jobType: 'huggingface' | 'local_file';
+  jobType: 'huggingface' | 'local_file' | 'llm_labeling';
   itemsEmbedded: number;
   totalExpected: number;
   batchesCompleted: number;

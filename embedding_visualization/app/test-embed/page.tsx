@@ -129,6 +129,7 @@ export default function TestEmbedPage() {
           clearError={clearError}
           lastEmbedResult={lastEmbedResult}
           activeJobCollectionName={activeJobCollectionName}
+          generateLlmLabels={generateLlmLabels}
         />
       )}
 
@@ -147,6 +148,7 @@ export default function TestEmbedPage() {
           clearError={clearError}
           lastEmbedResult={lastEmbedResult}
           activeJobCollectionName={activeJobCollectionName}
+          generateLlmLabels={generateLlmLabels}
         />
       )}
 

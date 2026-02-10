@@ -207,7 +207,7 @@ export default function Home() {
     if (isInitialLoad.current) return;
     resetSearch();
     setQueryPromptName(null);
-    setVisualizationState(prev => ({ ...prev, colorByField: null, mutedCategories: [], tooltipFields: undefined }));
+    setVisualizationState(prev => ({ ...prev, colorByField: null, mutedCategories: [], tooltipFields: undefined, temporalRange: null }));
   }, [selectedCollection, resetSearch]);
 
   // Apply colorBy from URL once data loads, then mark initial load complete
