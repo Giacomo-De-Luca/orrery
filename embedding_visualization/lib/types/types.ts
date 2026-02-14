@@ -156,6 +156,8 @@ export interface VisualizationState {
   nebulaMode?: boolean;  // 3D nebula haze effects around topic clusters
   showClusterLabels?: boolean;  // When true, show topic/subtopic names at cluster centroids
   temporalRange?: TemporalRange | null;  // Time range filter from temporal chart brush
+  hideFilteredPoints?: boolean;   // Remove muted points entirely instead of graying out
+  mutedPointOpacity?: number;     // 0-1, opacity for muted points (default 0.15)
 }
 
 /**

@@ -9,6 +9,7 @@ import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergi
 import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crameriScales';
 import { calculateMarkerStyle, calculateLuminosity, calculateHighlightScale, calculateSimilarityColors } from '../../lib/utils/plotUtils';
 import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
+import { useZoomLimit } from '../../lib/hooks/useZoomLimit';
 import { FrostedTooltip, type TooltipData } from './FrostedTooltip';
 import { easeInOutCubic, lerp, cartesianToSpherical, sphericalToCartesian, getZoomLevel, getZoomMultiplier, formatHoverText } from '../utils/rendeding';
 import { groupPointsByCluster, type ClusterData } from '../../lib/utils/clusterGeometry';
@@ -56,8 +57,16 @@ interface ScatterPlot3DProps {
   nebulaMode?: boolean;
   /** Show topic/subtopic names at cluster centroids */
   showClusterLabels?: boolean;
-  /** Indices of points outside the selected temporal range (to gray out) */
-  temporallyMutedIndices?: Set<number> | null;
+  /** Callback when a cluster label is clicked (topic toggle) */
+  onClusterLabelClick?: (topicId: number) => void;
+  /** Map from topic label string → topic ID for click handling */
+  topicLabelToIdMap?: Map<string, number> | null;
+  /** Combined indices to mute (temporal + text search) */
+  combinedMutedIndices?: Set<number> | null;
+  /** Remove muted points entirely instead of graying out */
+  hideFilteredPoints?: boolean;
+  /** 0-1, opacity for muted points (default 0.15) */
+  mutedPointOpacity?: number;
 }
 
 interface PlotlyGraphDiv extends HTMLDivElement {
@@ -96,7 +105,9 @@ export function ScatterPlot3D({
   nestedColorMap,
   nebulaMode = false,
   showClusterLabels = false,
-  temporallyMutedIndices,
+  combinedMutedIndices,
+  hideFilteredPoints = false,
+  mutedPointOpacity,
 }: ScatterPlot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
@@ -159,7 +170,7 @@ export function ScatterPlot3D({
     const calculatedZoom = startDistance - (zoomInRate * Math.log10(pointCount));
 
     // Clamp: Never go closer than 0.1 (inside the points) or further than 2.5
-    const zoom = Math.min(Math.max(calculatedZoom, 0.1), 2.5);
+    const zoom = Math.min(Math.max(calculatedZoom, 0.1), 1.5);
 
     return { x: zoom, y: zoom, z: zoom };
   }, [pointCount]);
@@ -344,6 +355,8 @@ export function ScatterPlot3D({
     };
   }, [selectedPoint, bounds, plotReady]);
 
+  const MAX_CAMERA_DISTANCE = 3.0;
+
   const handleRelayout = useCallback((e: Readonly<PlotRelayoutEvent>) => {
     if (isAnimatingRef.current) return;
     const sceneCamera = (e as any)['scene.camera'];
@@ -454,12 +467,12 @@ export function ScatterPlot3D({
 
       if (numericData && plotlyColorScale) {
         // --- MODE: NATIVE COLORSCALE (GPU ACCELERATED) ---
-        if (temporallyMutedIndices) {
-          // Split into active vs temporally-muted points
+        if (combinedMutedIndices) {
+          // Split into active vs muted points
           const activeIndices: number[] = [];
           const mutedIndices: number[] = [];
           displayPoints.forEach((_, i) => {
-            if (temporallyMutedIndices.has(displayPoints[i].index)) {
+            if (combinedMutedIndices.has(displayPoints[i].index)) {
               mutedIndices.push(i);
             } else {
               activeIndices.push(i);
@@ -491,7 +504,7 @@ export function ScatterPlot3D({
             });
           }
           // Temporally-muted points grayed out
-          if (mutedIndices.length > 0) {
+          if (mutedIndices.length > 0 && !hideFilteredPoints) {
             traces.push({
               x: mutedIndices.map(i => allX[i]),
               y: mutedIndices.map(i => allY[i]),
@@ -503,7 +516,7 @@ export function ScatterPlot3D({
                 sizemode: 'diameter',
                 size: dimSize,
                 color: '#9ca3af',
-                opacity: 0.1,
+                opacity: mutedPointOpacity ?? 0.15,
               },
               text: mutedIndices.map(i => allText[i]),
               hoverinfo: 'none',
@@ -551,10 +564,11 @@ export function ScatterPlot3D({
           Object.entries(pointsBySub).forEach(([sub, subPoints]) => {
             const parentTopic = String(subPoints[0]?.metadata?.['topic_label'] ?? 'unknown');
             const isMuted = mutedCategories.includes(sub) || mutedCategories.includes(parentTopic);
+            if (hideFilteredPoints && isMuted) return;
 
-            if (temporallyMutedIndices) {
-              const activePoints = subPoints.filter(p => !temporallyMutedIndices.has(p.index));
-              const temporalMutedPts = subPoints.filter(p => temporallyMutedIndices.has(p.index));
+            if (combinedMutedIndices) {
+              const activePoints = subPoints.filter(p => !combinedMutedIndices.has(p.index));
+              const mutedPts = subPoints.filter(p => combinedMutedIndices.has(p.index));
 
               if (activePoints.length > 0) {
                 traces.push({
@@ -568,7 +582,7 @@ export function ScatterPlot3D({
                     sizemode: 'diameter',
                     size: dimSize,
                     color: isMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
-                    opacity: isMuted ? 0.2 : dimOpacity,
+                    opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
                   },
                   text: activePoints.map(formatHoverText),
                   hoverinfo: 'none',
@@ -576,11 +590,11 @@ export function ScatterPlot3D({
                   showlegend: false,
                 });
               }
-              if (temporalMutedPts.length > 0) {
+              if (mutedPts.length > 0 && !hideFilteredPoints) {
                 traces.push({
-                  x: temporalMutedPts.map(p => p.x),
-                  y: temporalMutedPts.map(p => p.y),
-                  z: temporalMutedPts.map(p => p.z),
+                  x: mutedPts.map(p => p.x),
+                  y: mutedPts.map(p => p.y),
+                  z: mutedPts.map(p => p.z),
                   mode: 'markers',
                   type: 'scatter3d',
                   name: sub,
@@ -588,11 +602,11 @@ export function ScatterPlot3D({
                     sizemode: 'diameter',
                     size: dimSize,
                     color: '#9ca3af',
-                    opacity: 0.1,
+                    opacity: mutedPointOpacity ?? 0.15,
                   },
-                  text: temporalMutedPts.map(formatHoverText),
+                  text: mutedPts.map(formatHoverText),
                   hoverinfo: 'none',
-                  customdata: temporalMutedPts as any,
+                  customdata: mutedPts as any,
                   showlegend: false,
                 });
               }
@@ -608,7 +622,7 @@ export function ScatterPlot3D({
                   sizemode: 'diameter',
                   size: dimSize,
                   color: isMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
-                  opacity: isMuted ? 0.2 : dimOpacity,
+                  opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
                 },
                 text: subPoints.map(formatHoverText),
                 hoverinfo: 'none',
@@ -629,10 +643,11 @@ export function ScatterPlot3D({
 
           Object.entries(pointsByCategory).forEach(([cat, catPoints]) => {
             const isMuted = mutedCategories.includes(cat);
+            if (hideFilteredPoints && isMuted) return;
 
-            if (temporallyMutedIndices) {
-              const activePoints = catPoints.filter(p => !temporallyMutedIndices.has(p.index));
-              const temporalMutedPts = catPoints.filter(p => temporallyMutedIndices.has(p.index));
+            if (combinedMutedIndices) {
+              const activePoints = catPoints.filter(p => !combinedMutedIndices.has(p.index));
+              const mutedPts = catPoints.filter(p => combinedMutedIndices.has(p.index));
 
               if (activePoints.length > 0) {
                 traces.push({
@@ -646,7 +661,7 @@ export function ScatterPlot3D({
                     sizemode: 'diameter',
                     size: dimSize,
                     color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
-                    opacity: isMuted ? 0.2 : dimOpacity,
+                    opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
                   },
                   text: activePoints.map(formatHoverText),
                   hoverinfo: 'none',
@@ -654,11 +669,11 @@ export function ScatterPlot3D({
                   showlegend: false,
                 });
               }
-              if (temporalMutedPts.length > 0) {
+              if (mutedPts.length > 0 && !hideFilteredPoints) {
                 traces.push({
-                  x: temporalMutedPts.map(p => p.x),
-                  y: temporalMutedPts.map(p => p.y),
-                  z: temporalMutedPts.map(p => p.z),
+                  x: mutedPts.map(p => p.x),
+                  y: mutedPts.map(p => p.y),
+                  z: mutedPts.map(p => p.z),
                   mode: 'markers',
                   type: 'scatter3d',
                   name: getCategoryLabel(categoryField, cat),
@@ -666,11 +681,11 @@ export function ScatterPlot3D({
                     sizemode: 'diameter',
                     size: dimSize,
                     color: '#9ca3af',
-                    opacity: 0.1,
+                    opacity: mutedPointOpacity ?? 0.15,
                   },
-                  text: temporalMutedPts.map(formatHoverText),
+                  text: mutedPts.map(formatHoverText),
                   hoverinfo: 'none',
-                  customdata: temporalMutedPts as any,
+                  customdata: mutedPts as any,
                   showlegend: false,
                 });
               }
@@ -686,7 +701,7 @@ export function ScatterPlot3D({
                   sizemode: 'diameter',
                   size: dimSize,
                   color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
-                  opacity: isMuted ? 0.2 : dimOpacity,
+                  opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
                 },
                 text: catPoints.map(formatHoverText),
                 hoverinfo: 'none',
@@ -698,11 +713,11 @@ export function ScatterPlot3D({
         }
       } else {
         // --- MODE: NO COLORING ---
-        if (temporallyMutedIndices) {
+        if (combinedMutedIndices) {
           const activeIndices: number[] = [];
           const mutedIndices: number[] = [];
           displayPoints.forEach((_, i) => {
-            if (temporallyMutedIndices.has(displayPoints[i].index)) {
+            if (combinedMutedIndices.has(displayPoints[i].index)) {
               mutedIndices.push(i);
             } else {
               activeIndices.push(i);
@@ -728,7 +743,7 @@ export function ScatterPlot3D({
               showlegend: false,
             });
           }
-          if (mutedIndices.length > 0) {
+          if (mutedIndices.length > 0 && !hideFilteredPoints) {
             traces.push({
               x: mutedIndices.map(i => allX[i]),
               y: mutedIndices.map(i => allY[i]),
@@ -740,7 +755,7 @@ export function ScatterPlot3D({
                 sizemode: 'diameter',
                 size: dimSize,
                 color: '#9ca3af',
-                opacity: 0.1,
+                opacity: mutedPointOpacity ?? 0.15,
               },
               text: mutedIndices.map(i => allText[i]),
               hoverinfo: 'none',
@@ -844,7 +859,7 @@ export function ScatterPlot3D({
   }, [
     points, highlightedIndices, markerStyle, highlightScale, showOnlyHighlighted,
     colorBy, isDark, categoryValues, colorMap, numericData, plotlyColorScale, categoryField,
-    mutedCategories, hideUnclustered, nestedColorMap, temporallyMutedIndices
+    mutedCategories, hideUnclustered, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity
   ]);
 
   // Selected point traces and layout/config remain similar...
@@ -917,8 +932,8 @@ export function ScatterPlot3D({
   const clusterDataMap = useMemo(() => {
     if ((!nebulaMode && !showClusterLabels) || !categoryField) return new Map<string, ClusterData>();
 
-    // Apply same hideUnclustered filter as baseTraces
-    const displayPoints = hideUnclustered
+    // Apply same hideUnclustered filter as baseTraces, then exclude muted categories
+    let displayPoints = hideUnclustered
       ? points.filter(p => {
           const topicId = p.metadata?.['topic_id'];
           if (topicId === '-1' || topicId === -1) return false;
@@ -928,8 +943,16 @@ export function ScatterPlot3D({
         })
       : points;
 
+    if (mutedCategories.length > 0) {
+      const mutedSet = new Set(mutedCategories);
+      displayPoints = displayPoints.filter(p => {
+        const category = p.metadata?.[categoryField];
+        return category == null || !mutedSet.has(String(category));
+      });
+    }
+
     return groupPointsByCluster(displayPoints, categoryField, colorMap, nestedColorMap);
-  }, [nebulaMode, showClusterLabels, points, categoryField, colorMap, nestedColorMap, hideUnclustered]);
+  }, [nebulaMode, showClusterLabels, points, categoryField, colorMap, nestedColorMap, hideUnclustered, mutedCategories]);
 
   // --- Cluster label data for canvas overlay ---
   const clusterLabelDataRef = useRef<{
@@ -1043,10 +1066,11 @@ export function ScatterPlot3D({
         (camEye.y - camCenter.y) ** 2 +
         (camEye.z - camCenter.z) ** 2
       );
-      // Map: close (≤0.3) → 1.0, far (≥2.0) → 0.15
-      const clusterOpacity = Math.max(0.15, Math.min(1.0, 1.0 - (camDist - 0.3) * 0.5));
-
-      for (const cl of clusterData!.labels) {
+      // Map: close (≤0.3) → 1.0, far (≥2.0) → 0. Skip drawing entirely below threshold.
+      const clusterOpacity = Math.max(0, Math.min(1.0, 1.0 - (camDist - 0.3) * 0.5));
+      if (clusterOpacity < 0.25) {
+        // Too far — don't draw cluster labels at all
+      } else for (const cl of clusterData!.labels) {
         const screen = projectToScreen(cl.x, cl.y, cl.z, mvp, vpW, vpH);
         if (!screen) continue;
 
@@ -1211,7 +1235,7 @@ export function ScatterPlot3D({
 
   const layout = useMemo<Partial<Layout>>(() => ({
     width, height, autosize: true, uirevision: 'true', hovermode: 'closest', showlegend: false,
-    paper_bgcolor: paperBg, 
+    paper_bgcolor: paperBg,
     font: { family: 'Courier New, monospace', color: axisColor },
     scene: {
       aspectmode: 'data',
@@ -1226,7 +1250,7 @@ export function ScatterPlot3D({
     },
     margin: { l: 0, r: 0, t: 0, b: 0 },
 
-  }), [axisColor, gridColor, height, paperBg, sceneBg, width]);
+  }), [axisColor, height, paperBg, sceneBg, width]);
 
   const config: Partial<Config> = { displayModeBar: true, displaylogo: false, responsive: true };
 
@@ -1239,6 +1263,21 @@ export function ScatterPlot3D({
     container.addEventListener('mousedown', handleMouseDown);
     return () => container.removeEventListener('mousedown', handleMouseDown);
   }, []);
+
+  // Block scroll-zoom-out when camera is at max distance.
+  // Reads live camera from Plotly's internal gl-plot3d camera (gl-vec3 array).
+  const isAtZoomOutLimit3D = useCallback(() => {
+    const gd = graphDivRef.current as any;
+    const glplotEye = gd?._fullLayout?.scene?._scene?.glplot?.camera?.eye;
+    let dist: number;
+    if (glplotEye) {
+      dist = Math.sqrt(glplotEye[0] ** 2 + glplotEye[1] ** 2 + glplotEye[2] ** 2);
+    } else {
+      dist = getZoomLevel(currentCameraRef.current.eye, currentCameraRef.current.center);
+    }
+    return dist >= MAX_CAMERA_DISTANCE;
+  }, []);
+  useZoomLimit(containerRef, isAtZoomOutLimit3D);
 
   const handleClick = useCallback((event: PlotMouseEvent) => {
     if (!onPointClick || !event.points || event.points.length === 0) return;

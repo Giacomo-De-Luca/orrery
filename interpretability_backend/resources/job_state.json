@@ -44,7 +44,7 @@
     },
     "lacan_sentences_gemini_document_llm_labeling": {
       "collection_name": "lacan_sentences_gemini_document_llm_labeling",
-      "status": "running",
+      "status": "interrupted",
       "job_type": "llm_labeling",
       "items_embedded": 750,
       "total_expected": 908,

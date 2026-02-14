@@ -18,6 +18,7 @@ import {
   ComboboxList,
   useComboboxAnchor,
 } from '@/lib/ui-primitives/combobox';
+import { Slider } from '@/lib/ui-primitives/slider';
 import type { ProjectionMethod, DimensionMode, DistanceMetric, VisualizationState } from '../../lib/types/types';
 import type { ColorFieldOption } from '../../lib/utils/fieldAnalysis';
 import { ColorScaleSelector } from './ColorScaleSelector';
@@ -297,7 +298,7 @@ export function VisualizationControls({
             </div>
           )}
 
-          {state.colorByField && state.mode === '3d' && (
+          {state.colorByField && (
             <div className="flex items-center space-x-2 mt-2">
               <Checkbox
                 id="show-cluster-labels"
@@ -310,6 +311,42 @@ export function VisualizationControls({
               >
                 Show cluster labels
               </Label>
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Filtered Points */}
+        <div className="space-y-3">
+          <Label className="text-base">Filtered Points</Label>
+
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="hide-filtered"
+              checked={state.hideFilteredPoints ?? false}
+              onCheckedChange={(checked) => onStateChange({ hideFilteredPoints: checked === true })}
+            />
+            <Label htmlFor="hide-filtered" className="font-normal cursor-pointer text-sm">
+              Hide filtered points
+            </Label>
+          </div>
+
+          {!(state.hideFilteredPoints) && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-normal">Muted opacity</Label>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {Math.round((state.mutedPointOpacity ?? 0.15) * 100)}%
+                </span>
+              </div>
+              <Slider
+                min={0}
+                max={100}
+                step={5}
+                value={[Math.round((state.mutedPointOpacity ?? 0.15) * 100)]}
+                onValueChange={([v]) => onStateChange({ mutedPointOpacity: v / 100 })}
+              />
             </div>
           )}
         </div>

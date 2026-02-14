@@ -47,6 +47,7 @@ interface DashboardPanelProps {
   searchQuery?: string;
   highlightedCount?: number;
   textSearchResults?: (Point2D | Point3D)[];
+  textSearchHighlights?: Set<number>;
   onTextResultClick?: (point: Point2D | Point3D) => void;
   // Panel state
   activePanel: ActivePanel;
@@ -89,6 +90,7 @@ export function DashboardPanel({
   searchQuery,
   highlightedCount,
   textSearchResults,
+  textSearchHighlights,
   onTextResultClick,
   activePanel,
   queryPromptName,
@@ -196,6 +198,27 @@ export function DashboardPanel({
     }
     return set.size > 0 ? set : null;
   }, [deferredTemporalRange, points]);
+
+  // Text search muting: points not matching the text query get muted (like temporal filtering)
+  const searchMutedIndices = useMemo(() => {
+    if (!textSearchHighlights || textSearchHighlights.size === 0) return null;
+    const set = new Set<number>();
+    for (const p of points) {
+      if (!textSearchHighlights.has(p.index)) set.add(p.index);
+    }
+    return set.size > 0 ? set : null;
+  }, [textSearchHighlights, points]);
+
+  // Combine temporal and search muting into a single set for scatter plots
+  const combinedMutedIndices = useMemo(() => {
+    if (!temporallyMutedIndices && !searchMutedIndices) return null;
+    if (temporallyMutedIndices && !searchMutedIndices) return temporallyMutedIndices;
+    if (!temporallyMutedIndices && searchMutedIndices) return searchMutedIndices;
+    const set = new Set<number>();
+    for (const i of temporallyMutedIndices!) set.add(i);
+    for (const i of searchMutedIndices!) set.add(i);
+    return set.size > 0 ? set : null;
+  }, [temporallyMutedIndices, searchMutedIndices]);
 
   // Check if we're using a continuous scale
   const isContinuousScale = state.colorScaleType === 'sequential' || state.colorScaleType === 'diverging' || state.colorScaleType === 'monochrome';
@@ -371,7 +394,12 @@ export function DashboardPanel({
       hideUnclustered={state.hideUnclustered}
       categoricalPalette={state.categoricalPalette}
       nestedColorMap={nestedColorMap}
-      temporallyMutedIndices={temporallyMutedIndices}
+      combinedMutedIndices={combinedMutedIndices}
+      hideFilteredPoints={state.hideFilteredPoints}
+      mutedPointOpacity={state.mutedPointOpacity}
+      showClusterLabels={state.showClusterLabels}
+      onClusterLabelClick={isTopicColorField ? onToggleTopic : undefined}
+      topicLabelToIdMap={isTopicColorField ? topicLabelToIdMap : undefined}
     />
   ) : (
     <ScatterPlot3D
@@ -397,7 +425,9 @@ export function DashboardPanel({
       showClusterLabels={state.showClusterLabels}
       onClusterLabelClick={isTopicColorField ? onToggleTopic : undefined}
       topicLabelToIdMap={isTopicColorField ? topicLabelToIdMap : undefined}
-      temporallyMutedIndices={temporallyMutedIndices}
+      combinedMutedIndices={combinedMutedIndices}
+      hideFilteredPoints={state.hideFilteredPoints}
+      mutedPointOpacity={state.mutedPointOpacity}
     />
   );
 
