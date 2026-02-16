@@ -79,7 +79,7 @@ interface ScatterPlot2DProps {
 }
 
 
-export function ScatterPlot2D({
+export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   points,
   colorBy = 'none',
   categoryField = null,
@@ -1366,4 +1366,4 @@ return (
     <FrostedTooltip data={tooltipData} />
   </div>
 );
-}
+});

@@ -83,7 +83,7 @@ interface PlotlyGraphDiv extends HTMLDivElement {
   };
 }
 
-export function ScatterPlot3D({
+export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   points,
   colorBy = 'none',
   categoryField = null,
@@ -849,7 +849,7 @@ export function ScatterPlot3D({
           },
           text: coreTexts,
           hoverinfo: 'none',
-          customdata: showOnlyHighlighted ? (coreCustomData as any) : undefined,
+          customdata: coreCustomData as any,
           showlegend: false
         });
       }
@@ -1471,4 +1471,4 @@ export function ScatterPlot3D({
       <FrostedTooltip data={tooltipData} />
     </div>
   );
-}
+});
