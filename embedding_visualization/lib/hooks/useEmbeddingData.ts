@@ -134,7 +134,12 @@ export function useEmbeddingData(
           categoryName: fieldAnalysis.display_config.category_name,
         };
         if (fieldAnalysis.color_field_options) {
-          setColorFieldOptions(fieldAnalysis.color_field_options);
+          // Sanitize cached options: old caches may have null uniqueCount (from Infinity serialization)
+          const sanitized = (fieldAnalysis.color_field_options as ColorFieldOption[]).map(opt => ({
+            ...opt,
+            uniqueCount: opt.uniqueCount ?? 0,
+          }));
+          setColorFieldOptions(sanitized);
         }
         if (fieldAnalysis.default_tooltip_fields) {
           setDefaultTooltipFields(fieldAnalysis.default_tooltip_fields);

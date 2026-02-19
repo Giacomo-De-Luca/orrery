@@ -7,7 +7,7 @@ from clustered documents and c-TF-IDF keywords.
 import logging
 import os
 import time
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger('star_map.' + __name__)
 
@@ -174,6 +174,7 @@ def generate_llm_labels(
     documents_df,
     llm_provider: str = "gemini",
     llm_model: str = "gemini-3-flash-preview",
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> Dict[int, str]:
     """Generate human-readable topic labels using an LLM.
 
@@ -182,6 +183,7 @@ def generate_llm_labels(
         documents_df: DataFrame with Document_ID, Document, Topic columns
         llm_provider: LLM provider to use ("gemini" or "openai")
         llm_model: Model name for the provider
+        progress_callback: Optional callback(done, total) called after each topic is labeled
 
     Returns:
         Dict of topic_id -> label string
@@ -214,6 +216,8 @@ def generate_llm_labels(
         if label is not None:
             labels[topic_id] = label
         logger.info(f"[{call_num}/{total_calls}] done")
+        if progress_callback is not None:
+            progress_callback(call_num, total_calls)
 
     total_duration = time.time() - labeling_start
     logger.info(f"LLM labeling complete: {len(labels)}/{total_calls} labeled in {total_duration:.1f}s")

@@ -112,6 +112,11 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   const containerRef = useRef<HTMLDivElement>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
 
+  // Deferred selected point: only sync to traces when highlightedIndices changes,
+  // keeping plotData stable during camera fly-to animation (avoids expensive Plotly.react)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const renderedSelectedPoint = useMemo(() => selectedPoint, [highlightedIndices]);
+
   const { resolvedTheme } = useTheme();
   const theme = resolvedTheme ?? 'light';
   const isDark = theme === 'dark';
@@ -862,9 +867,9 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     mutedCategories, hideUnclustered, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity
   ]);
 
-  // Selected point traces and layout/config remain similar...
+  // Selected point traces — uses renderedSelectedPoint (deferred) to avoid Plotly.react during camera animation
   const selectedTraces = useMemo((): PlotlyData[] => {
-    if (!selectedPoint) return [];
+    if (!renderedSelectedPoint) return [];
     const traces: PlotlyData[] = [];
     const hasHighlights = highlightedIndices && highlightedIndices.size > 0;
 
@@ -872,10 +877,10 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
       const highlightedPoints = points.filter(p => highlightedIndices.has(p.index));
       const lineX: number[] = [], lineY: number[] = [], lineZ: number[] = [];
       highlightedPoints.forEach(p => {
-        if (p.index !== selectedPoint.index) {
-          lineX.push(selectedPoint.x, p.x, null as any);
-          lineY.push(selectedPoint.y, p.y, null as any);
-          lineZ.push(selectedPoint.z, p.z, null as any);
+        if (p.index !== renderedSelectedPoint.index) {
+          lineX.push(renderedSelectedPoint.x, p.x, null as any);
+          lineY.push(renderedSelectedPoint.y, p.y, null as any);
+          lineZ.push(renderedSelectedPoint.z, p.z, null as any);
         }
       });
       if (lineX.length > 0) {
@@ -889,21 +894,21 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     }
 
     traces.push({
-      x: [selectedPoint.x], y: [selectedPoint.y], z: [selectedPoint.z], mode: 'markers', type: 'scatter3d',
+      x: [renderedSelectedPoint.x], y: [renderedSelectedPoint.y], z: [renderedSelectedPoint.z], mode: 'markers', type: 'scatter3d',
       hoverinfo: 'skip',
       marker: { size: Math.max(markerStyle.size * highlightScale.selectedOuterMultiplier, 12), color: 'rgba(255, 215, 140, 0.15)', opacity: 0.3, line: { width: 0 } },
       showlegend: false
     });
 
     traces.push({
-      x: [selectedPoint.x], y: [selectedPoint.y], z: [selectedPoint.z], mode: 'markers', type: 'scatter3d',
+      x: [renderedSelectedPoint.x], y: [renderedSelectedPoint.y], z: [renderedSelectedPoint.z], mode: 'markers', type: 'scatter3d',
       name: 'Selected',
       marker: { size: Math.max(markerStyle.size * highlightScale.selectedCoreMultiplier, 4), color: '#fff8e8', opacity: 1, line: { color: 'rgba(255, 200, 100, 0.6)', width: 1.5 } },
-      text: [formatHoverText(selectedPoint)], hoverinfo: 'none', customdata: [selectedPoint] as any, showlegend: false
+      text: [formatHoverText(renderedSelectedPoint)], hoverinfo: 'none', customdata: [renderedSelectedPoint] as any, showlegend: false
     });
 
     return traces;
-  }, [selectedPoint, highlightedIndices, points, markerStyle, highlightScale, isDark]);
+  }, [renderedSelectedPoint, highlightedIndices, points, markerStyle, highlightScale, isDark]);
 
   // Populate label render data (no React state — just a ref for the canvas renderer)
   useEffect(() => {

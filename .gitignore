@@ -13,6 +13,11 @@ test*.ipynb
 
 claude.md
 
+
+### interrupted progress
+
+job_state.json
+
 ## Lacan Dataset:
 
 *.pkl

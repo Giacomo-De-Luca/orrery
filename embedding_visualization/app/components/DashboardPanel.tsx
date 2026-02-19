@@ -607,6 +607,8 @@ export function DashboardPanel({
           mutedCategories={effectiveMutedCategories}
           temporalRange={state.temporalRange}
           onTemporalRangeChange={handleTemporalRangeChange}
+          textSearchHighlights={textSearchHighlights}
+          colorFieldOptions={colorFieldOptions}
           variant="floating"
           className={cn(
             "pointer-events-auto absolute top-20 bottom-2 z-40 w-80 shadow-2xl transition-all duration-300 ease-in-out",

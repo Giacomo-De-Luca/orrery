@@ -225,11 +225,9 @@ export function VisualizationControls({
                   <SelectItem key={option.field} value={option.field}>
                     {option.displayName}
                     <span className="ml-1 text-muted-foreground text-xs">
-                      ({option.uniqueCount === Infinity
-                        ? option.valueType === 'string' ? '>100 categories' : 'numeric'
-                        : option.recommendedScale === 'sequential'
-                          ? 'numeric'
-                          : `${option.uniqueCount} values`})
+                      ({option.recommendedScale === 'sequential'
+                        ? 'numeric'
+                        : `${option.uniqueCount} values`})
                     </span>
                   </SelectItem>
                 ))}

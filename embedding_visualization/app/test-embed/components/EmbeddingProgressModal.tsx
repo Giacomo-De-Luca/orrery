@@ -32,9 +32,43 @@ function formatElapsed(ms: number): string {
 }
 
 /**
+ * Compute progress percentage using a blended stage+item approach.
+ *
+ * Multi-stage operations (totalBatches > 1): base progress from currentBatch/totalBatches,
+ * plus fractional item progress within the current stage when available.
+ * Single-stage operations: items-only progress.
+ */
+function computePercent(p: JobProgress): number {
+  const hasMeaningfulItems = p.totalItems > 0 && p.itemsProcessed > 0;
+  const isMultiStage = p.totalBatches > 1;
+
+  if (isMultiStage) {
+    const stageWidth = 100 / p.totalBatches;
+    const base = p.currentBatch * stageWidth;
+    if (hasMeaningfulItems) {
+      // Blend: stage base + fractional item progress within this stage
+      const itemFraction = p.itemsProcessed / p.totalItems;
+      return Math.min(100, Math.round(base + itemFraction * stageWidth));
+    }
+    return Math.min(100, Math.round(base));
+  }
+
+  if (p.totalItems > 0) {
+    return Math.round((p.itemsProcessed / p.totalItems) * 100);
+  }
+
+  return 0;
+}
+
+/**
  * Modal overlay displaying real-time job progress.
  * Uses the same card-style layout as JobsPanel for consistency.
  * Subscribes to GraphQL progress updates via WebSocket.
+ *
+ * Supports two progress models:
+ * - Stage-based (totalBatches > 1): bar tracks currentBatch/totalBatches,
+ *   with sub-stage item progress blended in when available.
+ * - Item-based (totalBatches <= 1): bar tracks itemsProcessed/totalItems.
  */
 export function ProgressModal({
   jobId,
@@ -45,6 +79,12 @@ export function ProgressModal({
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const startTimeRef = useRef(Date.now());
   const [elapsed, setElapsed] = useState(0);
+
+  // ETA tracking: record the first meaningful progress update
+  const etaBaseRef = useRef<{ time: number; items: number } | null>(null);
+  const lastTotalRef = useRef<number>(0);
+  const lastItemsRef = useRef<number>(0);
+  const [eta, setEta] = useState<number | null>(null);
 
   const { data, error: subscriptionError } = useSubscription<SubscriptionData>(
     EMBEDDING_PROGRESS_SUBSCRIPTION,
@@ -57,7 +97,34 @@ export function ProgressModal({
   // Update progress when subscription data arrives
   useEffect(() => {
     if (data?.embeddingProgress) {
-      setProgress(data.embeddingProgress);
+      const p = data.embeddingProgress;
+      setProgress(p);
+
+      // Calculate ETA when we have meaningful item-level progress
+      if (p.totalItems > 0 && p.itemsProcessed > 0) {
+        // Reset baseline when totalItems changes or itemsProcessed regresses (new phase)
+        if (
+          p.totalItems !== lastTotalRef.current ||
+          p.itemsProcessed < lastItemsRef.current
+        ) {
+          lastTotalRef.current = p.totalItems;
+          etaBaseRef.current = null;
+          setEta(null);
+        }
+        lastItemsRef.current = p.itemsProcessed;
+
+        if (etaBaseRef.current === null) {
+          // Record the first progress update as our baseline
+          etaBaseRef.current = { time: Date.now(), items: p.itemsProcessed };
+        } else if (p.itemsProcessed > etaBaseRef.current.items) {
+          // We have at least 2 data points — calculate ETA
+          const elapsedSinceBase = Date.now() - etaBaseRef.current.time;
+          const itemsSinceBase = p.itemsProcessed - etaBaseRef.current.items;
+          const avgTimePerItem = elapsedSinceBase / itemsSinceBase;
+          const remaining = avgTimePerItem * (p.totalItems - p.itemsProcessed);
+          setEta(remaining);
+        }
+      }
     }
   }, [data]);
 
@@ -76,11 +143,19 @@ export function ProgressModal({
     return () => clearInterval(interval);
   }, []);
 
-  const percentComplete = progress && progress.totalItems > 0
-    ? Math.round((progress.itemsProcessed / progress.totalItems) * 100)
-    : 0;
+  const percentComplete = progress ? computePercent(progress) : 0;
 
-  const hasProgress = progress && progress.totalItems > 0;
+  // Show progress bar when we have stage-based or item-based progress
+  const hasProgress = progress && (
+    (progress.totalItems > 0) ||
+    (progress.totalBatches > 1 && progress.currentBatch > 0)
+  );
+
+  // Determine whether to show item counter (only when items are actually meaningful)
+  const showItemCounter = progress && progress.totalItems > 0 && progress.itemsProcessed > 0;
+
+  // Show stage counter for multi-stage operations
+  const isMultiStage = progress && progress.totalBatches > 1;
 
   const statusColor = {
     running: 'bg-blue-500',
@@ -105,6 +180,7 @@ export function ProgressModal({
                 </Badge>
                 <span className="text-xs text-muted-foreground font-mono">
                   {formatElapsed(elapsed)}
+                  {eta !== null && eta > 0 && ` · ~${formatElapsed(eta)} remaining`}
                 </span>
               </div>
             </div>
@@ -130,9 +206,19 @@ export function ProgressModal({
               <Progress value={percentComplete} className="h-2" />
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>
-                  {progress.itemsProcessed.toLocaleString()} / {progress.totalItems.toLocaleString()} {itemsLabel}
+                  {showItemCounter
+                    ? `${progress.itemsProcessed.toLocaleString()} / ${progress.totalItems.toLocaleString()} ${itemsLabel}`
+                    : isMultiStage
+                      ? `Stage ${Math.floor(progress.currentBatch)} / ${progress.totalBatches}`
+                      : `0 / ${progress.totalItems.toLocaleString()} ${itemsLabel}`
+                  }
                 </span>
-                {progress.totalBatches > 0 && (
+                {isMultiStage && showItemCounter && (
+                  <span>
+                    Stage {Math.floor(progress.currentBatch)} / {progress.totalBatches}
+                  </span>
+                )}
+                {!isMultiStage && progress.totalBatches > 0 && (
                   <span>
                     Batch {progress.currentBatch} / {progress.totalBatches}
                   </span>

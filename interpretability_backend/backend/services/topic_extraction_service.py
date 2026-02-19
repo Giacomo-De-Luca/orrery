@@ -282,11 +282,20 @@ def extract_topics(config: TopicExtractionConfig) -> TopicExtractionResult:
                 message="Generating LLM labels..."
             )
 
+            def llm_progress(done, total):
+                emit_progress(
+                    job_id=job_id, status="running",
+                    items_processed=done, total_items=total,
+                    current_batch=3, total_batches=5,
+                    message=f"Generating LLM labels ({done}/{total})..."
+                )
+
             llm_labels = generate_llm_labels(
                 topics_data=topics_data,
                 documents_df=documents_df,
                 llm_provider=config.llm_provider,
-                llm_model=config.llm_model
+                llm_model=config.llm_model,
+                progress_callback=llm_progress,
             )
 
             # Update labels with LLM-generated ones
@@ -704,11 +713,21 @@ def reduce_existing_topics(
         # Step 7: Optional LLM re-labeling
         if regenerate_labels:
             logger.info("Re-generating LLM labels after reduction")
+
+            def llm_progress(done, total):
+                emit_progress(
+                    job_id=job_id, status="running",
+                    items_processed=done, total_items=total,
+                    current_batch=3, total_batches=4,
+                    message=f"Generating LLM labels ({done}/{total})..."
+                )
+
             llm_labels = generate_llm_labels(
                 topics_data=topics_data,
                 documents_df=documents_df,
                 llm_provider=llm_provider,
-                llm_model=llm_model
+                llm_model=llm_model,
+                progress_callback=llm_progress,
             )
 
             for topic_info in topic_infos:
