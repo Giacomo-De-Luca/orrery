@@ -135,6 +135,7 @@ export default function Home() {
     semanticSearchResults,
     setSemanticSearchResults,
     searchQueryLabel,
+    searchType,
     handleSemanticSearch,
     handlePointClick,
     searchLoading,
@@ -162,6 +163,19 @@ export default function Home() {
     const points = visualizationState.mode === '2d' ? filteredPoints2d : filteredPoints3d;
     return points.filter(p => highlightedIndices.has(p.index));
   }, [highlightedIndices, filteredPoints2d, filteredPoints3d, visualizationState.mode]);
+
+  // Auto-select first semantic search result when a text-query search completes
+  // This triggers the camera fly-to animation in ScatterPlot3D
+  useEffect(() => {
+    if (semanticSearchResults && semanticSearchResults.length > 0 && searchType === 'text') {
+      const firstResultId = semanticSearchResults[0].id;
+      const points = visualizationState.mode === '3d' ? filteredPoints3d : filteredPoints2d;
+      const matchingPoint = points.find(p => p.id === firstResultId);
+      if (matchingPoint) {
+        setSelectedPoint(matchingPoint);
+      }
+    }
+  }, [semanticSearchResults, filteredPoints2d, filteredPoints3d, visualizationState.mode, setSelectedPoint, searchType]);
 
   // Combine semantic search highlights and topic highlights (text search handled by muting, not glow)
   // Pass selectedPoint's index so it's included in highlights (semantic search returns similar items, not the query itself)

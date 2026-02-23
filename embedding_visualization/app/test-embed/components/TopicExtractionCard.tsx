@@ -472,6 +472,24 @@ export function TopicExtractionCard({
           </CardContent>
         </CollapsibleContent>
       </Card>
+      {/* Topic Extraction Progress Modal */}
+      {topicsLoading && (
+        <ProgressModal
+          jobId={collectionName}
+          title="Extracting Topics"
+          subtitle="Clustering points and extracting keywords..."
+          itemsLabel="topics"
+        />
+      )}
+      {/* Topic Reduction Progress Modal */}
+      {reduceTopicsLoading && (
+        <ProgressModal
+          jobId={`${collectionName}_reduce`}
+          title="Reducing Topics"
+          subtitle="Merging similar topics..."
+          itemsLabel="topics"
+        />
+      )}
       {/* LLM Labeling Progress Modal */}
       {llmLabelsLoading && (
         <ProgressModal

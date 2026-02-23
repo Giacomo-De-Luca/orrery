@@ -20,8 +20,8 @@ export function fieldToDisplayName(field: string): string {
  * Result of analyzing a metadata field.
  */
 export interface FieldAnalysisResult {
-  uniqueCount: number;       // Infinity if >maxUnique
-  values: string[];          // Empty if exceeds max
+  uniqueCount: number;       // Actual count (capped at maxUnique + 1)
+  values: string[];          // Empty if exceeds 100
   min?: number;              // For numeric fields
   max?: number;              // For numeric fields
   isNumeric: boolean;
@@ -29,16 +29,18 @@ export interface FieldAnalysisResult {
 
 /**
  * Analyze a metadata field to determine its unique values.
- * Scans ALL items but terminates early when unique count exceeds maxUnique.
+ * Counts unique values up to maxUnique (default 1000). Returns the actual count
+ * (never Infinity — ensures JSON serialization round-trips correctly).
+ * Values array is only populated when uniqueCount ≤ 100 (avoids large arrays in cache).
  * Also tracks min/max for numeric fields (needed for gradient legends).
  */
 export function analyzeField(
   fieldName: string,
   itemMetadata: Record<string, unknown>[],
-  maxUnique: number = 100
+  maxUnique: number = 1000
 ): FieldAnalysisResult {
   const uniqueValues = new Set<string>();
-  let exceedsMax = false;
+  let capped = false;
   let min: number | undefined;
   let max: number | undefined;
   let hasNumeric = false;
@@ -71,19 +73,19 @@ export function analyzeField(
       if (max === undefined || numericValue > max) max = numericValue;
     }
 
-    // Track unique values (with early termination)
-    if (!exceedsMax) {
+    // Track unique values up to cap
+    if (!capped) {
       uniqueValues.add(String(value));
       if (uniqueValues.size > maxUnique) {
-        exceedsMax = true;
+        capped = true;
         // Continue scanning to get full min/max range
       }
     }
   }
 
   return {
-    uniqueCount: exceedsMax ? Infinity : uniqueValues.size,
-    values: exceedsMax ? [] : Array.from(uniqueValues).sort(),
+    uniqueCount: uniqueValues.size,
+    values: uniqueValues.size <= 100 ? Array.from(uniqueValues).sort() : [],
     min,
     max,
     isNumeric: hasNumeric && !hasNonNumeric,
@@ -127,11 +129,10 @@ export function computeCategoryFieldOptions(
   for (const field of availableFields) {
     if (EXCLUDE_FIELDS.has(field)) continue;
 
-    const analysis = analyzeField(field, itemMetadata, 100);
+    const analysis = analyzeField(field, itemMetadata);
 
     // Only include fields with 2-100 unique values (good for coloring)
-    // Skip fields that exceed the max unique count (analysis.uniqueCount === Infinity)
-    if (analysis.uniqueCount >= 2 && analysis.uniqueCount !== Infinity) {
+    if (analysis.uniqueCount >= 2 && analysis.uniqueCount <= 100) {
       options.push({
         field,
         uniqueCount: analysis.uniqueCount,
@@ -171,8 +172,8 @@ export function detectDisplayConfig(
   // First try known category fields
   for (const field of KNOWN_CATEGORY_FIELDS) {
     if (availableFields.includes(field)) {
-      const analysis = analyzeField(field, itemMetadata, 100);
-      if (analysis.uniqueCount >= 2 && analysis.uniqueCount !== Infinity) {
+      const analysis = analyzeField(field, itemMetadata);
+      if (analysis.uniqueCount >= 2 && analysis.uniqueCount <= 100) {
         categoryField = field;
         categoryValues = analysis.values;
         break;
@@ -185,7 +186,7 @@ export function detectDisplayConfig(
     const candidates = computeCategoryFieldOptions(availableFields, itemMetadata);
     if (candidates.length > 0) {
       categoryField = candidates[0].field;
-      const analysis = analyzeField(categoryField, itemMetadata, 100);
+      const analysis = analyzeField(categoryField, itemMetadata);
       categoryValues = analysis.values;
     }
   }
@@ -218,7 +219,7 @@ export interface ColorFieldOption {
   field: string;
   displayName: string;
   valueType: 'string' | 'numeric' | 'mixed';
-  uniqueCount: number;      // Infinity if >100
+  uniqueCount: number;      // Actual count (up to 1001)
   recommendedScale: 'categorical' | 'sequential';
   min?: number;             // For numeric fields (needed for gradient legend)
   max?: number;             // For numeric fields (needed for gradient legend)
@@ -226,7 +227,7 @@ export interface ColorFieldOption {
 
 /**
  * Analyze all fields with proper type detection for coloring.
- * Scans ALL items (no sampling) with early termination at >100 unique values.
+ * Counts unique values up to 1000 and returns actual numbers (no Infinity).
  *
  * Logic:
  * - String fields with ≤100 unique → categorical
@@ -245,8 +246,7 @@ export function analyzeColorFields(
   for (const field of availableFields) {
     if (EXCLUDE_FIELDS.has(field)) continue;
 
-    // Use the updated analyzeField that scans all items with early termination
-    const analysis = analyzeField(field, itemMetadata, 100);
+    const analysis = analyzeField(field, itemMetadata);
 
     // Skip fields with only 1 or 0 unique values (no variation to show)
     if (analysis.uniqueCount < 2) continue;
@@ -279,11 +279,6 @@ export function analyzeColorFields(
     if (a.recommendedScale !== b.recommendedScale) {
       return a.recommendedScale === 'categorical' ? -1 : 1;
     }
-    // For sequential fields (uniqueCount could be Infinity), sort by field name
-    if (a.uniqueCount === Infinity && b.uniqueCount === Infinity) {
-      return a.field.localeCompare(b.field);
-    }
-    return (a.uniqueCount === Infinity ? 101 : a.uniqueCount) -
-           (b.uniqueCount === Infinity ? 101 : b.uniqueCount);
+    return a.uniqueCount - b.uniqueCount;
   });
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, useRef, useCallback, useEffect, startTransition } from 'react';
-import { Area, AreaChart } from 'recharts';
+import { Area, AreaChart, XAxis } from 'recharts';
 import {
   Card,
   CardContent,
@@ -17,8 +17,8 @@ import { buildCategoryColorMap, getCategoryLabel, getCategoryDisplayName } from 
 import { fieldToDisplayName } from '@/lib/utils/fieldAnalysis';
 import type { TemporalCrossTabRow, TemporalCountRow } from '@/lib/utils/temporalAnalysis';
 
-/** Max categories to show as stacked areas (top N by total count) */
-const MAX_SERIES = 8;
+/** Only use stacked mode when visible categories are at or below this count */
+const STACKED_THRESHOLD = 6;
 
 /** Sanitize category value for use as a recharts/CSS variable key */
 const sanitizeKey = (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -91,21 +91,26 @@ export function TemporalFilterChart({
     if (brushEndIndex === undefined) setRangeEnd(allPeriods.length - 1);
   }, [allPeriods.length, brushStartIndex, brushEndIndex]);
 
-  const isStackedMode = categoryField && categoryValues.length > 0 && crossTabData.length >= 2;
+  const visibleCategories = useMemo(() => {
+    if (!categoryField || categoryValues.length === 0) return [];
+    return categoryValues.filter(c => !mutedCategories.includes(c));
+  }, [categoryField, categoryValues, mutedCategories]);
+
+  const isStackedMode = visibleCategories.length > 0
+    && visibleCategories.length <= STACKED_THRESHOLD
+    && crossTabData.length >= 2;
 
   // --- Stacked mode computations ---
   const colorMap = useMemo(
-    () => isStackedMode ? buildCategoryColorMap(categoryField, categoryValues, categoricalPalette) : {},
+    () => isStackedMode ? buildCategoryColorMap(categoryField!, categoryValues, categoricalPalette) : {},
     [isStackedMode, categoryField, categoryValues, categoricalPalette]
   );
 
   const topCategories = useMemo(() => {
     if (!isStackedMode) return [];
-    const visible = categoryValues.filter(c => !mutedCategories.includes(c));
-    return [...visible]
-      .sort((a, b) => (categoryCounts[b] ?? 0) - (categoryCounts[a] ?? 0))
-      .slice(0, MAX_SERIES);
-  }, [isStackedMode, categoryValues, categoryCounts, mutedCategories]);
+    return [...visibleCategories]
+      .sort((a, b) => (categoryCounts[b] ?? 0) - (categoryCounts[a] ?? 0));
+  }, [isStackedMode, visibleCategories, categoryCounts]);
 
   const chartConfig = useMemo(() => {
     if (isStackedMode) {
@@ -122,7 +127,7 @@ export function TemporalFilterChart({
     return {
       count: {
         label: 'Count',
-        color: 'hsl(var(--chart-1))',
+        color: 'var(--chart-1)',
       },
     } satisfies ChartConfig;
   }, [isStackedMode, topCategories, categoryField, colorMap]);
@@ -141,7 +146,7 @@ export function TemporalFilterChart({
 
   const chartData = isStackedMode ? safeStackedData : (temporalCounts ?? []);
   const temporalDisplayName = fieldToDisplayName(temporalField);
-  const displayName = isStackedMode ? getCategoryDisplayName(categoryField) : 'Items';
+  const displayName = isStackedMode ? getCategoryDisplayName(categoryField!) : 'Items';
 
   // --- Drag interaction ---
   const clientXToIndex = useCallback((clientX: number): number => {
@@ -297,8 +302,19 @@ export function TemporalFilterChart({
           <ChartContainer config={chartConfig} className="aspect-[3/1] w-full">
             <AreaChart
               data={chartData}
-              margin={{ top: 4, right: 0, bottom: 0, left: 0 }}
+              margin={{ top: 4, right: 0, bottom: 20, left: 0 }}
             >
+              <XAxis
+                dataKey="period"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={4}
+                tick={{ fontSize: 11 }}
+                tickFormatter={(value) => {
+                  const str = String(value);
+                  return str.length > 4 ? str.slice(0, 4) : str;
+                }}
+              />
               {isStackedMode ? (
                 <defs>
                   {topCategories.map(cat => {

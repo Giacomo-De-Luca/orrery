@@ -79,7 +79,7 @@ interface ScatterPlot2DProps {
 }
 
 
-export function ScatterPlot2D({
+export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   points,
   colorBy = 'none',
   categoryField = null,
@@ -109,6 +109,11 @@ export function ScatterPlot2D({
   const containerRef = useRef<HTMLDivElement>(null);
   const graphDivRef = useRef<any>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
+
+  // Deferred selected point: only sync to traces when highlightedIndices changes,
+  // keeping plotData stable and avoiding expensive Plotly.react on point click
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const renderedSelectedPoint = useMemo(() => selectedPoint, [highlightedIndices]);
 
   // Data bounds for zoom-out limit
   const bounds = useMemo(() => {
@@ -713,15 +718,15 @@ export function ScatterPlot2D({
       }
 
       // B. Constellation Lines - from selected point to each result
-      if (selectedPoint && highlightedPoints.length > 0) {
+      if (renderedSelectedPoint && highlightedPoints.length > 0) {
         const lineX: number[] = [];
         const lineY: number[] = [];
 
         highlightedPoints.forEach(p => {
           // Don't draw line to itself
-          if (p.index !== selectedPoint.index) {
-            lineX.push(selectedPoint.x, p.x, null as any);
-            lineY.push(selectedPoint.y, p.y, null as any);
+          if (p.index !== renderedSelectedPoint.index) {
+            lineX.push(renderedSelectedPoint.x, p.x, null as any);
+            lineY.push(renderedSelectedPoint.y, p.y, null as any);
           }
         });
 
@@ -745,8 +750,8 @@ export function ScatterPlot2D({
       // C. Highlighted Points - triple-layer bluish glow
       if (highlightedPoints.length > 0) {
         // Separate selected point from other highlights
-        const otherHighlights = selectedPoint
-          ? highlightedPoints.filter(p => p.index !== selectedPoint.index)
+        const otherHighlights = renderedSelectedPoint
+          ? highlightedPoints.filter(p => p.index !== renderedSelectedPoint.index)
           : highlightedPoints;
 
         if (otherHighlights.length > 0) {
@@ -844,11 +849,11 @@ export function ScatterPlot2D({
         }
 
         // D. Selected Point - golden tint to distinguish it
-        if (selectedPoint) {
+        if (renderedSelectedPoint) {
           // Outer golden glow
           traces.push({
-            x: [selectedPoint.x],
-            y: [selectedPoint.y],
+            x: [renderedSelectedPoint.x],
+            y: [renderedSelectedPoint.y],
             mode: 'markers' as const,
             type: 'scattergl' as const,
             hoverinfo: 'skip',
@@ -863,8 +868,8 @@ export function ScatterPlot2D({
 
           // Inner golden glow
           traces.push({
-            x: [selectedPoint.x],
-            y: [selectedPoint.y],
+            x: [renderedSelectedPoint.x],
+            y: [renderedSelectedPoint.y],
             mode: 'markers' as const,
             type: 'scattergl' as const,
             hoverinfo: 'skip',
@@ -879,8 +884,8 @@ export function ScatterPlot2D({
 
           // Golden core
           traces.push({
-            x: [selectedPoint.x],
-            y: [selectedPoint.y],
+            x: [renderedSelectedPoint.x],
+            y: [renderedSelectedPoint.y],
             mode: 'markers' as const,
             type: 'scattergl' as const,
             name: 'Selected',
@@ -890,9 +895,9 @@ export function ScatterPlot2D({
               opacity: 1,
               line: { color: 'rgba(255, 200, 100, 0.6)', width: 1.5 },
             },
-            text: [formatHoverText(selectedPoint)],
+            text: [formatHoverText(renderedSelectedPoint)],
             hovertemplate: '<b>%{text}</b><extra></extra>',
-            customdata: [selectedPoint] as any,
+            customdata: [renderedSelectedPoint] as any,
             showlegend: false,
           } satisfies PlotlyData);
         }
@@ -1232,7 +1237,7 @@ export function ScatterPlot2D({
     }
 
     return traces;
-  }, [points, colorBy, categoryField, categoryValues, colorMap, numericData, plotlyColorScale, highlightedIndices, selectedPoint, isDark, markerStyle.size, markerStyle.opacity, highlightScale, showOnlyHighlighted, showLabels, mutedCategories, hideUnclustered, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity]);
+  }, [points, colorBy, categoryField, categoryValues, colorMap, numericData, plotlyColorScale, highlightedIndices, renderedSelectedPoint, isDark, markerStyle.size, markerStyle.opacity, highlightScale, showOnlyHighlighted, showLabels, mutedCategories, hideUnclustered, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity]);
 
   const layout = useMemo<Partial<Layout>>(
     () => ({
@@ -1366,4 +1371,4 @@ return (
     <FrostedTooltip data={tooltipData} />
   </div>
 );
-}
+});

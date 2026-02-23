@@ -57,6 +57,48 @@
         "label_scope": "both"
       },
       "started_at": "2026-02-10T02:21:07.455135"
+    },
+    "ag_news": {
+      "collection_name": "ag_news",
+      "status": "interrupted",
+      "job_type": "huggingface",
+      "items_embedded": 10000,
+      "total_expected": 10000,
+      "batches_completed": 100,
+      "total_batches": 100,
+      "config": {
+        "dataset_id": "sh0416/ag_news",
+        "collection_name": "ag_news",
+        "config": "default",
+        "split": "train",
+        "columns": [
+          "title",
+          "description"
+        ],
+        "text_template": "{title}: {description}",
+        "id_column": "title",
+        "metadata_columns": [
+          "label",
+          "title",
+          "description"
+        ],
+        "batch_size": 100,
+        "portion": {
+          "strategy": "random_sample",
+          "n": 10000,
+          "start": null,
+          "end": null,
+          "seed": 42
+        },
+        "embedding_model": {
+          "provider": "sentence_transformers",
+          "model_name": "all-MiniLM-L6-v2",
+          "ollama_url": null,
+          "task": null,
+          "task_type": null
+        }
+      },
+      "started_at": "2026-02-16T16:21:30.728453"
     }
   }
 }

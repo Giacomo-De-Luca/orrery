@@ -10,7 +10,7 @@ interface UseVerticalResizeOptions {
 }
 
 /**
- * Hook for drag-to-resize with collapse-on-release behavior.
+ * Hook for drag-to-resize with immediate collapse behavior.
  * Attach `handleRef` to the drag handle element.
  * Uses a callback ref so listeners are registered when the element actually mounts,
  * even if the element is conditionally rendered.
@@ -38,18 +38,22 @@ export function useVerticalResize({
     if (!startRef.current) return;
     const { startY, startHeight } = startRef.current;
     const newHeight = Math.min(maxHeight, Math.max(minHeight / 2, startHeight + (clientY - startY)));
+    if (newHeight < minHeight) {
+      // Collapse immediately during drag, matching ResizablePanel behavior
+      startRef.current = null;
+      setIsDragging(false);
+      setHeight(initialHeight);
+      onCollapseRef.current();
+      return;
+    }
     setHeight(newHeight);
-  }, [maxHeight, minHeight]);
+  }, [maxHeight, minHeight, initialHeight]);
 
   const handleEnd = useCallback(() => {
     if (!startRef.current) return;
     startRef.current = null;
     setIsDragging(false);
-    if (heightRef.current < minHeight) {
-      onCollapseRef.current();
-      setHeight(initialHeight);
-    }
-  }, [minHeight, initialHeight]);
+  }, []);
 
   const onMouseMove = useCallback((e: MouseEvent) => handleMove(e.clientY), [handleMove]);
   const onTouchMoveHandler = useCallback((e: TouchEvent) => {
