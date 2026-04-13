@@ -1,0 +1,162 @@
+"""Converters between GraphQL types and internal service/config types."""
+
+from typing import Optional
+
+from .types import (
+    DataTypeEnum,
+    EmbeddingProviderEnum,
+    PortionStrategyEnum,
+    TopicInfo,
+    TopicKeyword,
+)
+from ..embed_dataset import (
+    EmbeddingConfig,
+    LocalFileEmbeddingConfig,
+    DataType,
+    EmbeddingModelConfig,
+    EmbeddingProvider,
+    PortionConfig,
+    PortionStrategy,
+)
+from ..services.topic_extraction_service import TopicExtractionConfig
+
+
+# ========== Enum Maps ==========
+
+PORTION_STRATEGY_MAP = {
+    PortionStrategyEnum.FIRST_N: PortionStrategy.FIRST_N,
+    PortionStrategyEnum.RANDOM_SAMPLE: PortionStrategy.RANDOM_SAMPLE,
+    PortionStrategyEnum.ROW_RANGE: PortionStrategy.ROW_RANGE,
+    PortionStrategyEnum.ALL: PortionStrategy.ALL,
+}
+
+# Auto-generate provider mapping - no manual maintenance needed
+# When a new provider is added to provider_list.py, it automatically appears here
+EMBEDDING_PROVIDER_MAP = {
+    getattr(EmbeddingProviderEnum, member.name): member
+    for member in EmbeddingProvider
+}
+
+DATA_TYPE_MAP = {
+    DataTypeEnum.TEXT: DataType.TEXT,
+    DataTypeEnum.IMAGE: DataType.IMAGE,
+    DataTypeEnum.VECTOR: DataType.VECTOR,
+}
+
+
+# ========== Input -> Config Builders ==========
+
+def build_embedding_model_config(input) -> Optional[EmbeddingModelConfig]:
+    """Convert GraphQL EmbeddingModelInput to internal EmbeddingModelConfig."""
+    if input is None:
+        return None
+    return EmbeddingModelConfig(
+        provider=EMBEDDING_PROVIDER_MAP[input.provider],
+        model_name=input.model_name,
+        ollama_url=input.ollama_url,
+        task=input.task,
+        task_type=input.task_type,
+        prompt=input.prompt,
+    )
+
+
+def build_portion_config(input) -> Optional[PortionConfig]:
+    """Convert GraphQL PortionInput to internal PortionConfig."""
+    if input is None:
+        return None
+    return PortionConfig(
+        strategy=PORTION_STRATEGY_MAP[input.strategy],
+        n=input.n,
+        start=input.start,
+        end=input.end,
+        seed=input.seed,
+    )
+
+
+def build_hf_embedding_config(input) -> EmbeddingConfig:
+    """Convert EmbedDatasetInput to internal EmbeddingConfig."""
+    return EmbeddingConfig(
+        dataset_id=input.dataset_id,
+        collection_name=input.collection_name,
+        config=input.config,
+        split=input.split,
+        columns=input.columns,
+        text_template=input.text_template,
+        id_column=input.id_column,
+        portion=build_portion_config(input.portion),
+        metadata_columns=input.metadata_columns,
+        embedding_model=build_embedding_model_config(input.embedding_model),
+        batch_size=input.batch_size or 100,
+        resume=input.resume,
+    )
+
+
+def build_local_file_embedding_config(input) -> LocalFileEmbeddingConfig:
+    """Convert EmbedLocalFileInput to internal LocalFileEmbeddingConfig."""
+    return LocalFileEmbeddingConfig(
+        file_path=input.file_path,
+        collection_name=input.collection_name,
+        data_type=DATA_TYPE_MAP[input.data_type],
+        columns=input.columns,
+        text_template=input.text_template,
+        image_column=input.image_column,
+        vector_column=input.vector_column,
+        id_column=input.id_column,
+        metadata_columns=input.metadata_columns,
+        n_rows=input.n_rows,
+        sample_n=input.sample_n,
+        sample_seed=input.sample_seed,
+        embedding_model=build_embedding_model_config(input.embedding_model),
+        batch_size=input.batch_size or 100,
+        resume=input.resume,
+    )
+
+
+def build_topic_extraction_config(
+    collection_name: str,
+    tc=None,
+) -> TopicExtractionConfig:
+    """Convert GraphQL TopicConfigInput to internal TopicExtractionConfig.
+
+    Handles tc=None by using defaults.
+    """
+    reduce_topics = False
+    reduction_method = "auto"
+    nr_topics = None
+    use_ctfidf_for_reduction = True
+
+    if tc and getattr(tc, 'reduction', None) and tc.reduction.enabled:
+        reduce_topics = True
+        reduction_method = tc.reduction.method
+        nr_topics = tc.reduction.n_topics
+        use_ctfidf_for_reduction = tc.reduction.use_ctfidf
+
+    return TopicExtractionConfig(
+        collection_name=collection_name,
+        min_topic_size=tc.min_topic_size if tc else 10,
+        n_keywords=tc.n_keywords if tc else 10,
+        use_llm_labels=tc.use_llm_labels if tc else False,
+        llm_provider=tc.llm_provider if tc else "gemini",
+        llm_model=tc.llm_model if tc else "gemini-3-flash-preview",
+        projection_type=tc.projection_type if tc else "umap_2d",
+        reduce_topics=reduce_topics,
+        reduction_method=reduction_method,
+        nr_topics=nr_topics,
+        use_ctfidf_for_reduction=use_ctfidf_for_reduction,
+    )
+
+
+# ========== Result -> GraphQL Converters ==========
+
+def convert_topic_infos(topics) -> list:
+    """Convert list of service TopicInfoResult to GraphQL TopicInfo list."""
+    return [
+        TopicInfo(
+            topic_id=topic.topic_id,
+            keywords=[TopicKeyword(word=w, score=s) for w, s in topic.keywords],
+            label=topic.label,
+            count=topic.count,
+            subtopics=topic.subtopics,
+        )
+        for topic in topics
+    ]

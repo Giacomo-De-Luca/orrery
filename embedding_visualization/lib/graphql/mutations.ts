@@ -286,6 +286,7 @@ export interface EmbedDatasetInput {
   portion?: PortionInput;
   metadataColumns?: string[];
   computeProjections?: boolean;
+  batchSize?: number;
   embeddingModel?: EmbeddingModelInput;
   resume?: boolean; // Resume an interrupted job instead of starting fresh
   extractTopics?: boolean;
@@ -308,6 +309,7 @@ export interface EmbedLocalFileInput {
   sampleN?: number;
   sampleSeed?: number;
   computeProjections?: boolean;
+  batchSize?: number;
   embeddingModel?: EmbeddingModelInput;
   resume?: boolean; // Resume an interrupted job instead of starting fresh
   extractTopics?: boolean;

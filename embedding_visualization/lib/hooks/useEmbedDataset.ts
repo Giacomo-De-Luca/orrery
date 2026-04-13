@@ -283,7 +283,6 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     setInfoLoading(true);
     setError(null);
     setLocalFileInfo(null);
-    console.log('DEBUG: fetchLocalFileInfo started', { filePath });
 
     try {
       const { data, error: queryError } = await getLocalInfo({
@@ -292,13 +291,10 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
 
       if (queryError) {
         setError(queryError.message);
-        console.log('DEBUG: fetchLocalFileInfo queryError', { message: queryError.message });
         return null;
       }
 
       const info = data?.localFileInfo || null;
-
-      console.log('DEBUG: fetchLocalFileInfo result', { info });
 
       if (info?.error) {
         setError(info.error);

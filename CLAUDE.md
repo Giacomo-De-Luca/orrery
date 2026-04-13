@@ -4,13 +4,24 @@
 
 - Always update the claude.md both in the main project and in the frontend or backend folder after updates. 
 
-- Always use **uv run python** when you need to launch python. 
+- Use **uv run python** when you need to launch python. 
 
-- Avoid code duplication whenever possible. If you find dysfunctional pattern or duplication in existing code, allert the user directly, before attempting to fix them. 
+- Avoid code duplication whenever possible. Employ a modular approach using classes rather than standalone functions. If you find dysfunctional pattern or duplication in existing code, allert the user directly, before attempting to fix them. 
 
-- After finishing a plan, always use the agent: *code-quality-reviewer* to review the quality of the quality of code. 
+- Prefer reusable utility functions inside the utils folder rather than stand alone calculation functions.
+
+- Prefer configuration files to command line interfaces. 
+
+- If some of the istructions are unclear or you encounter unexpected roadblocks, alert the user and ask for clarification, rather than writing code that was not agreed upon. 
+
+- If you make a plan, always define and plan tests first, then run the code against those tests after. 
+
+- After finishing a plan, always use the agent: *code-quality-reviewer* to review the quality of the generated code. 
 
 - Never stash changes without being directly asked. 
+
+- For folders with multiple scripts or data files, add a readme explaining both the structure of the folder, the main classes or data structures present there. 
+
 
 ## Project Overview
 

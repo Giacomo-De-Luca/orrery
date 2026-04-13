@@ -1,6 +1,6 @@
 import { hsl } from 'd3-color';
 import type { Point2D, Point3D, NestedColorMap } from '../types/types';
-import { generateCategoryColors } from './categoryColors';
+import { generateCategoryColors, UNCLUSTERED_COLOR } from './categoryColors';
 
 /**
  * Check whether nested color mode is available for the current data.
@@ -65,11 +65,11 @@ export function buildNestedColorMap(
   const topicColors: Record<string, string> = {};
   const subtopicColors: Record<string, string> = {};
 
-  // Assign Unclustered = gray
+  // Assign Unclustered = fixed blue
   if (hierarchy['Unclustered']) {
-    topicColors['Unclustered'] = '#7f7f7f';
+    topicColors['Unclustered'] = UNCLUSTERED_COLOR;
     for (const sub of hierarchy['Unclustered']) {
-      subtopicColors[sub] = '#7f7f7f';
+      subtopicColors[sub] = UNCLUSTERED_COLOR;
     }
   }
 

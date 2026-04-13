@@ -240,13 +240,21 @@ export const POS_PRESET: CategoryColorPreset = {
 };
 
 /**
+ * Fixed color for unclustered/noise points (HDBSCAN label -1).
+ * Distinct from topic palette colors, clearly readable as "uncategorized".
+ */
+export const UNCLUSTERED_COLOR = '#e416be';
+
+/**
  * Topic clustering colors.
- * Gray for unclustered/noise points (HDBSCAN label -1).
+ * Blue for unclustered/noise points (HDBSCAN label -1).
  */
 export const TOPIC_PRESET: CategoryColorPreset = {
   name: 'Topic',
   colors: {
-    '-1': '#7f7f7f', // Gray for noise/unclustered
+    '-1': UNCLUSTERED_COLOR,
+    'Unclustered': UNCLUSTERED_COLOR,
+    'unclustered': UNCLUSTERED_COLOR,
   },
   labels: {
     '-1': 'Unclustered',

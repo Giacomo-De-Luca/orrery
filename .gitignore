@@ -11,6 +11,8 @@ test*.py
 test*.ipynb
 .env
 
+## test datasets
+interpretability_backend/resources/uploads/*
 
 
 ### interrupted progress

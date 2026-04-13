@@ -373,6 +373,20 @@ function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
+function SidebarContentPlain({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sidebar-content"
+      data-sidebar="content"
+      className={cn(
+        "flex min-h-0 w-full flex-1 flex-col gap-2 overflow-y-auto overflow-x-hidden group-data-[collapsible=icon]:overflow-hidden",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
 function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -692,6 +706,7 @@ function SidebarMenuSubButton({
 export {
   Sidebar,
   SidebarContent,
+  SidebarContentPlain,
   SidebarFooter,
   SidebarGroup,
   SidebarGroupAction,

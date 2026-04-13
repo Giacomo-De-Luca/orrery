@@ -2,54 +2,30 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/lib/ui-primitives/button';
-import { Input } from '@/lib/ui-primitives/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/ui-primitives/card';
 import { Spinner } from '@/lib/ui-primitives/spinner';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/ui-primitives/select';
 import { Label } from '@/lib/ui-primitives/label';
-import { Separator } from '@/lib/ui-primitives/separator';
-import type { EmbeddingProvider, DataType, PortionStrategy, LocalFileInfo, LocalFilePreview, EmbedDatasetResult, GeminiTaskType, EmbeddingJob, TopicConfigInput, GenerateLlmLabelsInput, GenerateLlmLabelsResult } from '@/lib/graphql/mutations';
+import { Input } from '@/lib/ui-primitives/input';
 import { Checkbox } from '@/lib/ui-primitives/checkbox';
+import { TopicConfigForm } from './TopicConfigForm';
+import type { DataType, PortionStrategy, EmbedLocalFileInput, LocalFileInfo, LocalFilePreview, EmbedDatasetResult, EmbeddingJob, GenerateLlmLabelsInput, GenerateLlmLabelsResult } from '@/lib/graphql/mutations';
 
 import { FileUploadZone } from './FileUploadZone';
-import { TopicConfigForm, DEFAULT_TOPIC_CONFIG, toTopicConfigInput, type TopicConfigState } from './TopicConfigForm';
 import { DataTypeSelector } from './DataTypeSelector';
 import { PortionSelector } from './PortionSelector';
 import { DatasetInfoDisplay } from './DatasetInfoDisplay';
 import { ColumnSelector } from './ColumnSelector';
-import { ProgressModal } from './EmbeddingProgressModal';
-import { JobsPanel } from './JobsPanel';
-import { EMBEDDING_PROVIDERS } from '@/lib/utils/embeddingProviders';
+import { EmbeddingModelForm } from './EmbeddingModelForm';
+import { EmbedResultCard } from './EmbedResultCard';
+import { ErrorCard } from './ErrorCard';
+import { EmbedProgressSection } from './EmbedProgressSection';
+import { useEmbeddingModelState } from '../lib/useEmbeddingModelState';
+import { updateTextTemplate, transformStoredEmbeddingModel, resumeLlmLabelingJob } from '../lib/embeddingFormUtils';
 
 interface LocalFileTabProps {
   fetchLocalFileInfo: (filePath: string) => Promise<LocalFileInfo | null>;
   fetchLocalFilePreview: (filePath: string, nRows?: number) => Promise<LocalFilePreview | null>;
-  embedLocalFile: (input: {
-    filePath: string;
-    collectionName: string;
-    dataType?: DataType;
-    columns?: string[];
-    textTemplate?: string;
-    imageColumn?: string;
-    vectorColumn?: string;
-    idColumn?: string;
-    metadataColumns?: string[];
-    nRows?: number;
-    sampleN?: number;
-    sampleSeed?: number;
-    computeProjections?: boolean;
-    batchSize?: number;
-    embeddingModel?: { provider: EmbeddingProvider; modelName: string; ollamaUrl?: string; task?: string; taskType?: GeminiTaskType; prompt?: string };
-    resume?: boolean;
-    extractTopics?: boolean;
-    topicConfig?: TopicConfigInput;
-  }) => Promise<EmbedDatasetResult | null>;
+  embedLocalFile: (input: EmbedLocalFileInput) => Promise<EmbedDatasetResult | null>;
   refreshCollections: () => Promise<void>;
   localFileInfo: LocalFileInfo | null;
   localFilePreview: LocalFilePreview | null;
@@ -59,9 +35,7 @@ interface LocalFileTabProps {
   error: string | null;
   clearError: () => void;
   lastEmbedResult: EmbedDatasetResult | null;
-  /** Collection name of currently running job for progress tracking */
   activeJobCollectionName?: string | null;
-  /** LLM label generation for resuming interrupted LLM labeling jobs */
   generateLlmLabels?: (input: GenerateLlmLabelsInput) => Promise<GenerateLlmLabelsResult | null>;
 }
 
@@ -81,7 +55,7 @@ export function LocalFileTab({
   activeJobCollectionName,
   generateLlmLabels,
 }: LocalFileTabProps) {
-  // LLM labeling resume state
+  const model = useEmbeddingModelState();
   const [llmResumeJobId, setLlmResumeJobId] = useState<string | null>(null);
 
   // Local file specific state
@@ -94,55 +68,16 @@ export function LocalFileTab({
   const [selectedMetadataColumns, setSelectedMetadataColumns] = useState<string[]>([]);
   const [textTemplate, setTextTemplate] = useState('');
   const [idColumn, setIdColumn] = useState('auto');
-  const [batchSize, setBatchSize] = useState(100);
-
-  // Wrapper for setting columns that also updates template
-  const handleEmbeddingColumnsChange = (cols: string[]) => {
-    setSelectedEmbeddingColumns(cols);
-
-    // Determine added/removed columns
-    const removed = selectedEmbeddingColumns.filter(c => !cols.includes(c));
-    const added = cols.filter(c => !selectedEmbeddingColumns.includes(c));
-
-    let updated = textTemplate;
-
-    // Remove placeholders for unchecked columns
-    for (const col of removed) {
-      // Remove {col} and any surrounding ", " separator
-      updated = updated.replace(new RegExp(`,\\s*\\{${col}\\}|\\{${col}\\}\\s*,\\s*|\\{${col}\\}`, 'g'), '');
-    }
-    updated = updated.trim();
-
-    // Append placeholders for newly checked columns
-    for (const col of added) {
-      if (updated) {
-        updated = `${updated}, {${col}}`;
-      } else {
-        updated = `{${col}}`;
-      }
-    }
-
-    setTextTemplate(updated);
-  };
 
   // Portion configuration
   const [portionStrategy, setPortionStrategy] = useState<PortionStrategy>('FIRST_N');
   const [numRows, setNumRows] = useState(1000);
   const [randomSeed, setRandomSeed] = useState(42);
 
-  // Embedding model state
-  const [embeddingProvider, setEmbeddingProvider] = useState<EmbeddingProvider>('SENTENCE_TRANSFORMERS');
-  const [modelName, setModelName] = useState(EMBEDDING_PROVIDERS.SENTENCE_TRANSFORMERS.defaultModel);
-  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
-  const [qwenTask, setQwenTask] = useState('Given a web search query, retrieve relevant passages that answer the query');
-  const [geminiTaskType, setGeminiTaskType] = useState<GeminiTaskType>('SEMANTIC_SIMILARITY');
-  // SentenceTransformers prompt support (for models like Gemma Embedding)
-  const [promptName, setPromptName] = useState<string | null>(null);
-  const [customPrompt, setCustomPrompt] = useState('');
-
-  // Topic extraction
-  const [enableTopics, setEnableTopics] = useState(false);
-  const [topicConfig, setTopicConfig] = useState<TopicConfigState>(DEFAULT_TOPIC_CONFIG);
+  const handleEmbeddingColumnsChange = (cols: string[]) => {
+    setSelectedEmbeddingColumns(cols);
+    setTextTemplate(updateTextTemplate(textTemplate, selectedEmbeddingColumns, cols));
+  };
 
   // Reset columns when file changes
   useEffect(() => {
@@ -158,7 +93,6 @@ export function LocalFileTab({
     let embeddingCol: string;
 
     if (dataType === 'VECTOR') {
-      // Auto-detect vector column by common name patterns
       const vectorNames = ['embedding', 'embeddings', 'vector', 'vectors', 'emb'];
       const match = columns.find(col =>
         vectorNames.some(name => col.toLowerCase().includes(name))
@@ -172,10 +106,8 @@ export function LocalFileTab({
       setTextTemplate(`{${embeddingCol}}`);
     }
 
-    // Default all other columns to metadata (excluding the embedding/vector column)
     setSelectedMetadataColumns(columns.filter(col => col !== embeddingCol));
 
-    // Auto-detect ID column by common name patterns
     const idNames = ['id', 'index', 'idx', '_id', 'row_id', 'item_id', 'feature_id', 'doc_id'];
     const idMatch = columns.find(col =>
       idNames.some(name => col.toLowerCase() === name)
@@ -239,68 +171,32 @@ export function LocalFileTab({
       sampleN: portionStrategy === 'RANDOM_SAMPLE' ? numRows : undefined,
       sampleSeed: portionStrategy === 'RANDOM_SAMPLE' ? randomSeed : undefined,
       computeProjections: true,
-      batchSize,
-      embeddingModel: dataType === 'TEXT' ? {
-        provider: embeddingProvider,
-        modelName,
-        ollamaUrl: embeddingProvider === 'OLLAMA' ? ollamaUrl : undefined,
-        task: embeddingProvider === 'QWEN' ? qwenTask : undefined,
-        taskType: embeddingProvider === 'GEMINI' ? geminiTaskType : undefined,
-        prompt: embeddingProvider === 'SENTENCE_TRANSFORMERS' ? (customPrompt || promptName || undefined) : undefined,
-      } : undefined,
-      extractTopics: enableTopics || undefined,
-      topicConfig: enableTopics ? toTopicConfigInput(topicConfig) : undefined,
+      batchSize: model.batchSize,
+      embeddingModel: dataType === 'TEXT' ? model.buildEmbeddingModelInput() : undefined,
+      ...model.getTopicParams(),
     });
 
     await refreshCollections();
   };
 
-  const handleProviderChange = (provider: EmbeddingProvider) => {
-    setEmbeddingProvider(provider);
-    setModelName(EMBEDDING_PROVIDERS[provider].defaultModel);
-  };
-
   const handleResumeJob = async (job: EmbeddingJob) => {
-    // Handle LLM labeling jobs separately
-    if (job.jobType === 'llm_labeling' && generateLlmLabels) {
-      const llmConfig = job.config as { collection_name?: string; llm_provider?: string; llm_model?: string; label_scope?: string };
-      const jobId = `${llmConfig.collection_name || job.collectionName}_llm_labeling`;
-      setLlmResumeJobId(jobId);
-      await generateLlmLabels({
-        collectionName: llmConfig.collection_name || job.collectionName,
-        llmProvider: llmConfig.llm_provider || 'gemini',
-        llmModel: llmConfig.llm_model || 'gemini-3-flash-preview',
-        labelScope: llmConfig.label_scope || 'both',
-        resume: true,
+    if (generateLlmLabels) {
+      const handled = await resumeLlmLabelingJob(job, generateLlmLabels, {
+        setLlmResumeJobId,
+        refreshCollections,
       });
-      setLlmResumeJobId(null);
-      await refreshCollections();
-      return;
+      if (handled) return;
     }
 
-    // Resume embedding with the stored configuration
-    // Config is stored with Python snake_case - need to transform for GraphQL
     const config = job.config as Record<string, unknown>;
 
-    // Transform data_type from snake_case value to uppercase enum
     const dataTypeValue = config.data_type as string | undefined;
-    const dataType = dataTypeValue?.toUpperCase() as DataType | undefined;
-
-    // Transform embedding_model from snake_case to camelCase
-    const storedModel = config.embedding_model as Record<string, unknown> | undefined;
-    const embeddingModel = storedModel ? {
-      provider: (storedModel.provider as string)?.toUpperCase() as EmbeddingProvider,
-      modelName: storedModel.model_name as string,
-      ollamaUrl: storedModel.ollama_url as string | undefined,
-      task: storedModel.task as string | undefined,
-      taskType: storedModel.task_type as GeminiTaskType | undefined,
-      prompt: (storedModel.prompt ?? storedModel.prompt_name) as string | undefined,
-    } : undefined;
+    const resumeDataType = dataTypeValue?.toUpperCase() as DataType | undefined;
 
     await embedLocalFile({
       filePath: config.file_path as string,
       collectionName: job.collectionName,
-      dataType,
+      dataType: resumeDataType,
       columns: config.columns as string[] | undefined,
       textTemplate: config.text_template as string | undefined,
       imageColumn: config.image_column as string | undefined,
@@ -312,7 +208,9 @@ export function LocalFileTab({
       sampleSeed: config.sample_seed as number | undefined,
       computeProjections: true,
       batchSize: config.batch_size as number | undefined,
-      embeddingModel,
+      embeddingModel: transformStoredEmbeddingModel(
+        config.embedding_model as Record<string, unknown> | undefined
+      ),
       resume: true,
     });
     await refreshCollections();
@@ -366,19 +264,7 @@ export function LocalFileTab({
         </CardContent>
       </Card>
 
-      {/* Error Display */}
-      {error && (
-        <Card className="border-destructive">
-          <CardContent className="pt-6">
-            <div className="text-destructive">
-              <strong>Error:</strong> {error}
-            </div>
-            <Button variant="outline" size="sm" onClick={clearError} className="mt-2">
-              Dismiss
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {error && <ErrorCard error={error} onDismiss={clearError} />}
 
       {/* File Info & Preview */}
       {isDataLoaded && (
@@ -387,7 +273,6 @@ export function LocalFileTab({
             <CardTitle>File Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Separator />
             <DatasetInfoDisplay
               type="local"
               info={localFileInfo}
@@ -457,160 +342,29 @@ export function LocalFileTab({
 
       {/* Embedding Model Configuration (only for TEXT) */}
       {isDataLoaded && dataType === 'TEXT' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Embedding Model</CardTitle>
-            <CardDescription>
-              Choose the embedding model to use
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="provider">Provider</Label>
-                <Select
-                  value={embeddingProvider}
-                  onValueChange={(v) => handleProviderChange(v as EmbeddingProvider)}
-                >
-                  <SelectTrigger id="provider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(EMBEDDING_PROVIDERS) as Array<keyof typeof EMBEDDING_PROVIDERS>).map((provider) => (
-                      <SelectItem key={provider} value={provider}>
-                        {provider}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {EMBEDDING_PROVIDERS[embeddingProvider].description}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="model-name">Model Name</Label>
-                <Input
-                  id="model-name"
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  placeholder={EMBEDDING_PROVIDERS[embeddingProvider].defaultModel}
-                />
-                <Label htmlFor="batch-size">Batch Size</Label>
-                <Input
-                  id="batch-size"
-                  value={batchSize}
-                  onChange={(e) => setBatchSize(Number(e.target.value))}
-                  placeholder={batchSize.toString()}
-                />
-              </div>
-              {embeddingProvider === 'OLLAMA' && (
-                <div className="space-y-2">
-                  <Label htmlFor="ollama-url">Ollama URL</Label>
-                  <Input
-                    id="ollama-url"
-                    value={ollamaUrl}
-                    onChange={(e) => setOllamaUrl(e.target.value)}
-                    placeholder="http://localhost:11434"
-                  />
-                </div>
-              )}
-              {embeddingProvider === 'QWEN' && (
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="qwen-task">Query Task Instruction</Label>
-                  <Input
-                    id="qwen-task"
-                    value={qwenTask}
-                    onChange={(e) => setQwenTask(e.target.value)}
-                    placeholder="Given a web search query, retrieve relevant passages that answer the query"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Instruction prefix added to queries during semantic search (not used during document embedding)
-                  </p>
-                </div>
-              )}
-              {embeddingProvider === 'GEMINI' && (
-                <div className="space-y-2">
-                  <Label htmlFor="gemini-task-type">Task Type</Label>
-                  <Select
-                    value={geminiTaskType}
-                    onValueChange={(v) => setGeminiTaskType(v as GeminiTaskType)}
-                  >
-                    <SelectTrigger id="gemini-task-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="SEMANTIC_SIMILARITY">Semantic Similarity</SelectItem>
-                      <SelectItem value="CLASSIFICATION">Classification</SelectItem>
-                      <SelectItem value="CLUSTERING">Clustering</SelectItem>
-                      <SelectItem value="RETRIEVAL_DOCUMENT">Retrieval (Document)</SelectItem>
-                      <SelectItem value="RETRIEVAL_QUERY">Retrieval (Query)</SelectItem>
-                      <SelectItem value="CODE_RETRIEVAL_QUERY">Code Retrieval</SelectItem>
-                      <SelectItem value="QUESTION_ANSWERING">Question Answering</SelectItem>
-                      <SelectItem value="FACT_VERIFICATION">Fact Verification</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Optimizes embeddings for the selected task type
-                  </p>
-                </div>
-              )}
-              {embeddingProvider === 'SENTENCE_TRANSFORMERS' && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="prompt-name">Prompt Name</Label>
-                    <Select
-                      value={promptName ?? 'none'}
-                      onValueChange={(v) => setPromptName(v === 'none' ? null : v)}
-                    >
-                      <SelectTrigger id="prompt-name">
-                        <SelectValue placeholder="None" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="Retrieval-document">Retrieval-document (RAG storage)</SelectItem>
-                        <SelectItem value="Retrieval-query">Retrieval-query (RAG search)</SelectItem>
-                        <SelectItem value="STS">STS (Sentence similarity)</SelectItem>
-                        <SelectItem value="Classification">Classification</SelectItem>
-                        <SelectItem value="Clustering">Clustering</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Task-specific prompt for models like Gemma Embedding
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="custom-prompt">Custom Prompt (Advanced)</Label>
-                    <Input
-                      id="custom-prompt"
-                      value={customPrompt}
-                      onChange={(e) => setCustomPrompt(e.target.value)}
-                      placeholder="Leave empty to use prompt name"
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-
-          </CardContent>
-        </Card>
+        <EmbeddingModelForm
+          model={model}
+          showTopics={false}
+          idPrefix="local-"
+        />
       )}
 
-      {/* Topic Extraction */}
+      {/* Topic Extraction (available for all data types) */}
       {isDataLoaded && (
         <Card>
           <CardContent className="pt-6 space-y-3">
             <div className="flex items-center gap-2">
               <Checkbox
                 id="local-enable-topics"
-                checked={enableTopics}
-                onCheckedChange={(checked) => setEnableTopics(checked === true)}
+                checked={model.enableTopics}
+                onCheckedChange={(checked) => model.setEnableTopics(checked === true)}
               />
               <Label htmlFor="local-enable-topics" className="cursor-pointer">
                 {isVectorMode ? 'Extract topics after import' : 'Extract topics after embedding'}
               </Label>
             </div>
-            {enableTopics && (
-              <TopicConfigForm value={topicConfig} onChange={setTopicConfig} />
+            {model.enableTopics && (
+              <TopicConfigForm value={model.topicConfig} onChange={model.setTopicConfig} />
             )}
           </CardContent>
         </Card>
@@ -629,68 +383,14 @@ export function LocalFileTab({
         </Button>
       )}
 
-      {/* Embed Result */}
-      {lastEmbedResult && (
-        <Card className={lastEmbedResult.error ? 'border-destructive' : 'border-green-500'}>
-          <CardHeader>
-            <CardTitle>
-              {lastEmbedResult.error
-                ? (isVectorMode ? '❌ Import Failed' : '❌ Embedding Failed')
-                : (isVectorMode ? '✅ Import Complete!' : '✅ Embedding Complete!')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {lastEmbedResult.error ? (
-              <p className="text-destructive">{lastEmbedResult.error}</p>
-            ) : (
-              <div className="space-y-2">
-                <p><strong>Collection:</strong> {lastEmbedResult.collectionName}</p>
-                <p><strong>{isVectorMode ? 'Total Imported:' : 'Total Embedded:'}</strong> {lastEmbedResult.totalEmbedded.toLocaleString()}</p>
-                <p><strong>Dimensions:</strong> {lastEmbedResult.embeddingDim}</p>
-                <p><strong>Device:</strong> {lastEmbedResult.device}</p>
-                <p><strong>Duration:</strong> {lastEmbedResult.durationSeconds.toFixed(2)}s</p>
-                <p><strong>Projections:</strong> {lastEmbedResult.projectionsComputed ? '✓ Computed' : 'Not computed'}</p>
-                {lastEmbedResult.embeddingProvider && (
-                  <p><strong>Model:</strong> {lastEmbedResult.embeddingProvider} / {lastEmbedResult.embeddingModel}</p>
-                )}
-                <div className="mt-4">
-                  <a
-                    href={`/?collection=${lastEmbedResult.collectionName}`}
-                    className="text-blue-500 hover:underline font-medium"
-                  >
-                    View in Visualization →
-                  </a>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {lastEmbedResult && <EmbedResultCard result={lastEmbedResult} isImportMode={isVectorMode} />}
 
-      {/* Progress Modal - shown during embedding */}
-      {embedLoading && activeJobCollectionName && (
-        <ProgressModal
-          jobId={activeJobCollectionName}
-        />
-      )}
-
-      {/* Progress Modal - shown during LLM labeling resume */}
-      {llmResumeJobId && (
-        <ProgressModal
-          jobId={llmResumeJobId}
-          title="Generating LLM Labels"
-          subtitle="Each topic is labeled individually via LLM API calls."
-          itemsLabel="topics"
-        />
-      )}
-
-      {/* Interrupted Jobs Panel */}
-      {!embedLoading && (
-        <JobsPanel
-          statusFilter="interrupted"
-          onResumeJob={handleResumeJob}
-        />
-      )}
+      <EmbedProgressSection
+        embedLoading={embedLoading}
+        activeJobCollectionName={activeJobCollectionName}
+        llmResumeJobId={llmResumeJobId}
+        onResumeJob={handleResumeJob}
+      />
     </div>
   );
 }

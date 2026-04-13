@@ -5,6 +5,7 @@ import { ChevronDown, Settings2 } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
+  SidebarContentPlain,
   SidebarFooter,
   SidebarHeader,
 } from '@/lib/ui-primitives/sidebar';
@@ -22,8 +23,9 @@ import { TextSearchResultsList } from './TextSearchResultsList';
 import { TopicSearchSection } from './TopicSearchSection';
 import type { Point2D, Point3D, TopicInfo } from '../../lib/types/types';
 import type { TopicSearchMode, TopicSearchResult } from '../../lib/hooks/useTopicSearch';
-import { ScrollBar } from '@/lib/ui-primitives/scroll-area';
 import { cn } from '@/lib/utils/utils';
+import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
+
 
 interface SearchSidebarProps extends React.ComponentProps<typeof Sidebar> {
   searchQuery: string;
@@ -111,8 +113,9 @@ export function SearchSidebar({
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="gap-0">
-        <div className="p-4 space-y-6">
+      <SidebarContentPlain className="gap-0">
+
+        <div className="p-4 space-y-6 ">
           {/* Search Input */}
           <div className="space-y-3">
             <Label htmlFor="sidebar-search" className="text-base">Search</Label>
@@ -229,8 +232,8 @@ export function SearchSidebar({
             />
           )}
         </div>
-        <ScrollBar orientation="vertical" />
-      </SidebarContent>
+
+      </SidebarContentPlain>
 
       <SidebarFooter className="border-t px-4 py-3">
         <div className="text-xs text-muted-foreground text-center">
