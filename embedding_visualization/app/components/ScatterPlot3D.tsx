@@ -122,7 +122,6 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   const theme = resolvedTheme ?? 'light';
   const isDark = theme === 'dark';
 
-
   // Theme colors
   const axisColor = isDark ? '#e2e8f0' : '#0f172a';
   const gridColor = isDark ? '#334155' : '#e5e7eb';
@@ -768,13 +767,20 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     mutedCategories, hideUnclustered, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity
   ]);
 
+  // Pre-compute highlighted points via direct index lookup — O(k) not O(n)
+  const highlightedPoints = useMemo(() => {
+    if (!highlightedIndices || highlightedIndices.size === 0) return [];
+    const result: Point3D[] = [];
+    for (const idx of highlightedIndices.keys()) {
+      if (points[idx]) result.push(points[idx]);
+    }
+    return result;
+  }, [highlightedIndices, points]);
+
   // Highlight/glow traces — separated from baseTraces so that search results
   // only recompute ~20 points instead of rebuilding all base point data.
   const highlightTraces = useMemo((): PlotlyData[] => {
-    if (!highlightedIndices || highlightedIndices.size === 0) return [];
-
-    const highlightedPoints = points.filter(p => highlightedIndices.has(p.index));
-    if (highlightedPoints.length === 0) return [];
+    if (!highlightedIndices || highlightedIndices.size === 0 || highlightedPoints.length === 0) return [];
 
     const traces: PlotlyData[] = [];
     const hX = highlightedPoints.map(p => p.x);
@@ -838,7 +844,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     });
 
     return traces;
-  }, [highlightedIndices, points, markerStyle, highlightScale]);
+  }, [highlightedIndices, highlightedPoints, markerStyle, highlightScale]);
 
   // Selected point traces — uses renderedSelectedPoint (deferred) to avoid Plotly.react during camera animation
   const selectedTraces = useMemo((): PlotlyData[] => {
@@ -846,7 +852,6 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     const traces: PlotlyData[] = [];
 
     if (highlightedIndices && highlightedIndices.size > 0) {
-      const highlightedPoints = points.filter(p => highlightedIndices.has(p.index));
       const lineX: number[] = [], lineY: number[] = [], lineZ: number[] = [];
       highlightedPoints.forEach(p => {
         if (p.index !== renderedSelectedPoint.index) {
@@ -880,7 +885,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     });
 
     return traces;
-  }, [renderedSelectedPoint, highlightedIndices, points, markerStyle, highlightScale, isDark]);
+  }, [renderedSelectedPoint, highlightedIndices, highlightedPoints, markerStyle, highlightScale, isDark]);
 
   // Populate label render data (no React state — just a ref for the canvas renderer)
   useEffect(() => {
@@ -888,7 +893,6 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
       labelRenderDataRef.current = null;
       return;
     }
-    const highlightedPoints = points.filter(p => highlightedIndices.has(p.index));
     if (highlightedPoints.length === 0) {
       labelRenderDataRef.current = null;
       return;
@@ -903,7 +907,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
       similarities: highlightedIndices,
       selectedIndex: selectedPoint?.index ?? null,
     };
-  }, [showLabels, highlightedIndices, points, selectedPoint]);
+  }, [showLabels, highlightedIndices, highlightedPoints, selectedPoint]);
 
   // --- NEBULA / CLUSTER: Cluster data for nebula effects and cluster labels ---
   const clusterDataMap = useMemo(() => {
@@ -1227,22 +1231,17 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     const gd = graphDivRef.current;
 
     const overlayTraces = [...highlightTraces, ...selectedTraces];
+    const oldCount = overlayTraceCountRef.current;
+    const newCount = overlayTraces.length;
 
-    // Remove previously added overlay traces
-    if (overlayTraceCountRef.current > 0) {
-      const totalTraces = (gd.data?.length) || 0;
-      const indicesToRemove = Array.from(
-        { length: overlayTraceCountRef.current },
-        (_, i) => totalTraces - overlayTraceCountRef.current + i
-      );
-      try { Plotly.deleteTraces(gd, indicesToRemove); } catch { /* ignore if already removed */ }
-    }
+    if (oldCount === 0 && newCount === 0) return;
 
-    // Add new overlay traces
-    if (overlayTraces.length > 0) {
-      Plotly.addTraces(gd, overlayTraces);
-    }
-    overlayTraceCountRef.current = overlayTraces.length;
+    // Splice overlay traces in place and redraw once
+    // (avoids two separate 3D scene rebuilds from deleteTraces + addTraces)
+    const baseCount = (gd.data?.length ?? 0) - oldCount;
+    gd.data?.splice(baseCount, oldCount, ...(overlayTraces as PlotData[]));
+    overlayTraceCountRef.current = newCount;
+    Plotly.redraw(gd);
   }, [highlightTraces, selectedTraces, plotReady]);
 
   const layout = useMemo<Partial<Layout>>(() => ({

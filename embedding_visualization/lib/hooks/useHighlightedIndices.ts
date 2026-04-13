@@ -17,6 +17,16 @@ export function useHighlightedIndices(
   selectedPointIndex?: number,
   topicHighlightMap?: HighlightMap
 ): HighlightMap | undefined {
+  // Build id→index lookup once when data loads — O(n) one-time cost
+  const idToIndex = useMemo(() => {
+    if (!data) return null;
+    const map = new Map<string, number>();
+    for (let i = 0; i < data.ids.length; i++) {
+      map.set(data.ids[i], i);
+    }
+    return map;
+  }, [data]);
+
   return useMemo(() => {
     const highlightMap = new Map<number, number>();
 
@@ -26,24 +36,17 @@ export function useHighlightedIndices(
       highlightMap.set(selectedPointIndex, 1.0);
     }
 
-    // Add semantic search highlights (with actual similarity scores)
-    if (semanticSearchResults && semanticSearchResults.length > 0 && data) {
-      // Create map of id → similarity for fast lookup
-      const idToSimilarity = new Map(
-        semanticSearchResults.map(r => [r.id, r.similarity])
-      );
-
-      // Find indices and add to map
-      data.ids.forEach((id, index) => {
-        if (idToSimilarity.has(id)) {
-          const similarity = idToSimilarity.get(id)!;
-          // If already present from selected point, keep max similarity
-          const currentSimilarity = highlightMap.get(index);
-          if (currentSimilarity === undefined || similarity > currentSimilarity) {
-            highlightMap.set(index, similarity);
+    // O(k) lookup via pre-built idToIndex — only iterates ~20 search results, not all data
+    if (semanticSearchResults && semanticSearchResults.length > 0 && idToIndex) {
+      for (const r of semanticSearchResults) {
+        const index = idToIndex.get(r.id);
+        if (index !== undefined) {
+          const current = highlightMap.get(index);
+          if (current === undefined || r.similarity > current) {
+            highlightMap.set(index, r.similarity);
           }
         }
-      });
+      }
     }
 
     // Merge topic highlights (max-similarity logic)
@@ -58,5 +61,5 @@ export function useHighlightedIndices(
 
     // Return undefined if empty for backward compatibility
     return highlightMap.size > 0 ? highlightMap : undefined;
-  }, [semanticSearchResults, data, selectedPointIndex, topicHighlightMap]);
+  }, [semanticSearchResults, idToIndex, selectedPointIndex, topicHighlightMap]);
 }
