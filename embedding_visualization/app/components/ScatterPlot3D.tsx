@@ -785,112 +785,116 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     return result;
   }, [highlightedIndices, points]);
 
-  // Highlight/glow traces — separated from baseTraces so that search results
-  // only recompute ~20 points instead of rebuilding all base point data.
-  const highlightTraces = useMemo((): PlotlyData[] => {
-    if (!highlightedIndices || highlightedIndices.size === 0 || highlightedPoints.length === 0) return [];
+  // All overlay traces in a single memo — search result glows, selected point, and
+  // connection lines are computed atomically so Plotly.redraw() fires once, not twice.
+  const overlayTraces = useMemo((): PlotlyData[] => {
+    const hasHighlights = highlightedIndices && highlightedIndices.size > 0 && highlightedPoints.length > 0;
+    if (!hasHighlights && !renderedSelectedPoint) return [];
 
     const traces: PlotlyData[] = [];
-    const hX = highlightedPoints.map(p => p.x);
-    const hY = highlightedPoints.map(p => p.y);
-    const hZ = highlightedPoints.map(p => p.z);
 
-    const outerSizes: number[] = [];
-    const outerColors: string[] = [];
-    const innerSizes: number[] = [];
-    const innerColors: string[] = [];
-    const coreSizes: number[] = [];
-    const coreColors: string[] = [];
-    const coreTexts: string[] = [];
-    const coreCustomData: any[] = [];
+    // --- Pass 1: All point overlays (glows + core markers) ---
 
-    highlightedPoints.forEach(point => {
-      const similarity = highlightedIndices.get(point.index) ?? 1.0;
-      const luminosity = calculateLuminosity(similarity);
-      const colors = calculateSimilarityColors(similarity);
+    // Search result glow layers
+    if (hasHighlights) {
+      const hX = highlightedPoints.map(p => p.x);
+      const hY = highlightedPoints.map(p => p.y);
+      const hZ = highlightedPoints.map(p => p.z);
 
-      outerSizes.push(Math.max(markerStyle.size * highlightScale.outerMultiplier, 30));
-      outerColors.push(colors.outerGlow);
+      const outerSizes: number[] = [];
+      const outerColors: string[] = [];
+      const innerSizes: number[] = [];
+      const innerColors: string[] = [];
+      const coreSizes: number[] = [];
+      const coreColors: string[] = [];
+      const coreTexts: string[] = [];
+      const coreCustomData: any[] = [];
 
-      innerSizes.push(Math.max(markerStyle.size * highlightScale.innerMultiplier, 18));
-      innerColors.push(colors.glowColor);
+      highlightedPoints.forEach(point => {
+        const similarity = highlightedIndices!.get(point.index) ?? 1.0;
+        const colors = calculateSimilarityColors(similarity);
 
-      coreSizes.push(Math.max(markerStyle.size * highlightScale.coreMultiplier, 9));
-      coreColors.push(colors.coreColor);
-      coreTexts.push(formatHoverText(point));
-      coreCustomData.push(point);
-    });
+        outerSizes.push(Math.max(markerStyle.size * highlightScale.outerMultiplier, 30));
+        outerColors.push(colors.outerGlow);
 
-    // 1. Outer Glow
-    traces.push({
-      x: hX, y: hY, z: hZ, mode: 'markers', type: 'scatter3d',
-      marker: {
-        sizemode: 'diameter', size: outerSizes, color: outerColors, opacity: 0.15, line: { width: 0 }
-      },
-      hoverinfo: 'skip', showlegend: false
-    });
+        innerSizes.push(Math.max(markerStyle.size * highlightScale.innerMultiplier, 18));
+        innerColors.push(colors.glowColor);
 
-    // 2. Inner Glow
-    traces.push({
-      x: hX, y: hY, z: hZ, mode: 'markers', type: 'scatter3d',
-      marker: {
-        sizemode: 'diameter', size: innerSizes, color: innerColors, opacity: 0.3, line: { width: 0 }
-      },
-      hoverinfo: 'skip', showlegend: false
-    });
-
-    // 3. Core
-    traces.push({
-      x: hX, y: hY, z: hZ, mode: 'markers', type: 'scatter3d',
-      marker: {
-        sizemode: 'diameter', size: coreSizes, color: coreColors, opacity: 1, line: { color: innerColors, width: 1 }
-      },
-      text: coreTexts,
-      hoverinfo: 'none',
-      customdata: coreCustomData as any,
-      showlegend: false
-    });
-
-    return traces;
-  }, [highlightedIndices, highlightedPoints, markerStyle, highlightScale]);
-
-  // Selected point traces — uses renderedSelectedPoint (deferred) to avoid Plotly.react during camera animation
-  const selectedTraces = useMemo((): PlotlyData[] => {
-    if (!renderedSelectedPoint) return [];
-    const traces: PlotlyData[] = [];
-
-    if (highlightedIndices && highlightedIndices.size > 0) {
-      const lineX: number[] = [], lineY: number[] = [], lineZ: number[] = [];
-      highlightedPoints.forEach(p => {
-        if (p.index !== renderedSelectedPoint.index) {
-          lineX.push(renderedSelectedPoint.x, p.x, null as any);
-          lineY.push(renderedSelectedPoint.y, p.y, null as any);
-          lineZ.push(renderedSelectedPoint.z, p.z, null as any);
-        }
+        coreSizes.push(Math.max(markerStyle.size * highlightScale.coreMultiplier, 9));
+        coreColors.push(colors.coreColor);
+        coreTexts.push(formatHoverText(point));
+        coreCustomData.push(point);
       });
-      if (lineX.length > 0) {
+
+      // 1. Outer Glow
+      traces.push({
+        x: hX, y: hY, z: hZ, mode: 'markers', type: 'scatter3d',
+        marker: { sizemode: 'diameter', size: outerSizes, color: outerColors, opacity: 0.15, line: { width: 0 } },
+        hoverinfo: 'skip', showlegend: false
+      });
+
+      // 2. Inner Glow
+      traces.push({
+        x: hX, y: hY, z: hZ, mode: 'markers', type: 'scatter3d',
+        marker: { sizemode: 'diameter', size: innerSizes, color: innerColors, opacity: 0.3, line: { width: 0 } },
+        hoverinfo: 'skip', showlegend: false
+      });
+
+      // 3. Selected point outer glow (rendered among overlays so it appears with them)
+      if (renderedSelectedPoint) {
         traces.push({
-          x: lineX, y: lineY, z: lineZ, mode: 'lines' as const, type: 'scatter3d' as const,
-          name: 'Connections',
-          line: { color: isDark ? 'rgba(130, 160, 200, 0.60)' : 'rgba(100, 130, 170, 0.60)', width: 0.1 },
-          hoverinfo: 'skip' as any, showlegend: false
+          x: [renderedSelectedPoint.x], y: [renderedSelectedPoint.y], z: [renderedSelectedPoint.z], mode: 'markers', type: 'scatter3d',
+          hoverinfo: 'skip',
+          marker: { size: Math.max(markerStyle.size * highlightScale.selectedOuterMultiplier, 12), color: 'rgba(255, 215, 140, 0.15)', opacity: 0.3, line: { width: 0 } },
+          showlegend: false
         });
       }
+
+      // 4. Search result core markers (hoverable)
+      traces.push({
+        x: hX, y: hY, z: hZ, mode: 'markers', type: 'scatter3d',
+        marker: { sizemode: 'diameter', size: coreSizes, color: coreColors, opacity: 1, line: { color: innerColors, width: 1 } },
+        text: coreTexts, hoverinfo: 'none', customdata: coreCustomData as any, showlegend: false
+      });
+
+      // --- Pass 2: Connection lines ---
+      if (renderedSelectedPoint) {
+        const lineX: number[] = [], lineY: number[] = [], lineZ: number[] = [];
+        highlightedPoints.forEach(p => {
+          if (p.index !== renderedSelectedPoint.index) {
+            lineX.push(renderedSelectedPoint.x, p.x, null as any);
+            lineY.push(renderedSelectedPoint.y, p.y, null as any);
+            lineZ.push(renderedSelectedPoint.z, p.z, null as any);
+          }
+        });
+        if (lineX.length > 0) {
+          traces.push({
+            x: lineX, y: lineY, z: lineZ, mode: 'lines' as const, type: 'scatter3d' as const,
+            name: 'Connections',
+            line: { color: isDark ? 'rgba(130, 160, 200, 0.60)' : 'rgba(100, 130, 170, 0.60)', width: 0.1 },
+            hoverinfo: 'skip' as any, showlegend: false
+          });
+        }
+      }
+    } else if (renderedSelectedPoint) {
+      // No search results, just selected point glow
+      traces.push({
+        x: [renderedSelectedPoint.x], y: [renderedSelectedPoint.y], z: [renderedSelectedPoint.z], mode: 'markers', type: 'scatter3d',
+        hoverinfo: 'skip',
+        marker: { size: Math.max(markerStyle.size * highlightScale.selectedOuterMultiplier, 12), color: 'rgba(255, 215, 140, 0.15)', opacity: 0.3, line: { width: 0 } },
+        showlegend: false
+      });
     }
 
-    traces.push({
-      x: [renderedSelectedPoint.x], y: [renderedSelectedPoint.y], z: [renderedSelectedPoint.z], mode: 'markers', type: 'scatter3d',
-      hoverinfo: 'skip',
-      marker: { size: Math.max(markerStyle.size * highlightScale.selectedOuterMultiplier, 12), color: 'rgba(255, 215, 140, 0.15)', opacity: 0.3, line: { width: 0 } },
-      showlegend: false
-    });
-
-    traces.push({
-      x: [renderedSelectedPoint.x], y: [renderedSelectedPoint.y], z: [renderedSelectedPoint.z], mode: 'markers', type: 'scatter3d',
-      name: 'Selected',
-      marker: { size: Math.max(markerStyle.size * highlightScale.selectedCoreMultiplier, 4), color: '#fff8e8', opacity: 1, line: { color: 'rgba(255, 200, 100, 0.6)', width: 1.5 } },
-      text: [formatHoverText(renderedSelectedPoint)], hoverinfo: 'none', customdata: [renderedSelectedPoint] as any, showlegend: false
-    });
+    // Selected point core marker (always on top)
+    if (renderedSelectedPoint) {
+      traces.push({
+        x: [renderedSelectedPoint.x], y: [renderedSelectedPoint.y], z: [renderedSelectedPoint.z], mode: 'markers', type: 'scatter3d',
+        name: 'Selected',
+        marker: { size: Math.max(markerStyle.size * highlightScale.selectedCoreMultiplier, 4), color: '#fff8e8', opacity: 1, line: { color: 'rgba(255, 200, 100, 0.6)', width: 1.5 } },
+        text: [formatHoverText(renderedSelectedPoint)], hoverinfo: 'none', customdata: [renderedSelectedPoint] as any, showlegend: false
+      });
+    }
 
     return traces;
   }, [renderedSelectedPoint, highlightedIndices, highlightedPoints, markerStyle, highlightScale, isDark]);
@@ -1281,19 +1285,17 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     const gd = graphDivRef.current;
 
     // Rebuild all traces: base + current overlays
-    const overlayTraces = [...highlightTraces, ...selectedTraces];
     const allTraces = [...baseTraces, ...overlayTraces];
     overlayTraceCountRef.current = overlayTraces.length;
     Plotly.react(gd, allTraces as PlotData[], layout, config);
   }, [baseTraces, layout, config, plotReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 3. Update overlay traces (highlights + selected) without touching base traces
+  // 3. Update overlay traces (highlights + selected) — single atomic redraw
   useEffect(() => {
     if (!plotReady || !graphDivRef.current || !plotlyLibRef.current) return;
     const Plotly = plotlyLibRef.current;
     const gd = graphDivRef.current;
 
-    const overlayTraces = [...highlightTraces, ...selectedTraces];
     const oldCount = overlayTraceCountRef.current;
     const newCount = overlayTraces.length;
 
@@ -1304,7 +1306,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     gd.data?.splice(baseCount, oldCount, ...(overlayTraces as PlotData[]));
     overlayTraceCountRef.current = newCount;
     Plotly.redraw(gd);
-  }, [highlightTraces, selectedTraces, plotReady]);
+  }, [overlayTraces, plotReady]);
 
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
 

@@ -184,11 +184,10 @@ export default function Home() {
   }, [semanticSearchResults, filteredPoints2d, filteredPoints3d, visualizationState.mode, setSelectedPoint, searchType]);
 
   // Combine semantic search highlights and topic highlights (text search handled by muting, not glow)
-  // Pass selectedPoint's index so it's included in highlights (semantic search returns similar items, not the query itself)
+  // Selected point is excluded — it has its own overlay traces in ScatterPlot3D
   const combinedHighlightedIndices: HighlightMap | undefined = useHighlightedIndices(
     semanticSearchResults,
     data,
-    selectedPoint?.index,
     topicSearch.topicHighlightMap
   );
 

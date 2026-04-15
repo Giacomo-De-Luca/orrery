@@ -7,14 +7,16 @@ import type { EmbeddingData, SemanticSearchResult, HighlightMap } from '../types
  * Returns a Map where:
  * - Keys: point indices to highlight
  * - Values: similarity scores (0-1)
- *   - Selected point: 1.0 (it's the center of semantic search)
  *   - Semantic search results: actual similarity score
  *   - Topic-selected points: 1.0 (membership match)
+ *
+ * The selected point is NOT included here — it has its own dedicated overlay
+ * traces in ScatterPlot3D. Keeping it out prevents premature recomputation
+ * when selectedPoint changes (before search results arrive).
  */
 export function useHighlightedIndices(
   semanticSearchResults: SemanticSearchResult[] | null,
   data: EmbeddingData | null,
-  selectedPointIndex?: number,
   topicHighlightMap?: HighlightMap
 ): HighlightMap | undefined {
   // Build id→index lookup once when data loads — O(n) one-time cost
@@ -29,12 +31,6 @@ export function useHighlightedIndices(
 
   return useMemo(() => {
     const highlightMap = new Map<number, number>();
-
-    // Add selected point with similarity 1.0 (it's the center of semantic search)
-    // This ensures the clicked point is always highlighted and can have lines drawn to it
-    if (selectedPointIndex !== undefined && semanticSearchResults && semanticSearchResults.length > 0) {
-      highlightMap.set(selectedPointIndex, 1.0);
-    }
 
     // O(k) lookup via pre-built idToIndex — only iterates ~20 search results, not all data
     if (semanticSearchResults && semanticSearchResults.length > 0 && idToIndex) {
@@ -61,5 +57,5 @@ export function useHighlightedIndices(
 
     // Return undefined if empty for backward compatibility
     return highlightMap.size > 0 ? highlightMap : undefined;
-  }, [semanticSearchResults, idToIndex, selectedPointIndex, topicHighlightMap]);
+  }, [semanticSearchResults, idToIndex, topicHighlightMap]);
 }
