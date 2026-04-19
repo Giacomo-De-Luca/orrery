@@ -8,9 +8,7 @@ import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergi
 import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crameriScales';
 import { calculateMarkerStyle, calculateHighlightScale, calculateSimilarityColors } from '../../lib/utils/plotUtils';
 import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
-import { useZoomLimit } from '../../lib/hooks/useZoomLimit';
 import { FrostedTooltip, type TooltipData } from './FrostedTooltip';
-import { getZoomLevel } from '../utils/rendeding';
 import { useCameraFlyTo, type Bounds3D } from '../../lib/hooks/cameraAnimation';
 import { groupPointsByCluster, type ClusterData } from '../../lib/utils/clusterGeometry';
 import { HazeRenderer } from '../../lib/utils/hazeRenderer';
@@ -286,8 +284,6 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
 
 
 
-
-  const MAX_CAMERA_DISTANCE = 3.0;
 
   const handleRelayout = useCallback((e: Readonly<PlotRelayoutEvent>) => {
     if (isAnimatingRef.current) return;
@@ -1059,21 +1055,6 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     container.addEventListener('mousedown', handleMouseDown);
     return () => container.removeEventListener('mousedown', handleMouseDown);
   }, []);
-
-  // Block scroll-zoom-out when camera is at max distance.
-  // Reads live camera from Plotly's internal gl-plot3d camera (gl-vec3 array).
-  const isAtZoomOutLimit3D = useCallback(() => {
-    const gd = graphDivRef.current as any;
-    const glplotEye = gd?._fullLayout?.scene?._scene?.glplot?.camera?.eye;
-    let dist: number;
-    if (glplotEye) {
-      dist = Math.sqrt(glplotEye[0] ** 2 + glplotEye[1] ** 2 + glplotEye[2] ** 2);
-    } else {
-      dist = getZoomLevel(currentCameraRef.current.eye, currentCameraRef.current.center);
-    }
-    return dist >= MAX_CAMERA_DISTANCE;
-  }, []);
-  useZoomLimit(containerRef, isAtZoomOutLimit3D);
 
   const handleClick = useCallback((event: PlotMouseEvent) => {
     if (!onPointClick || !event.points || event.points.length === 0) return;

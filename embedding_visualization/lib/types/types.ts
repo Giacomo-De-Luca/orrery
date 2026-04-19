@@ -174,32 +174,8 @@ export interface TextSearchMatch {
   snippet?: string | null;
 }
 
-export interface VisualizationState {
-  method: ProjectionMethod;
-  mode: DimensionMode;
-  selectedDimensions?: number[];
-  colorByField?: string | null;  // Field name to color by (used for both categorical AND numeric)
-  colorScaleType?: ColorScaleType;  // Type of color scale (auto-detected, can be overridden)
-  sequentialScaleName?: import('../utils/categoryColors').SequentialScaleName;  // Scale name for sequential coloring
-  divergingScaleName?: import('../utils/categoryColors').DivergingScaleName;  // Scale name for diverging coloring
-  monochromeColor?: string;  // Base color for monochrome scale (default: #1f77b4)
-  searchQuery?: string;
-  distanceMetric?: DistanceMetric;  // Distance metric for semantic search
-  showOnlyHighlighted?: boolean;  // When true, only show highlighted/selected points
-  showLabels?: boolean;  // When true, show text labels on highlighted points
-  showContours?: boolean; // When true, show density cluster contours
-  mutedCategories?: string[];  // Categories to gray out in visualization (toggled via legend)
-  tooltipFields?: string[];  // Extra metadata fields to display in hover tooltip
-  hideUnclustered?: boolean;  // When true, hide points with topic_id = -1 (unclustered/noise)
-  categoricalPalette?: string;  // Crameri categorical palette name (e.g., 'batlowS') for categorical coloring
-  nestedColorMode?: boolean;  // When true, color by subtopics within topics (Tableau-style nested hues)
-  nebulaMode?: boolean;  // 3D nebula haze effects around topic clusters
-  showClusterLabels?: boolean;  // When true, show topic/subtopic names at cluster centroids
-  temporalRange?: TemporalRange | null;  // Time range filter from temporal chart brush
-  hideFilteredPoints?: boolean;   // Remove muted points entirely instead of graying out
-  mutedPointOpacity?: number;     // 0-1, opacity for muted points (default 0.15)
-  textSearchConfig?: TextSearchConfig;  // Server-side text search configuration
-}
+// VisualizationState is now managed by Zustand — see lib/stores/useVisualizationStore.ts
+// The store's VisualizationStoreState interface is the canonical shape.
 
 /**
  * Information about a field that can be used for coloring.
@@ -297,13 +273,3 @@ export interface NestedColorMap {
   subtopicCounts: Record<string, number>;
 }
 
-// ============ Color scale configuration ============
-
-/**
- * Configuration for color scale behavior.
- */
-export interface ColorScaleConfig {
-  type: ColorScaleType;
-  /** Numeric field to use for sequential/diverging scales */
-  numericField?: string;
-}

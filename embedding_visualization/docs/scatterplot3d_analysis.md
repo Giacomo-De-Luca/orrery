@@ -138,7 +138,7 @@
 | **High** | #1 Trace duplication | Code quality | Resolved |
 | **High** | #2 Unused `text` arrays | Wasted CPU + memory, scales with N | Resolved |
 | **High** | #3 Full Point3D in customdata | ~2x memory for point data | Resolved |
-| **High** | #4 Multi-pass array allocations | O(N) wasted work per render | Open |
+| **High** | #4 Multi-pass array allocations | O(N) wasted work per render | Resolved |
 | **Medium** | #6 Duplicated hideUnclustered | Redundant filtering | Resolved |
 | **Medium** | #7 Layout thrashing in nebula | Jank during 3D interaction | Open |
 | **Medium** | #8 Unconditional rAF polling | Battery/CPU when idle | Open |

@@ -1,0 +1,15 @@
+{
+  "name": "react-plotly.js",
+  "version": "2.6.0-forked",
+  "license": "MIT",
+  "description": "Forked react-plotly.js — changed plotly.js/dist/plotly import to plotly.js (source build)",
+  "author": "Plotly, Inc.",
+  "main": "react-plotly.js",
+  "dependencies": {
+    "prop-types": "^15.8.1"
+  },
+  "peerDependencies": {
+    "plotly.js": ">1.34.0",
+    "react": ">0.13.0"
+  }
+}

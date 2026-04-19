@@ -29,6 +29,7 @@ export function useAppSearch(
   embeddingPromptName?: string | null,  // From collection metadata, for auto-detect
   topicFilters?: FilterInput[],  // Optional topic filters to scope semantic search
   temporalRange?: TemporalRange | null,  // Optional temporal range to scope semantic search
+  resolvePoint?: (id: string) => (Point2D | Point3D) | undefined,  // Resolve result ID to point (for auto-select in same batch)
 ) {
   const [selectedPoint, setSelectedPoint] = useState<Point2D | Point3D | null>(null);
   const [semanticSearchResults, setSemanticSearchResults] = useState<SemanticSearchResult[] | null>(null);

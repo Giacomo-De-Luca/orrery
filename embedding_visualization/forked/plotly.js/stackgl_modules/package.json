@@ -1,0 +1,3 @@
+{
+  "description": "Pre-built WebGL modules for plotly.js gl3d traces. This is a self-contained bundle — dependencies listed here were used at build time only."
+}
