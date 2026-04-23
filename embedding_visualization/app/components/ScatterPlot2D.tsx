@@ -65,7 +65,7 @@ interface ScatterPlot2DProps {
   combinedMutedIndices?: Set<number> | null;
   /** Remove muted points entirely instead of graying out */
   hideFilteredPoints?: boolean;
-  /** 0-1, opacity for muted points (default 0.15) */
+  /** 0-1 multiplier applied to the base opacity for muted points (default 0.20) */
   mutedPointOpacity?: number;
   /** Show topic/subtopic names at cluster centroids */
   showClusterLabels?: boolean;
@@ -488,6 +488,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
       // Preserve the user's color mode, just apply dim factor
       if (filteredUnhighlightedPoints.length > 0 && !showOnlyHighlighted) {
         const dimOpacity = markerStyle.opacity * 0.3; // Consistent dim factor
+        const mutedOp = dimOpacity * (mutedPointOpacity ?? 0.20);
 
         if (numericData && plotlyColorScale) {
           // MODE: NATIVE COLORSCALE (GPU ACCELERATED) - preserve colors with dimming
@@ -541,7 +542,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                     marker: {
                       size: markerStyle.size,
                       color: isMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
-                      opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
+                      opacity: isMuted ? mutedOp : dimOpacity,
                     },
                     text: activePoints.map(formatHoverText),
                     hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -559,7 +560,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                     marker: {
                       size: markerStyle.size,
                       color: '#9ca3af',
-                      opacity: mutedPointOpacity ?? 0.15,
+                      opacity: mutedOp,
                     },
                     text: mutedPts.map(formatHoverText),
                     hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -577,7 +578,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                   marker: {
                     size: markerStyle.size,
                     color: isMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
-                    opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
+                    opacity: isMuted ? mutedOp : dimOpacity,
                   },
                   text: subPoints.map(formatHoverText),
                   hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -613,7 +614,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                     marker: {
                       size: markerStyle.size,
                       color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
-                      opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
+                      opacity: isMuted ? mutedOp : dimOpacity,
                     },
                     text: activePoints.map(formatHoverText),
                     hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -631,7 +632,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                     marker: {
                       size: markerStyle.size,
                       color: '#9ca3af',
-                      opacity: mutedPointOpacity ?? 0.15,
+                      opacity: mutedOp,
                     },
                     text: mutedPts.map(formatHoverText),
                     hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -649,7 +650,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                   marker: {
                     size: markerStyle.size,
                     color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
-                    opacity: isMuted ? (mutedPointOpacity ?? 0.15) : dimOpacity,
+                    opacity: isMuted ? mutedOp : dimOpacity,
                   },
                   text: catPoints.map(formatHoverText),
                   hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -692,7 +693,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                 marker: {
                   size: markerStyle.size,
                   color: '#9ca3af',
-                  opacity: mutedPointOpacity ?? 0.15,
+                  opacity: mutedOp,
                 },
                 text: mutedPts.map(formatHoverText),
                 hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -921,6 +922,8 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
           })
         : points;
 
+      const mutedOp = markerStyle.opacity * (mutedPointOpacity ?? 0.20);
+
       if (numericData && plotlyColorScale) {
         // MODE: NATIVE COLORSCALE (GPU ACCELERATED)
         if (combinedMutedIndices && combinedMutedIndices.size > 0) {
@@ -957,7 +960,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
               marker: {
                 size: markerStyle.size,
                 color: '#9ca3af',
-                opacity: mutedPointOpacity ?? 0.15,
+                opacity: mutedOp,
               },
               text: mutedPts.map(formatHoverText),
               hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -1013,7 +1016,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                   marker: {
                     size: markerStyle.size,
                     color: isMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
-                    opacity: isMuted ? (mutedPointOpacity ?? 0.15) : markerStyle.opacity,
+                    opacity: isMuted ? mutedOp : markerStyle.opacity,
                   },
                   text: activePoints.map(formatHoverText),
                   hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -1030,7 +1033,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                   marker: {
                     size: markerStyle.size,
                     color: '#9ca3af',
-                    opacity: mutedPointOpacity ?? 0.15,
+                    opacity: mutedOp,
                   },
                   text: mutedPts.map(formatHoverText),
                   hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -1048,7 +1051,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                 marker: {
                   size: markerStyle.size,
                   color: isMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
-                  opacity: isMuted ? (mutedPointOpacity ?? 0.15) : markerStyle.opacity,
+                  opacity: isMuted ? mutedOp : markerStyle.opacity,
                 },
                 text: subPoints.map(formatHoverText),
                 hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -1083,7 +1086,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                   marker: {
                     size: markerStyle.size,
                     color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
-                    opacity: isMuted ? (mutedPointOpacity ?? 0.15) : markerStyle.opacity,
+                    opacity: isMuted ? mutedOp : markerStyle.opacity,
                   },
                   text: activePoints.map(formatHoverText),
                   hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -1100,7 +1103,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                   marker: {
                     size: markerStyle.size,
                     color: '#9ca3af',
-                    opacity: mutedPointOpacity ?? 0.15,
+                    opacity: mutedOp,
                   },
                   text: mutedPts.map(formatHoverText),
                   hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -1118,7 +1121,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
                 marker: {
                   size: markerStyle.size,
                   color: isMuted ? '#9ca3af' : (colorMap[cat] || '#7f7f7f'),
-                  opacity: isMuted ? (mutedPointOpacity ?? 0.15) : markerStyle.opacity,
+                  opacity: isMuted ? mutedOp : markerStyle.opacity,
                 },
                 text: catPoints.map(formatHoverText),
                 hovertemplate: '<b>%{text}</b><extra></extra>',
@@ -1156,7 +1159,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
               marker: {
                 size: markerStyle.size,
                 color: '#9ca3af',
-                opacity: mutedPointOpacity ?? 0.15,
+                opacity: mutedOp,
               },
               text: mutedPts.map(formatHoverText),
               hovertemplate: '<b>%{text}</b><extra></extra>',

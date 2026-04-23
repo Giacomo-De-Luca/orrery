@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/ui-primitives/card';
 import {
   buildCategoryColorMap,
@@ -16,6 +16,8 @@ import {
 import { isCrameriScale, crameriGradientCSS } from '../../lib/colorMaps/crameriScales';
 import { cn } from '@/lib/utils/utils';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
+import { X } from 'lucide-react';
+import { useDebounceValue } from '@/lib/hooks/use-debounce-value';
 import type { NestedColorMap, ColorScale } from '../../lib/types/types';
 
 interface LegendProps {
@@ -78,6 +80,39 @@ export function Legend({
   // Check if this is a continuous scale (sequential, diverging, or monochrome)
   const isContinuous = colorScale.type === 'sequential' || colorScale.type === 'diverging' || colorScale.type === 'monochrome';
 
+  // Category filter state (local, resets on field change)
+  const [filterText, setFilterText] = useState('');
+  const [debouncedFilter] = useDebounceValue(filterText, 200);
+  const filterInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setFilterText(''); }, [categoryField]);
+
+  const filterRow = (
+    <div className="flex items-center gap-2 pointer-events-auto">
+      <input
+        ref={filterInputRef}
+        type="text"
+        value={filterText}
+        onChange={(e) => setFilterText(e.target.value)}
+        className={cn(
+          "flex-1 min-w-0 h-5 bg-transparent text-sm text-foreground/70",
+          "border-0 border-b border-muted-foreground/20 outline-none",
+          "focus:border-muted-foreground/50 transition-colors"
+        )}
+        aria-label="Filter categories"
+      />
+      {filterText && (
+        <button
+          onClick={() => { setFilterText(''); filterInputRef.current?.focus(); }}
+          className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          aria-label="Clear filter"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+
   // Generate gradient dynamically from the actual scale function
   const gradient = useMemo(() => {
     if (colorScale.type === 'sequential') {
@@ -97,6 +132,41 @@ export function Legend({
     }
     return '';
   }, [colorScale]);
+
+  // Default to POS legend if no category info provided
+  const isPosLegend = !categoryField || categoryField === 'pos';
+  const values = categoryValues || (isPosLegend ? ['n', 'v', 'a', 'r', 's', 'unknown'] : []);
+
+  const colorMap = buildCategoryColorMap(categoryField ?? 'pos', values, categoricalPalette);
+
+  // Filter flat category values by display label
+  const filteredValues = useMemo(() => {
+    if (!debouncedFilter.trim()) return values;
+    const q = debouncedFilter.toLowerCase();
+    return values.filter((value) => {
+      const label = getCategoryLabel(categoryField ?? null, value);
+      return String(label).toLowerCase().includes(q);
+    });
+  }, [values, debouncedFilter, categoryField]);
+
+  // Filter nested hierarchy: topic match keeps all subtopics; subtopic match keeps parent + matching subtopics
+  const filteredHierarchy = useMemo(() => {
+    if (!nestedColorMap) return null;
+    if (!debouncedFilter.trim()) return nestedColorMap.hierarchy;
+    const q = debouncedFilter.toLowerCase();
+    const result: Record<string, string[]> = {};
+    for (const [topic, subtopics] of Object.entries(nestedColorMap.hierarchy)) {
+      if (topic.toLowerCase().includes(q)) {
+        result[topic] = subtopics;
+      } else {
+        const matchingSubs = subtopics.filter((sub) => sub.toLowerCase().includes(q));
+        if (matchingSubs.length > 0) {
+          result[topic] = matchingSubs;
+        }
+      }
+    }
+    return result;
+  }, [nestedColorMap, debouncedFilter]);
 
   // For continuous scales, render a gradient bar
   if (isContinuous && numericRange) {
@@ -130,27 +200,25 @@ export function Legend({
     );
   }
 
-  // Default to POS legend if no category info provided
-  const isPosLegend = !categoryField || categoryField === 'pos';
-  const values = categoryValues || (isPosLegend ? ['n', 'v', 'a', 'r', 's', 'unknown'] : []);
-
-  const colorMap = buildCategoryColorMap(categoryField ?? 'pos', values, categoricalPalette);
-
   // ---- NESTED (two-level) LEGEND ----
-  if (nestedColorMap) {
-    const topics = Object.keys(nestedColorMap.hierarchy);
+  if (nestedColorMap && filteredHierarchy) {
+    const displayTopics = Object.keys(filteredHierarchy);
+    const hasNoMatches = debouncedFilter.trim() !== '' && displayTopics.length === 0;
 
     return (
       <Card
         className={`w-fit py-2 ${className ?? ''}`}
         variant="noBg"
       >
+        <div className="px-4 pb-0.5 pointer-events-auto">{filterRow}</div>
         <ScrollArea className="overflow-y-auto pointer-events-auto" style={{ maskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)', WebkitMaskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)' }}>
         <CardContent className="space-y-0.5" style={{ maxHeight: maxHeight ?? 320 }}>
-          {topics.map((topic) => {
+          {hasNoMatches ? (
+            <div className="text-sm text-muted-foreground/60 italic px-1 py-2">No matches</div>
+          ) : displayTopics.map((topic) => {
             const isTopicMuted = mutedCategories.includes(topic);
             const topicCount = nestedColorMap.topicCounts[topic];
-            const subtopics = nestedColorMap.hierarchy[topic];
+            const subtopics = filteredHierarchy[topic];
             const isClickable = !!onCategoryToggle;
 
             return (
@@ -260,19 +328,19 @@ export function Legend({
   }
 
   // ---- FLAT (standard) LEGEND ----
+  const hasNoFlatMatches = debouncedFilter.trim() !== '' && filteredValues.length === 0;
+
   return (
     <Card
       className={`w-fit py-2 ${className ?? ''}`}
       variant="noBg"
     >
-      {/*<CardHeader className="">
-        <CardTitle className="font-mono text-md">{getCategoryDisplayName(categoryField ?? 'pos')}</CardTitle>
-      </CardHeader> */}
-
-
+      <div className="px-4 pb-0.5 pointer-events-auto">{filterRow}</div>
       <ScrollArea className="overflow-y-auto pointer-events-auto" style={{ maskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)', WebkitMaskImage: 'linear-gradient(transparent, black 12px, black calc(100% - 12px), transparent)' }}>
       <CardContent className="space-y-1" style={{ maxHeight: maxHeight ?? 256 }}>
-        {values.map((value) => {
+        {hasNoFlatMatches ? (
+          <div className="text-sm text-muted-foreground/60 italic px-1 py-2">No matches</div>
+        ) : filteredValues.map((value) => {
           const isMuted = mutedCategories.includes(value);
           const count = categoryCounts?.[value];
           const isClickable = !!onCategoryToggle;

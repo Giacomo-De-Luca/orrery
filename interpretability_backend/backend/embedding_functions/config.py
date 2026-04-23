@@ -8,6 +8,7 @@ from pathlib import Path
 
 # ========== Configuration Constants ==========
 DB_PATH = Path(__file__).parent.parent.parent / "resources" / "vector_db"
+DUCKDB_PATH = Path(__file__).parent.parent.parent / "resources" / "main.duckdb"
 TEXT_MODEL_NAME = "all-MiniLM-L6-v2"
 IMAGE_MODEL_NAME = "google/vit-base-patch16-384"
 

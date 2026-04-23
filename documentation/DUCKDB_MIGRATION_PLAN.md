@@ -177,6 +177,8 @@ Each phase is self-contained and results in a working system. They are designed 
 - `pyproject.toml` — add `duckdb>=1.2.0`
 - `backend/embedding_functions/config.py` — add `DUCKDB_PATH` constant
 
+**FTS extension**: `_ensure_schema()` should `INSTALL fts; LOAD fts;` and create the initial FTS index on the `items.document` column. The FTS index is not auto-updated — it is rebuilt lazily (dirty flag set after inserts, rebuild on first search).
+
 **DuckDBClient public interface**:
 ```
 # Datasets
@@ -196,12 +198,13 @@ register_vector_collection(dataset_id, backend, collection_name, vector_type, **
 get_vector_collections(dataset_name) -> List[Dict]
 get_vector_collection_by_name(collection_name) -> Optional[Dict]
 
-# Projections
+# Projections (per vector_collection, per projection_type)
 insert_projections_batch(vector_collection_id, dataset_id, item_ids, projection_type, coordinates)
 upsert_projection_metadata(vector_collection_id, projection_type, variance, computed_at)
-get_projection_data(vector_collection_name, projection_types) -> Dict
-    # Returns: {ids, documents, item_metadata, available_fields, projections, metadata}
-    # Same structure as current ChromaDBClient.get_projection_data()
+get_projection_data(vector_collection_name, projection_type) -> Dict
+    # Loads items + ONE projection type via simple INNER JOIN (no multi-way LEFT JOIN)
+    # Returns: {ids, documents, item_metadata, available_fields, coordinates, metadata}
+    # Multiple types: caller runs one query per type, shares the items data
 
 # Text search
 text_search(dataset_name, query, fields, mode, case_sensitive) -> Dict
@@ -265,22 +268,23 @@ compute_field_analysis(dataset_name) -> Dict
 | File | Change |
 |------|--------|
 | `backend/API/queries.py` | `collection()` resolver: switch to `duckdb_client.get_projection_data()`. Topic summary from `duckdb_client.get_active_topics()` |
-| `backend/clients/duckdb_client.py` | Implement `get_projection_data()` — single SQL joining items + projections. Must return identical structure to `ChromaDBClient.get_projection_data()` |
+| `backend/clients/duckdb_client.py` | Implement `get_projection_data()` as per-type queries (see below). Must return identical structure to `ChromaDBClient.get_projection_data()` |
 
-**Key SQL**:
+**Query strategy — one projection type at a time, not a multi-way JOIN**:
+
+The frontend requests one projection type per render (e.g., `umap_2d`). Each type is a simple query:
+
 ```sql
-SELECT i.id, i.document, i.metadata,
-       p2.coordinates AS pca_2d, p3.coordinates AS pca_3d,
-       u2.coordinates AS umap_2d, u3.coordinates AS umap_3d
+-- Load items + one projection type in a single columnar read
+SELECT i.id, i.document, i.metadata, p.coordinates
 FROM items i
-LEFT JOIN projections p2 ON p2.vector_collection_id = ?
-    AND p2.item_id = i.id AND p2.projection_type = 'pca_2d'
-LEFT JOIN projections p3 ON p3.vector_collection_id = ?
-    AND p3.item_id = i.id AND p3.projection_type = 'pca_3d'
-LEFT JOIN projections u2 ON ...
-LEFT JOIN projections u3 ON ...
+INNER JOIN projections p ON p.dataset_id = i.dataset_id AND p.item_id = i.id
 WHERE i.dataset_id = ?
+  AND p.vector_collection_id = ?
+  AND p.projection_type = ?
 ```
+
+If the caller requests multiple types, run one query per type — DuckDB columnar reads are fast and this avoids multi-way JOINs entirely. Items data (id, document, metadata) is loaded once and shared.
 
 **Tests**: Load a collection via both paths, diff the ProjectionData response.
 
@@ -288,16 +292,65 @@ WHERE i.dataset_id = ?
 
 ### Phase 2c: Read — Text Search
 
-**Scope**: `text_search()` query uses SQL instead of ChromaDB `where_document` + Python filtering.
+**Scope**: `text_search()` query uses DuckDB instead of ChromaDB `where_document` + Python filtering.
+
+**Text search strategy — FTS + vectorized scan hybrid**:
+
+The current search supports two modes: "contains" (substring) and "exact". DuckDB FTS only supports word-level matching (BM25), not substring. So we use a hybrid:
+
+| Search target | Method | Why |
+|---------------|--------|-----|
+| Document text (word-level) | **DuckDB FTS extension** (`match_bm25()`) | BM25 scoring, stemming, stopwords, inverted index — no scan |
+| Document text (substring/contains) | **Vectorized `ILIKE`** scan | FTS can't do substrings; DuckDB columnar SIMD makes this fast (~ms for 250k rows) |
+| Metadata JSON fields | **`json_extract_string()` + `ILIKE`** | FTS can't index JSON; vectorized extraction is still much faster than current Python iteration |
+
+**FTS setup** (in `_ensure_schema()` or after data load):
+```sql
+INSTALL fts;
+LOAD fts;
+PRAGMA create_fts_index('items', 'id', 'document',
+    stemmer='porter', stopwords='english', lower=1);
+```
+
+**FTS limitation: no incremental updates.** The index must be rebuilt after INSERT/UPDATE/DELETE on the items table. Strategy:
+- Track a `_fts_dirty` flag on the DuckDBClient
+- Set it after `insert_items_batch()`
+- Rebuild index lazily on first `text_search()` call when dirty
+- Rebuilding 250k rows takes seconds (DuckDB parallelized), acceptable for a single-user tool
+
+**Querying**:
+```sql
+-- Word-level search with BM25 scoring (uses FTS inverted index)
+SELECT i.id, i.document, i.metadata,
+       fts_main_items.match_bm25(i.id, ?) AS score
+FROM items i
+WHERE i.dataset_id = ?
+  AND score IS NOT NULL
+ORDER BY score DESC
+
+-- Substring/contains fallback (vectorized columnar scan, no index)
+SELECT i.id, i.document, i.metadata
+FROM items i
+WHERE i.dataset_id = ?
+  AND i.document ILIKE '%' || ? || '%'
+
+-- Metadata field search (extract from JSON + vectorized scan)
+SELECT i.id, i.document, i.metadata
+FROM items i
+WHERE i.dataset_id = ?
+  AND LOWER(CAST(json_extract_string(i.metadata, ?) AS VARCHAR)) LIKE '%' || LOWER(?) || '%'
+```
+
+Snippet extraction via `POSITION()` + `SUBSTR()`.
 
 **Modified files**:
 
 | File | Change |
 |------|--------|
 | `backend/API/queries.py` | `text_search()` resolver: switch to `duckdb_client.text_search()` |
-| `backend/clients/duckdb_client.py` | Implement SQL-based search with `ILIKE` for documents and `json_extract_string()` for metadata fields. Snippet extraction via `POSITION()` + `SUBSTR()` |
+| `backend/clients/duckdb_client.py` | Implement hybrid text search: FTS for word-level, ILIKE for substring, json_extract for metadata fields. Manage FTS index lifecycle (dirty flag + lazy rebuild) |
 
-**Tests**: Search queries against both paths, compare results.
+**Tests**: Search queries against both paths, compare results. Test FTS rebuild after insert.
 
 ---
 

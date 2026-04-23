@@ -2,7 +2,7 @@
 
 ## RULES
 
-- Always update the claude.md both in the main project and in the frontend or backend folder after updates. 
+- Always update the CLAUDE.md both in the main project and in the frontend or backend folder after significant updates. For minor updates or significant refactors, detail them in .md files in the documentation/ folder, and write in CLAUDE.md which documentation files contains the documentation. 
 
 - Use **uv run python** when you need to launch python. 
 
@@ -16,11 +16,11 @@
 
 - If you make a plan, always define and plan tests first, then run the code against those tests after. 
 
-- After finishing a plan, always use the agent: *code-quality-reviewer* to review the quality of the generated code. 
-
 - Never stash changes without being directly asked. 
 
 - For folders with multiple scripts or data files, add a readme explaining both the structure of the folder, the main classes or data structures present there. 
+
+- After finishing a plan, always use the agent: *code-quality-reviewer* to review the quality of the generated code. 
 
 
 ## Project Overview
@@ -95,7 +95,7 @@ Data Sources → Embedding Providers → ChromaDB → Topic Extraction (optional
 
 **Text search as filter**: Text search is **server-side** via the `textSearch` GraphQL query backed by ChromaDB's native `where_document` (with `$regex`/`$contains`) for document search and Python filtering for metadata fields. The `useTextSearch` hook (`lib/hooks/useTextSearch.ts`) fires the query and maps returned IDs to point indices. `SearchSidebar` exposes field selection (which metadata columns to search), match mode (contains/exact), and case-sensitivity controls in the Advanced section. Default: document-only, contains, case-insensitive. Text search muting (`searchMutedIndices`) and temporal muting (`temporallyMutedIndices`) are combined into `combinedMutedIndices` in both scatter plots. Semantic search results retain the glow overlay. Both muting sources stack: a point must match the text query AND be in the temporal range to render normally.
 
-**Filtered point controls**: `hideFilteredPoints` (boolean) removes muted points entirely from the plot instead of graying them out. `mutedPointOpacity` (0–1, default 0.15) controls the opacity of muted points when `hideFilteredPoints` is off. Both fields live on the Zustand store and are exposed via toggle + slider in VisualizationControls. Reset on collection change.
+**Filtered point controls**: `hideFilteredPoints` (boolean) removes muted points entirely from the plot instead of graying them out. `mutedPointOpacity` (0–1, default 0.20) is a **multiplier** applied to the current base opacity (not an absolute value) — muted opacity = base opacity × multiplier. This scales properly with point count since base opacity already decreases for large datasets. Both fields live on the Zustand store and are exposed via toggle + slider in VisualizationControls. Reset on collection change.
 
 **Zoom-out limit** (`lib/hooks/useZoomLimit.ts`): Shared hook that intercepts wheel events in the capture phase before Plotly processes them. Each scatter plot provides an `isAtZoomOutLimit` callback: 3D reads live camera distance from `glplot.camera.eye` (max distance 3.0), 2D reads axis ranges from `_fullLayout.xaxis.range` (max 2x data extent). Scroll-zoom-in, pan, and rotation are unaffected.
 

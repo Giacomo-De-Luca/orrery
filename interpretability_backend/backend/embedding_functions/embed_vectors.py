@@ -18,6 +18,7 @@ from .config import (
 from ..utils.text_processing import format_text_for_embedding, extract_metadata
 from ..utils.color_preprocessing import preprocess_color_metadata
 from ..utils.id_utils import IDDeduplicator
+from ..utils.duckdb_sync import sync_dataset_and_collection, sync_items
 
 
 def _parse_vector(value) -> Optional[List[float]]:
@@ -131,6 +132,12 @@ def embed_vectors(
         name=config.collection_name,
         metadata=collection_metadata
     )
+
+    # DuckDB dual-write: create dataset + register vector collection
+    _duckdb_ids = sync_dataset_and_collection(
+        config.collection_name, collection_metadata, embedding_dim=embedding_dim,
+    )
+    _duckdb_dataset_id = _duckdb_ids[0] if _duckdb_ids else None
 
     # Determine text columns for document text
     text_columns = config.columns or []

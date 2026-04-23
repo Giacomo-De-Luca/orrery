@@ -118,7 +118,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
     nebulaMode: false,
     mutedCategories: [],
     hideFilteredPoints: false,
-    mutedPointOpacity: 0.15,
+    mutedPointOpacity: 0.20,
     temporalRange: null,
     tooltipFields: undefined,
 

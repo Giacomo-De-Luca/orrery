@@ -38,6 +38,7 @@ dependencies = [
     "hdbscan>=0.8.41",
     "openai>=2.24.0",
     "hilbertcurve>=2.0.5",
+    "duckdb>=1.2.0",
     "pytest>=9.0.2",
 ]
 

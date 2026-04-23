@@ -1,0 +1,170 @@
+[
+  {
+    "operation": "projection_load",
+    "backend": "duckdb",
+    "collection": "emotion",
+    "item_count": 1000,
+    "mean_s": 0.0031,
+    "median_s": 0.0031,
+    "min_s": 0.003,
+    "max_s": 0.0032,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_document",
+    "backend": "duckdb",
+    "collection": "emotion",
+    "item_count": 1000,
+    "query": "the",
+    "matches": 514,
+    "mean_s": 0.0016,
+    "median_s": 0.0016,
+    "min_s": 0.0015,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_bm25",
+    "backend": "duckdb",
+    "collection": "emotion",
+    "item_count": 1000,
+    "query": "the",
+    "matches": 0,
+    "mean_s": 0.0053,
+    "median_s": 0.0055,
+    "min_s": 0.0049,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_metadata",
+    "backend": "duckdb",
+    "collection": "emotion",
+    "item_count": 1000,
+    "field": "source_split",
+    "query": "train",
+    "matches": 1000,
+    "mean_s": 0.0015,
+    "median_s": 0.0015,
+    "min_s": 0.0014,
+    "runs": 3
+  },
+  {
+    "operation": "memory_projection_load",
+    "backend": "duckdb",
+    "collection": "emotion",
+    "item_count": 1000,
+    "total_allocated_mb": 0.64,
+    "delta_mb": 0.64
+  },
+  {
+    "operation": "projection_load",
+    "backend": "duckdb",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "mean_s": 0.0413,
+    "median_s": 0.0301,
+    "min_s": 0.0291,
+    "max_s": 0.0648,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_document",
+    "backend": "duckdb",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "query": "the",
+    "matches": 8540,
+    "mean_s": 0.0125,
+    "median_s": 0.0127,
+    "min_s": 0.0114,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_bm25",
+    "backend": "duckdb",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "query": "the",
+    "matches": 0,
+    "mean_s": 0.0085,
+    "median_s": 0.0085,
+    "min_s": 0.0083,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_metadata",
+    "backend": "duckdb",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "field": "source_split",
+    "query": "train",
+    "matches": 10000,
+    "mean_s": 0.008,
+    "median_s": 0.008,
+    "min_s": 0.0078,
+    "runs": 3
+  },
+  {
+    "operation": "memory_projection_load",
+    "backend": "duckdb",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "total_allocated_mb": 12.19,
+    "delta_mb": 12.19
+  },
+  {
+    "operation": "projection_load",
+    "backend": "duckdb",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "mean_s": 0.8642,
+    "median_s": 0.9343,
+    "min_s": 0.715,
+    "max_s": 0.9433,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_document",
+    "backend": "duckdb",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "query": "the",
+    "matches": 2639,
+    "mean_s": 0.1243,
+    "median_s": 0.1239,
+    "min_s": 0.1237,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_bm25",
+    "backend": "duckdb",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "query": "the",
+    "matches": 0,
+    "mean_s": 0.0485,
+    "median_s": 0.0438,
+    "min_s": 0.0426,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_metadata",
+    "backend": "duckdb",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "field": "section",
+    "query": "Le\u00e7on",
+    "matches": 112783,
+    "mean_s": 0.0965,
+    "median_s": 0.0967,
+    "min_s": 0.0945,
+    "runs": 3
+  },
+  {
+    "operation": "memory_projection_load",
+    "backend": "duckdb",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "total_allocated_mb": 275.07,
+    "delta_mb": 275.07
+  }
+]

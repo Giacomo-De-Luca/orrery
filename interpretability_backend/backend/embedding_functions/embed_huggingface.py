@@ -30,6 +30,7 @@ from ..utils.id_utils import IDDeduplicator
 from ..utils.batch_utils import sort_items_by_length
 from ..services.job_state import get_job_state_service, JobStatus
 from ..services.progress_emitter import emit_progress_sync
+from ..utils.duckdb_sync import sync_dataset_and_collection, sync_items
 
 
 # Progress update frequency (every N batches)
@@ -244,6 +245,13 @@ def embed_huggingface_dataset(
             )
             print(f"Created collection: {config.collection_name}")
 
+        # DuckDB dual-write: create dataset + register vector collection
+        _duckdb_ids = sync_dataset_and_collection(
+            config.collection_name, collection_metadata,
+            model_config=model_config, embedding_dim=embedding_dim,
+        )
+        _duckdb_dataset_id = _duckdb_ids[0] if _duckdb_ids else None
+
         # Determine metadata columns (default to all non-embedded columns)
         metadata_columns = config.metadata_columns
         if metadata_columns is None:
@@ -327,6 +335,10 @@ def embed_huggingface_dataset(
                 )
                 total_embedded += len(ids)
                 new_embedded += len(ids)
+
+                # DuckDB dual-write: insert items
+                if _duckdb_dataset_id:
+                    sync_items(_duckdb_dataset_id, ids, documents, metadatas)
 
             batches_completed += 1
 

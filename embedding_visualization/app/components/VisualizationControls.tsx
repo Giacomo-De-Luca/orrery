@@ -330,16 +330,16 @@ export function VisualizationControls({
           {!(hideFilteredPoints) && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-normal">Muted opacity</Label>
+                <Label className="text-sm font-normal">Muted opacity factor</Label>
                 <span className="text-xs text-muted-foreground tabular-nums">
-                  {Math.round((mutedPointOpacity ?? 0.15) * 100)}%
+                  {Math.round((mutedPointOpacity ?? 0.20) * 100)}%
                 </span>
               </div>
               <Slider
                 min={0}
                 max={100}
                 step={5}
-                value={[Math.round((mutedPointOpacity ?? 0.15) * 100)]}
+                value={[Math.round((mutedPointOpacity ?? 0.20) * 100)]}
                 onValueChange={([v]) => store.getState().setMutedPointOpacity(v / 100)}
               />
             </div>

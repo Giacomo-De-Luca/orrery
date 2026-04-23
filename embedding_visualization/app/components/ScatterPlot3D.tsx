@@ -9,7 +9,7 @@ import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crame
 import { calculateMarkerStyle, calculateHighlightScale, calculateSimilarityColors } from '../../lib/utils/plotUtils';
 import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
 import { FrostedTooltip, type TooltipData } from './FrostedTooltip';
-import { useCameraFlyTo, type Bounds3D } from '../../lib/hooks/cameraAnimation';
+import { useCameraFlyTo, animateCameraToRegion, type Bounds3D } from '../../lib/hooks/cameraAnimation';
 import { groupPointsByCluster, type ClusterData } from '../../lib/utils/clusterGeometry';
 import { HazeRenderer } from '../../lib/utils/hazeRenderer';
 import { computeMVP, buildDataToSceneMatrix, projectToScreen, multiplyMat4Vec4 } from '../utils/labelPlacement';
@@ -129,7 +129,7 @@ interface ScatterPlot3DProps {
   combinedMutedIndices?: Set<number> | null;
   /** Remove muted points entirely instead of graying out */
   hideFilteredPoints?: boolean;
-  /** 0-1, opacity for muted points (default 0.15) */
+  /** 0-1 multiplier applied to the base opacity for muted points (default 0.20) */
   mutedPointOpacity?: number;
 }
 
@@ -202,6 +202,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     return { minX, maxX, minY, maxY, minZ, maxZ };
   }, [points]);
 
+
   //const defaultEye = { x: 0.9, y: 0.9, z: 0.9 };
   const defaultCenter = { x: 0, y: 0, z: 0 };
   const pendingFlyToRef = useRef<Point3D | null>(null);
@@ -255,7 +256,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   } | null>(null);
   const renderLabelsRef = useRef<(() => void) | null>(null);
 
-  const { startFlyTo, isAnimatingRef } = useCameraFlyTo(
+  const { startFlyTo, isAnimatingRef, animationFrameRef } = useCameraFlyTo(
     bounds, graphDivRef, currentCameraRef, plotlyLibRef, renderLabelsRef, labelCanvasRef,
   );
 
@@ -387,7 +388,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     const traces: PlotlyData[] = [];
     const dimOpacity = markerStyle.opacity;
     const dimSize = Math.max(markerStyle.size * 0.7, 2);
-    const mutedOp = mutedPointOpacity ?? 0.15;
+    const mutedOp = dimOpacity * (mutedPointOpacity ?? 0.20);
 
     // Helper: split a point array into active/muted subsets
     const splitByMuted = (pts: Point3D[], mutedSet: Set<number>) => {
@@ -514,6 +515,106 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     categoryValues, colorMap, numericData, plotlyColorScale, categoryField,
     mutedCategories, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity
   ]);
+
+  // Bounds of active (non-muted) points — computed directly from muting state
+  const activeBounds = useMemo<Bounds3D | null>(() => {
+    if (!bounds) return null;
+    const hasMuting = mutedCategories.length > 0 || (combinedMutedIndices && combinedMutedIndices.size > 0);
+    if (!hasMuting) return bounds;
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    let hasData = false;
+
+    for (const p of displayPoints) {
+      if (combinedMutedIndices?.has(p.index)) continue;
+      if (mutedCategories.length > 0) {
+        if (nestedColorMap) {
+          const sub = String(p.metadata?.['subtopic_label'] ?? p.metadata?.['topic_label'] ?? 'unknown');
+          const parent = String(p.metadata?.['topic_label'] ?? 'unknown');
+          if (mutedCategories.includes(sub) || mutedCategories.includes(parent)) continue;
+        } else if (categoryField) {
+          const cat = String(p.metadata?.[categoryField] ?? 'unknown');
+          if (mutedCategories.includes(cat)) continue;
+        }
+      }
+      hasData = true;
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+      if (p.z < minZ) minZ = p.z; if (p.z > maxZ) maxZ = p.z;
+    }
+    if (!hasData) return bounds;
+    return { minX, maxX, minY, maxY, minZ, maxZ };
+  }, [displayPoints, bounds, mutedCategories, combinedMutedIndices, categoryField, nestedColorMap]);
+
+  // Track whether camera was refitted so we can animate back when muting clears
+  const wasRefittedRef = useRef(false);
+
+  // Auto-refit camera to frame active points when muting is active
+  useEffect(() => {
+    if (!plotReady || !plotlyLibRef.current || !graphDivRef.current || !activeBounds || !bounds) return;
+    if (isAnimatingRef.current) return;
+
+    const hasMuting = activeBounds !== bounds; // different ref = muting active
+
+    if (!hasMuting && !wasRefittedRef.current) return; // initial state, nothing to do
+
+    if (!hasMuting && wasRefittedRef.current) {
+      // Muting cleared — animate back to default view
+      wasRefittedRef.current = false;
+      animateCameraToRegion({
+        targetEye: defaultEye, targetCenter: defaultCenter, duration: 2000,
+        graphDivRef, currentCameraRef, plotlyLibRef,
+        isAnimatingRef, animationFrameRef,
+        renderLabelsRef, labelCanvasRef,
+      });
+      return;
+    }
+
+    // Muting active — animate to frame visible points
+    wasRefittedRef.current = true;
+
+    const cx = (activeBounds.minX + activeBounds.maxX) / 2;
+    const cy = (activeBounds.minY + activeBounds.maxY) / 2;
+    const cz = (activeBounds.minZ + activeBounds.maxZ) / 2;
+
+    const visExtentX = activeBounds.maxX - activeBounds.minX;
+    const visExtentY = activeBounds.maxY - activeBounds.minY;
+    const visExtentZ = activeBounds.maxZ - activeBounds.minZ;
+    const fullExtentX = bounds.maxX - bounds.minX;
+    const fullExtentY = bounds.maxY - bounds.minY;
+    const fullExtentZ = bounds.maxZ - bounds.minZ;
+
+    const extentRatio = Math.max(
+      visExtentX / (fullExtentX || 1),
+      visExtentY / (fullExtentY || 1),
+      visExtentZ / (fullExtentZ || 1),
+      0.05,
+    );
+
+    const baseDistance = Math.sqrt(defaultEye.x ** 2 + defaultEye.y ** 2 + defaultEye.z ** 2);
+    const factor = Math.max(extentRatio, 0.3);
+
+    const targetEye = {
+      x: defaultEye.x * factor,
+      y: defaultEye.y * factor,
+      z: defaultEye.z * factor,
+    };
+
+    const targetCenter = {
+      x: fullExtentX > 0 ? (cx - (bounds.minX + bounds.maxX) / 2) / fullExtentX : 0,
+      y: fullExtentY > 0 ? (cy - (bounds.minY + bounds.maxY) / 2) / fullExtentY : 0,
+      z: fullExtentZ > 0 ? (cz - (bounds.minZ + bounds.maxZ) / 2) / fullExtentZ : 0,
+    };
+
+    animateCameraToRegion({
+      targetEye, targetCenter, duration: 2000,
+      graphDivRef, currentCameraRef, plotlyLibRef,
+      isAnimatingRef, animationFrameRef,
+      renderLabelsRef, labelCanvasRef,
+    });
+  }, [activeBounds, plotReady, bounds, defaultEye, isAnimatingRef, animationFrameRef]);
 
   // Pre-compute highlighted points via direct index lookup — O(k) not O(n)
   const highlightedPoints = useMemo(() => {
@@ -935,8 +1036,8 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
       rafId = requestAnimationFrame(pollCamera);
     };
 
-    // Render once immediately, then start polling
-    renderLabels();
+    // Render once immediately (unless animating), then start polling
+    if (!isAnimatingRef.current) renderLabels();
     rafId = requestAnimationFrame(pollCamera);
     return () => cancelAnimationFrame(rafId);
   }, [hasAnyLabels, plotReady, renderLabels]);
@@ -954,6 +1055,21 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     if (hasAnyLabels && !isAnimatingRef.current) renderLabels();
   }, [width, height, hasAnyLabels, renderLabels, showLabels, highlightedIndices, selectedPoint]);
 
+  // Pin axis ranges to full bounds so Plotly doesn't auto-rerange when filtered traces shrink.
+  // This keeps the scene coordinate space stable — only camera animation controls framing.
+  const axisRange = useMemo(() => {
+    if (!bounds) return null;
+    const pad = 0.05; // 5% padding
+    const px = (bounds.maxX - bounds.minX) * pad || 0.1;
+    const py = (bounds.maxY - bounds.minY) * pad || 0.1;
+    const pz = (bounds.maxZ - bounds.minZ) * pad || 0.1;
+    return {
+      x: [bounds.minX - px, bounds.maxX + px] as [number, number],
+      y: [bounds.minY - py, bounds.maxY + py] as [number, number],
+      z: [bounds.minZ - pz, bounds.maxZ + pz] as [number, number],
+    };
+  }, [bounds]);
+
   const layout = useMemo<Partial<Layout>>(() => ({
     width, height, autosize: true, uirevision: 'true', hovermode: 'closest', showlegend: false,
     paper_bgcolor: paperBg,
@@ -965,12 +1081,12 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
         center: defaultCenter,
         up: { x: 0, y: 0, z: 1 }
       },
-      xaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false },
-      yaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false },
-      zaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false },
+      xaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false, ...(axisRange && { range: axisRange.x, autorange: false }) },
+      yaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false, ...(axisRange && { range: axisRange.y, autorange: false }) },
+      zaxis: { title: { text: '' }, backgroundcolor: sceneBg, showgrid: false, zeroline: false, showticklabels: false, showspikes: false, ...(axisRange && { range: axisRange.z, autorange: false }) },
     },
     margin: { l: 0, r: 0, t: 0, b: 0 },
-  }), [axisColor, defaultEye, height, paperBg, sceneBg, width]);
+  }), [axisColor, axisRange, defaultEye, height, paperBg, sceneBg, width]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const config = useMemo<Partial<Config>>(() => ({
@@ -1039,6 +1155,19 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     gd.data?.splice(baseCount, oldCount, ...(overlayTraces as PlotData[]));
     overlayTraceCountRef.current = newCount;
     Plotly.redraw(gd);
+
+    // Defer fly-to by one frame: Plotly.redraw is done (main thread free), and
+// parent effects (e.g. page.tsx auto-select) have flushed, so pendingFlyToRef
+// holds the correct selectedPoint even for text-query searches.
+   // const rafId = requestAnimationFrame(() => {
+    //const flyTarget = pendingFlyToRef.current;
+     // if (flyTarget) {
+     //   pendingFlyToRef.current = null;
+     //    startFlyTo(flyTarget);
+     //   }
+     //   });
+    
+    //return () => cancelAnimationFrame(rafId)
 
     // Start fly-to after Plotly.redraw (main thread is free for animation frames)
     const flyTarget = pendingFlyToRef.current;

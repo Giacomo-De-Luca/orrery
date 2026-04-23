@@ -1,0 +1,122 @@
+[
+  {
+    "operation": "projection_load",
+    "collection": "emotion",
+    "item_count": 1000,
+    "mean_s": 0.0181,
+    "median_s": 0.0182,
+    "min_s": 0.0177,
+    "max_s": 0.0184,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_document",
+    "collection": "emotion",
+    "item_count": 1000,
+    "query": "the",
+    "matches": 514,
+    "mean_s": 2.9073,
+    "median_s": 2.9027,
+    "min_s": 2.6619,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_metadata",
+    "collection": "emotion",
+    "item_count": 1000,
+    "field": "source_split",
+    "query": "train",
+    "matches": 1000,
+    "mean_s": 0.0399,
+    "median_s": 0.0206,
+    "min_s": 0.0186,
+    "runs": 3
+  },
+  {
+    "operation": "memory_projection_load",
+    "collection": "emotion",
+    "item_count": 1000,
+    "total_allocated_mb": 1.67,
+    "delta_mb": 1.67
+  },
+  {
+    "operation": "projection_load",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "mean_s": 1.1758,
+    "median_s": 1.123,
+    "min_s": 1.0253,
+    "max_s": 1.3791,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_document",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "query": "the",
+    "matches": 8210,
+    "mean_s": 2.0694,
+    "median_s": 1.9946,
+    "min_s": 1.9823,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_metadata",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "field": "source_split",
+    "query": "train",
+    "matches": 10000,
+    "mean_s": 0.5085,
+    "median_s": 0.4885,
+    "min_s": 0.47,
+    "runs": 3
+  },
+  {
+    "operation": "memory_projection_load",
+    "collection": "ag_news",
+    "item_count": 10000,
+    "total_allocated_mb": 25.42,
+    "delta_mb": 25.42
+  },
+  {
+    "operation": "projection_load",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "mean_s": 16.6277,
+    "median_s": 16.9414,
+    "min_s": 15.2953,
+    "max_s": 17.6464,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_document",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "query": "the",
+    "matches": 2462,
+    "mean_s": 0.1808,
+    "median_s": 0.1759,
+    "min_s": 0.1742,
+    "runs": 3
+  },
+  {
+    "operation": "text_search_metadata",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "field": "section",
+    "query": "Le\u00e7on",
+    "matches": 112783,
+    "mean_s": 15.0269,
+    "median_s": 15.4242,
+    "min_s": 12.8088,
+    "runs": 3
+  },
+  {
+    "operation": "memory_projection_load",
+    "collection": "lacan_sentences_gemini_document",
+    "item_count": 153772,
+    "total_allocated_mb": 481.15,
+    "delta_mb": 481.15
+  }
+]
