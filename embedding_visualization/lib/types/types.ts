@@ -169,12 +169,7 @@ export interface HistogramBin {
 }
 
 /**
-<<<<<<< HEAD
- * Custom overrides for the numeric color scale range.
- * Like Tableau, lets users manually set min/max/center for sequential/diverging/monochrome scales.
-=======
  * Custom overrides for numeric color scale range (Tableau-style).
->>>>>>> backendMigration
  * Undefined fields fall back to auto-detected data range.
  */
 export interface CustomNumericRange {
@@ -183,8 +178,6 @@ export interface CustomNumericRange {
   center?: number;  // midpoint for diverging scales
 }
 
-<<<<<<< HEAD
-=======
 /** Histogram bin for NumericRangeChart. */
 export interface HistogramBin {
   binStart: number;
@@ -192,7 +185,7 @@ export interface HistogramBin {
   count: number;
 }
 
->>>>>>> backendMigration
+
 export interface TemporalRange {
   field: string;         // temporal field name (e.g. "year")
   startPeriod: string;   // inclusive start (e.g. "1990")

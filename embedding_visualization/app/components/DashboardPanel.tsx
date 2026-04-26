@@ -491,10 +491,7 @@ export function DashboardPanel({
             onCategoryReset={handleCategoryReset}
             colorScale={colorScale}
             numericRange={numericRange}
-<<<<<<< HEAD
-=======
             histogramBins={histogramBins}
->>>>>>> backendMigration
             customNumericRange={customNumericRange}
             onCustomRangeChange={setCustomNumericRange}
             categoricalPalette={categoricalPalette}
