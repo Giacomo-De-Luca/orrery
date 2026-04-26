@@ -131,6 +131,8 @@ export function DashboardPanel({
   const showClusterLabels = useVisualizationStore((s) => s.showClusterLabels);
   const hideFilteredPoints = useVisualizationStore((s) => s.hideFilteredPoints);
   const mutedPointOpacity = useVisualizationStore((s) => s.mutedPointOpacity);
+  const customNumericRange = useVisualizationStore((s) => s.customNumericRange);
+  const setCustomNumericRange = useVisualizationStore((s) => s.setCustomNumericRange);
   const setMutedCategories = useVisualizationStore((s) => s.setMutedCategories);
   const setTemporalRange = useVisualizationStore((s) => s.setTemporalRange);
 
@@ -412,6 +414,7 @@ export function DashboardPanel({
       showClusterLabels={showClusterLabels}
       onClusterLabelClick={isTopicColorField ? onToggleTopic : undefined}
       topicLabelToIdMap={isTopicColorField ? topicLabelToIdMap : undefined}
+      customNumericRange={customNumericRange}
     />
   ) : (
     <ScatterPlot3D
@@ -436,6 +439,7 @@ export function DashboardPanel({
       combinedMutedIndices={combinedMutedIndices}
       hideFilteredPoints={hideFilteredPoints}
       mutedPointOpacity={mutedPointOpacity}
+      customNumericRange={customNumericRange}
     />
   );
 
@@ -465,6 +469,8 @@ export function DashboardPanel({
             onCategoryReset={handleCategoryReset}
             colorScale={colorScale}
             numericRange={numericRange}
+            customNumericRange={customNumericRange}
+            onCustomRangeChange={setCustomNumericRange}
             categoricalPalette={categoricalPalette}
             nestedColorMap={nestedColorMap}
             maxHeight={legendHeight}

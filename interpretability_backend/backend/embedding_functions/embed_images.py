@@ -18,6 +18,7 @@ from .config import (
 )
 from ..utils.text_processing import format_text_for_embedding, extract_metadata
 from ..utils.color_preprocessing import preprocess_color_metadata
+from ..utils.duckdb_sync import sync_dataset_and_collection, sync_items
 
 
 def embed_images(
@@ -114,6 +115,13 @@ def embed_images(
         metadata=collection_metadata
     )
 
+    # DuckDB dual-write: create dataset + register vector collection
+    _duckdb_ids = sync_dataset_and_collection(
+        config.collection_name, collection_metadata,
+        embedding_dim=IMAGE_EMBEDDING_DIMENSIONS,
+    )
+    _duckdb_dataset_id = _duckdb_ids[0] if _duckdb_ids else None
+
     # Determine text columns for document text
     text_columns = config.columns or []
     if not text_columns:
@@ -199,6 +207,10 @@ def embed_images(
                 metadatas=metadatas
             )
             total_embedded += len(ids)
+
+            # DuckDB dual-write: insert items
+            if _duckdb_dataset_id:
+                sync_items(_duckdb_dataset_id, ids, documents, metadatas)
 
         if progress_callback:
             progress_callback(min(batch_start + IMAGE_BATCH_SIZE, len(rows)), len(rows))

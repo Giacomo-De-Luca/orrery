@@ -151,6 +151,17 @@ export function defaultColorScaleForType(type: ColorScaleType): ColorScale {
   }
 }
 
+/**
+ * Custom overrides for the numeric color scale range.
+ * Like Tableau, lets users manually set min/max/center for sequential/diverging/monochrome scales.
+ * Undefined fields fall back to auto-detected data range.
+ */
+export interface CustomNumericRange {
+  min?: number;
+  max?: number;
+  center?: number;  // midpoint for diverging scales
+}
+
 export interface TemporalRange {
   field: string;         // temporal field name (e.g. "year")
   startPeriod: string;   // inclusive start (e.g. "1990")

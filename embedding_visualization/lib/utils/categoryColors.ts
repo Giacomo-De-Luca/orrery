@@ -19,7 +19,8 @@ import {
 } from 'd3-scale-chromatic';
 import { interpolateRgb } from 'd3-interpolate';
 import { color } from 'd3-color';
-import { makeCrameriInterpolator, getCrameriColors } from '../colorMaps/crameriScales';
+import { makeCrameriInterpolator, getCrameriColors, isCrameriScale, crameriGradientCSS } from '../colorMaps/crameriScales';
+import type { ColorScale } from '../types/types';
 import { CATEGORY_PALETTES, DEFAULT_PALETTE_KEY, getPaletteColors } from './categoryPalettes';
 
 
@@ -207,6 +208,34 @@ export function generateGradientCSS(
   return `linear-gradient(to right, ${colors.join(', ')})`;
 }
 
+
+/**
+ * Generate a CSS linear-gradient string for any continuous ColorScale.
+ * Single source of truth used by both Legend and ColorScaleSelector.
+ * Returns empty string for categorical scales.
+ */
+export function colorScaleGradientCSS(colorScale: ColorScale, steps: number = 20): string {
+  if (colorScale.type === 'categorical') return '';
+
+  // Crameri fast-path (pre-computed arrays)
+  const scaleName = (colorScale.type === 'sequential' || colorScale.type === 'diverging')
+    ? colorScale.scaleName : undefined;
+  if (scaleName && isCrameriScale(scaleName)) {
+    const crameri = crameriGradientCSS(scaleName, steps);
+    if (crameri) return crameri;
+  }
+
+  // D3 / monochrome fallback
+  let scaleFunc: (t: number) => string;
+  if (colorScale.type === 'monochrome') {
+    scaleFunc = getMonochromeScale(colorScale.baseColor, [0, 1]);
+  } else if (colorScale.type === 'diverging') {
+    scaleFunc = getDivergingScale([0, 0.5, 1], colorScale.scaleName);
+  } else {
+    scaleFunc = getSequentialScale([0, 1], colorScale.scaleName);
+  }
+  return generateGradientCSS(scaleFunc, steps);
+}
 
 // Re-export palette registry for convenience
 export { CATEGORY_PALETTES, BUILTIN_PALETTE_NAMES, DEFAULT_PALETTE_KEY, getPaletteColors } from './categoryPalettes';
@@ -404,11 +433,3 @@ export function desaturateHex(hex: string, amount: number = 0.3, isDark: boolean
   const keep = 1 - amount;
   return `rgb(${Math.round(r * keep + neutral * amount)},${Math.round(g * keep + neutral * amount)},${Math.round(b * keep + neutral * amount)})`;
 }
-
-// ============ Legacy exports for backwards compatibility ============
-
-/** @deprecated Use buildCategoryColorMap with 'pos' field instead */
-export const POS_COLORS = POS_PRESET.colors;
-
-/** @deprecated Use getCategoryLabel with 'pos' field instead */
-export const POS_LABELS = POS_PRESET.labels;

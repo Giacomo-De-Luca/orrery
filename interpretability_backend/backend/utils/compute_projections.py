@@ -14,6 +14,7 @@ from typing import Optional, Union, List, Literal
 
 from ..embedding_functions.config import DB_PATH
 from ..services.progress_emitter import emit_progress
+from .duckdb_sync import _get_db as _get_duckdb
 
 
 def compute_projections_for_collection(collection_name: str, projection_type: Optional[List[Literal["pca2d", "pca3d", "umap2d", "umap3d"]]] = ["pca2d", "pca3d", "umap2d", "umap3d"], job_id: Optional[str] = None) -> bool:
@@ -50,6 +51,12 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
             name=collection_name,
             embedding_function=None
         )
+
+        # DuckDB dual-write setup: resolve vector_collection for this ChromaDB collection
+        _duckdb = _get_duckdb()
+        _duckdb_vc = _duckdb.get_vector_collection_by_name(collection_name) if _duckdb else None
+        _duckdb_vc_id = _duckdb_vc["id"] if _duckdb_vc else None
+        _duckdb_ds_id = _duckdb_vc["dataset_id"] if _duckdb_vc else None
 
         # Get all embeddings in batches (metadata not needed yet)
         print(f"Loading embeddings from {collection_name}...")
@@ -117,6 +124,12 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
                     batch_metadatas.append(meta)
                 collection.update(ids=batch_ids, metadatas=batch_metadatas)
 
+            # DuckDB dual-write: PCA 2D projections
+            if _duckdb_vc_id:
+                _duckdb.insert_projections_batch(
+                    _duckdb_vc_id, _duckdb_ds_id, ids, "pca_2d",
+                    coords_pca_2d.tolist(),
+                )
             del coords_pca_2d  # Free memory
             print("PCA 2D complete, memory freed")
             _emit_projection_done("PCA 2D")
@@ -140,6 +153,12 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
                     batch_metadatas.append(meta)
                 collection.update(ids=batch_ids, metadatas=batch_metadatas)
 
+            # DuckDB dual-write: PCA 3D projections
+            if _duckdb_vc_id:
+                _duckdb.insert_projections_batch(
+                    _duckdb_vc_id, _duckdb_ds_id, ids, "pca_3d",
+                    coords_pca_3d.tolist(),
+                )
             del coords_pca_3d  # Free memory
             print("PCA 3D complete, memory freed")
             _emit_projection_done("PCA 3D")
@@ -165,6 +184,12 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
                         batch_metadatas.append(meta)
                     collection.update(ids=batch_ids, metadatas=batch_metadatas)
 
+                # DuckDB dual-write: UMAP 2D projections
+                if _duckdb_vc_id:
+                    _duckdb.insert_projections_batch(
+                        _duckdb_vc_id, _duckdb_ds_id, ids, "umap_2d",
+                        coords_umap_2d.tolist(),
+                    )
                 del coords_umap_2d  # Free memory
                 print("UMAP 2D complete, memory freed")
                 _emit_projection_done("UMAP 2D")
@@ -187,6 +212,12 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
                         batch_metadatas.append(meta)
                     collection.update(ids=batch_ids, metadatas=batch_metadatas)
 
+                # DuckDB dual-write: UMAP 3D projections
+                if _duckdb_vc_id:
+                    _duckdb.insert_projections_batch(
+                        _duckdb_vc_id, _duckdb_ds_id, ids, "umap_3d",
+                        coords_umap_3d.tolist(),
+                    )
                 del coords_umap_3d  # Free memory
                 print("UMAP 3D complete, memory freed")
                 _emit_projection_done("UMAP 3D")
@@ -214,6 +245,14 @@ def compute_projections_for_collection(collection_name: str, projection_type: Op
             })
 
         collection.modify(metadata=current_metadata)
+
+        # DuckDB dual-write: projection metadata (variance)
+        if _duckdb_vc_id:
+            if pca_2d_variance is not None:
+                _duckdb.upsert_projection_metadata(_duckdb_vc_id, "pca_2d", variance=pca_2d_variance)
+            if pca_3d_variance is not None:
+                _duckdb.upsert_projection_metadata(_duckdb_vc_id, "pca_3d", variance=pca_3d_variance)
+
         print("Projections computed and stored successfully!")
         return True
 

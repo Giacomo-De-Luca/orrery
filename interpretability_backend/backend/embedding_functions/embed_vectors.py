@@ -207,6 +207,10 @@ def embed_vectors(
             )
             total_embedded += len(ids)
 
+            # DuckDB dual-write: insert items
+            if _duckdb_dataset_id:
+                sync_items(_duckdb_dataset_id, ids, documents, metadatas)
+
         if progress_callback:
             progress_callback(min(batch_start + EMBEDDING_BATCH_SIZE, len(rows)), len(rows))
 

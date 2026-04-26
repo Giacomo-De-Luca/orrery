@@ -181,12 +181,15 @@ export default function Home() {
   }, [textSearchHighlightedIndices, points2d, points3d, mode, temporalRange]);
 
 
-  // Combine semantic search highlights and topic highlights (text search handled by muting, not glow)
-  // Selected point is excluded — it has its own overlay traces in ScatterPlot3D
+  // Combine semantic search highlights, topic highlights, and text search highlights.
+  // Text search glow only activates when no semantic search is active — clicking a
+  // text result triggers semantic search which naturally takes over the glow.
+  // Selected point is excluded — it has its own overlay traces in ScatterPlot3D.
   const combinedHighlightedIndices: HighlightMap | undefined = useHighlightedIndices(
     semanticSearchResults,
     data,
-    topicSearch.topicHighlightMap
+    topicSearch.topicHighlightMap,
+    semanticSearchResults && semanticSearchResults.length > 0 ? null : textSearchHighlightedIndices,
   );
 
   // Initialize tooltipFields with smart defaults when data loads

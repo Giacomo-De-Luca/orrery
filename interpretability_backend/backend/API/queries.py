@@ -476,19 +476,15 @@ class Query:
             collection_name=collection_name,
             query_texts=None,
             query_embeddings=[query_embedding],
-            n_results=n_results + 1,  # +1 to account for the item itself
+            n_results=n_results,
             where=where,
             distance_metric=similarity_measure.value
         )
 
-        # Convert to SemanticSearchResult list, excluding the query item itself
+        # Convert to SemanticSearchResult list (including the query item itself)
         search_results = []
         if results["ids"]:
             for i, result_id in enumerate(results["ids"][0]):
-                # Skip the item itself
-                if result_id == item_id:
-                    continue
-
                 metadata = results["metadatas"][0][i] if results.get("metadatas") else {}
                 document = results["documents"][0][i] if results.get("documents") else None
                 distance = results["distances"][0][i]
@@ -503,10 +499,6 @@ class Query:
                 )
 
                 search_results.append(result)
-
-                # Stop once we have enough results (excluding the query item)
-                if len(search_results) >= n_results:
-                    break
 
         return search_results
 

@@ -20,6 +20,7 @@ from ..topic_extraction.cluster_and_label import GenerateTopics
 from ..topic_extraction.llm_labeling import generate_llm_labels, generate_llm_label_for_topic, _create_labeler
 from ..embedding_functions.config import DB_PATH
 from .progress_emitter import emit_progress
+from ..utils.duckdb_sync import _get_db as _get_duckdb
 
 logger = logging.getLogger('star_map.' + __name__)
 
@@ -67,6 +68,73 @@ class TopicExtractionResult:
     num_topics_before_reduction: Optional[int] = None
     reduction_applied: bool = False
     topic_mappings: Optional[Dict[int, int]] = None
+
+
+def _sync_topics_to_duckdb(
+    collection_name: str,
+    topic_infos: List[TopicInfoResult],
+    ids: List[str],
+    topic_assignments: Dict[str, int],
+    topic_labels: Dict[int, str],
+    config=None,
+) -> None:
+    """DuckDB dual-write: create topic extraction + info + assignments."""
+    db = _get_duckdb()
+    if not db:
+        return
+
+    try:
+        vc = db.get_vector_collection_by_name(collection_name)
+        if not vc:
+            logger.warning("DuckDB: vector collection %r not found, skipping topic sync", collection_name)
+            return
+
+        # Create extraction record
+        extraction_config = None
+        if config:
+            extraction_config = {
+                "min_topic_size": config.min_topic_size,
+                "n_keywords": config.n_keywords,
+                "projection_type": config.projection_type,
+                "used_llm": config.use_llm_labels,
+            }
+
+        ext_id = db.create_topic_extraction(
+            vc["id"], vc["dataset_id"], config=extraction_config,
+        )
+
+        # Insert topic info
+        topic_info_records = []
+        for info in topic_infos:
+            topic_info_records.append({
+                "topic_id": info.topic_id,
+                "label": info.label,
+                "count": info.count,
+                "keywords": [{"word": w, "score": round(s, 4)} for w, s in info.keywords[:10]],
+                "subtopics": info.subtopics,
+            })
+        db.insert_topic_info_batch(ext_id, topic_info_records)
+
+        # Insert topic assignments
+        assignment_records = []
+        for item_id, topic_id in topic_assignments.items():
+            assignment_records.append({
+                "item_id": item_id,
+                "topic_id": topic_id,
+                "topic_label": topic_labels.get(topic_id, "Unclustered"),
+            })
+        db.insert_topic_assignments_batch(ext_id, vc["dataset_id"], assignment_records)
+
+        # Update vector collection flag
+        db._conn.execute(
+            "UPDATE vector_collections SET has_topics = TRUE WHERE id = ?", [vc["id"]]
+        )
+
+        logger.info("DuckDB: synced %d topics, %d assignments for %s",
+                     len(topic_info_records), len(assignment_records), collection_name)
+
+    except Exception as e:
+        logger.error("DuckDB topic sync failed: %s", e)
 
 
 def extract_topics(config: TopicExtractionConfig) -> TopicExtractionResult:
@@ -354,6 +422,16 @@ def extract_topics(config: TopicExtractionConfig) -> TopicExtractionResult:
             config=config,
             num_topics_before_reduction=num_topics_before_reduction,
             topic_hierarchy=labeled_hierarchy if labeled_hierarchy else None
+        )
+
+        # DuckDB dual-write: sync topic extraction results
+        _sync_topics_to_duckdb(
+            collection_name=config.collection_name,
+            topic_infos=topic_infos,
+            ids=ids,
+            topic_assignments=topic_assignments,
+            topic_labels=topic_labels,
+            config=config,
         )
 
         duration = time.time() - start_time
