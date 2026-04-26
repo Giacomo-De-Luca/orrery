@@ -2,7 +2,7 @@
 
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import type { PlotData, Layout, Config, PlotMouseEvent, PlotRelayoutEvent } from 'plotly.js';
-import type { Point3D, HighlightMap, NestedColorMap, ColorScale } from '../../lib/types/types';
+import type { Point3D, HighlightMap, NestedColorMap, ColorScale, CustomNumericRange } from '../../lib/types/types';
 import { useTheme } from 'next-themes';
 import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergingScale, getMonochromeScale, desaturateHex } from '../../lib/utils/categoryColors';
 import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crameriScales';
@@ -131,6 +131,8 @@ interface ScatterPlot3DProps {
   hideFilteredPoints?: boolean;
   /** 0-1, opacity for muted points (default 0.15) */
   mutedPointOpacity?: number;
+  /** Custom numeric range overrides for cmin/cmax */
+  customNumericRange?: CustomNumericRange | null;
 }
 
 interface PlotlyGraphDiv extends HTMLDivElement {
@@ -169,6 +171,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   combinedMutedIndices,
   hideFilteredPoints = false,
   mutedPointOpacity,
+  customNumericRange,
 }: ScatterPlot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
@@ -331,6 +334,20 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     };
   }, [colorScale.type, categoryField, points]);
 
+  // Merge custom range overrides with auto-detected data range
+  const effectiveRange = useMemo(() => {
+    if (!numericData) return null;
+    let effMin = customNumericRange?.min ?? numericData.min;
+    let effMax = customNumericRange?.max ?? numericData.max;
+    if (colorScale.type === 'diverging' && customNumericRange?.center !== undefined) {
+      const c = customNumericRange.center;
+      const deviation = Math.max(Math.abs(effMax - c), Math.abs(effMin - c));
+      effMin = c - deviation;
+      effMax = c + deviation;
+    }
+    return { min: effMin, max: effMax };
+  }, [numericData, customNumericRange, colorScale.type]);
+
   // --- 2. GENERATE PLOTLY NATIVE COLORSCALE ---
   // Bridge the ColorScale union to a Plotly array [[0, 'hex'], [1, 'hex']]
   const plotlyColorScale = useMemo(() => {
@@ -421,7 +438,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
 
     if (numericData && plotlyColorScale) {
       // --- MODE: NATIVE COLORSCALE (GPU ACCELERATED) ---
-      const csOpts = { colorscale: plotlyColorScale as any, cmin: numericData.min, cmax: numericData.max };
+      const csOpts = { colorscale: plotlyColorScale as any, cmin: effectiveRange!.min, cmax: effectiveRange!.max };
       const n = displayPoints.length;
       const allX = new Float64Array(n);
       const allY = new Float64Array(n);
@@ -511,7 +528,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     return traces;
   }, [
     displayPoints, markerStyle, showOnlyHighlighted,
-    categoryValues, colorMap, numericData, plotlyColorScale, categoryField,
+    categoryValues, colorMap, numericData, effectiveRange, plotlyColorScale, categoryField,
     mutedCategories, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity
   ]);
 

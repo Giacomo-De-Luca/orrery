@@ -12,7 +12,7 @@ import type {
   PlotHoverEvent,
   PlotRelayoutEvent,
 } from 'plotly.js';
-import type { Point2D, HighlightMap, NestedColorMap, ColorScale } from '../../lib/types/types';
+import type { Point2D, HighlightMap, NestedColorMap, ColorScale, CustomNumericRange } from '../../lib/types/types';
 import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergingScale, getMonochromeScale, desaturateHex, type SequentialScaleName, type DivergingScaleName } from '../../lib/utils/categoryColors';
 import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crameriScales';
 import { calculateMarkerStyle, calculateLuminosity, calculateHighlightScale, calculateSimilarityColors } from '../../lib/utils/plotUtils';
@@ -73,6 +73,8 @@ interface ScatterPlot2DProps {
   onClusterLabelClick?: (topicId: number) => void;
   /** Map from topic label string → topic ID for click handling */
   topicLabelToIdMap?: Map<string, number> | null;
+  /** Custom numeric range overrides for cmin/cmax */
+  customNumericRange?: CustomNumericRange | null;
 }
 
 
@@ -98,6 +100,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   showClusterLabels = false,
   onClusterLabelClick,
   topicLabelToIdMap,
+  customNumericRange,
 }: ScatterPlot2DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphDivRef = useRef<any>(null);
@@ -405,6 +408,20 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
     };
   }, [colorScale.type, categoryField, points]);
 
+  // Merge custom range overrides with auto-detected data range
+  const effectiveRange = useMemo(() => {
+    if (!numericData) return null;
+    let effMin = customNumericRange?.min ?? numericData.min;
+    let effMax = customNumericRange?.max ?? numericData.max;
+    if (colorScale.type === 'diverging' && customNumericRange?.center !== undefined) {
+      const c = customNumericRange.center;
+      const deviation = Math.max(Math.abs(effMax - c), Math.abs(effMin - c));
+      effMin = c - deviation;
+      effMax = c + deviation;
+    }
+    return { min: effMin, max: effMax };
+  }, [numericData, customNumericRange, colorScale.type]);
+
   // Generate Plotly-compatible colorscale array
   const plotlyColorScale = useMemo(() => {
     if (colorScale.type === 'categorical') return undefined;
@@ -502,8 +519,8 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
               size: markerStyle.size,
               color: unhighlightedNumericValues,
               colorscale: plotlyColorScale as any,
-              cmin: numericData.min,
-              cmax: numericData.max,
+              cmin: effectiveRange!.min,
+              cmax: effectiveRange!.max,
               opacity: dimOpacity,
               showscale: false,
             },
@@ -976,8 +993,8 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
               size: markerStyle.size,
               color: displayPoints.map(p => numericData.cleanValues[p.index]),
               colorscale: plotlyColorScale as any,
-              cmin: numericData.min,
-              cmax: numericData.max,
+              cmin: effectiveRange!.min,
+              cmax: effectiveRange!.max,
               opacity: markerStyle.opacity,
               showscale: false, // Disabled - using custom Legend component instead
             },
@@ -1241,7 +1258,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
     }
 
     return traces;
-  }, [points, categoryField, categoryValues, colorMap, numericData, plotlyColorScale, highlightedIndices, renderedSelectedPoint, isDark, markerStyle.size, markerStyle.opacity, highlightScale, showOnlyHighlighted, showLabels, mutedCategories, hideUnclustered, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity]);
+  }, [points, categoryField, categoryValues, colorMap, numericData, effectiveRange, plotlyColorScale, highlightedIndices, renderedSelectedPoint, isDark, markerStyle.size, markerStyle.opacity, highlightScale, showOnlyHighlighted, showLabels, mutedCategories, hideUnclustered, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity]);
 
   const layout = useMemo<Partial<Layout>>(
     () => ({

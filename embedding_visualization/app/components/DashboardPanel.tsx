@@ -131,6 +131,8 @@ export function DashboardPanel({
   const showClusterLabels = useVisualizationStore((s) => s.showClusterLabels);
   const hideFilteredPoints = useVisualizationStore((s) => s.hideFilteredPoints);
   const mutedPointOpacity = useVisualizationStore((s) => s.mutedPointOpacity);
+  const customNumericRange = useVisualizationStore((s) => s.customNumericRange);
+  const setCustomNumericRange = useVisualizationStore((s) => s.setCustomNumericRange);
   const setMutedCategories = useVisualizationStore((s) => s.setMutedCategories);
   const setTemporalRange = useVisualizationStore((s) => s.setTemporalRange);
 
@@ -265,6 +267,28 @@ export function DashboardPanel({
     }
     return undefined;
   }, [isContinuousScale, colorByField, points]);
+
+  // Compute histogram bins for continuous scale legend
+  const histogramBins = useMemo(() => {
+    if (!numericRange || !colorByField) return undefined;
+    const { min, max } = numericRange;
+    if (min === max) return undefined;
+    const BIN_COUNT = 30;
+    const binWidth = (max - min) / BIN_COUNT;
+    const counts = new Array(BIN_COUNT).fill(0);
+    for (const p of points) {
+      const val = p.metadata?.[colorByField];
+      const num = typeof val === 'number' ? val : parseFloat(String(val));
+      if (isNaN(num)) continue;
+      const idx = Math.min(Math.floor((num - min) / binWidth), BIN_COUNT - 1);
+      counts[idx]++;
+    }
+    return counts.map((count: number, i: number) => ({
+      binStart: min + i * binWidth,
+      binEnd: min + (i + 1) * binWidth,
+      count,
+    }));
+  }, [numericRange, colorByField, points]);
 
   // Select-only handler: click isolates a category, shift+click toggles multi-select
   const handleCategoryToggle = useCallback((category: string, shiftKey: boolean) => {
@@ -412,6 +436,7 @@ export function DashboardPanel({
       showClusterLabels={showClusterLabels}
       onClusterLabelClick={isTopicColorField ? onToggleTopic : undefined}
       topicLabelToIdMap={isTopicColorField ? topicLabelToIdMap : undefined}
+      customNumericRange={customNumericRange}
     />
   ) : (
     <ScatterPlot3D
@@ -436,6 +461,7 @@ export function DashboardPanel({
       combinedMutedIndices={combinedMutedIndices}
       hideFilteredPoints={hideFilteredPoints}
       mutedPointOpacity={mutedPointOpacity}
+      customNumericRange={customNumericRange}
     />
   );
 
@@ -465,6 +491,9 @@ export function DashboardPanel({
             onCategoryReset={handleCategoryReset}
             colorScale={colorScale}
             numericRange={numericRange}
+            histogramBins={histogramBins}
+            customNumericRange={customNumericRange}
+            onCustomRangeChange={setCustomNumericRange}
             categoricalPalette={categoricalPalette}
             nestedColorMap={nestedColorMap}
             maxHeight={legendHeight}

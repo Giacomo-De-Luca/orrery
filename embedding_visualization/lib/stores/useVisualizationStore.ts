@@ -3,6 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type {
   ColorScale,
   ColorScaleType,
+  CustomNumericRange,
   ProjectionMethod,
   DimensionMode,
   DistanceMetric,
@@ -24,6 +25,7 @@ export interface VisualizationStoreState {
   // Color
   colorByField: string | null;
   colorScale: ColorScale;
+  customNumericRange: CustomNumericRange | null;
   categoricalPalette: string | undefined;
   nestedColorMode: boolean;
 
@@ -63,6 +65,7 @@ interface VisualizationStoreActions {
   // Color
   setColorByField: (field: string | null, recommendedScaleType?: ColorScaleType) => void;
   setColorScale: (scale: ColorScale) => void;
+  setCustomNumericRange: (range: CustomNumericRange | null) => void;
   setCategoricalPalette: (palette: string | undefined) => void;
   setNestedColorMode: (enabled: boolean) => void;
 
@@ -105,6 +108,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
     selectedDimensions: [0, 1, 2],
     colorByField: null,
     colorScale: DEFAULT_COLOR_SCALE,
+    customNumericRange: null,
     categoricalPalette: undefined,
     nestedColorMode: false,
     searchQuery: '',
@@ -137,6 +141,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
     })),
 
     setColorScale: (scale) => set({ colorScale: scale }),
+    setCustomNumericRange: (range) => set({ customNumericRange: range }),
     setCategoricalPalette: (palette) => set({ categoricalPalette: palette }),
     setNestedColorMode: (enabled) => set({ nestedColorMode: enabled }),
 
@@ -158,6 +163,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
     resetForCollectionChange: () => set({
       colorByField: null,
       colorScale: DEFAULT_COLOR_SCALE,
+      customNumericRange: null,
       mutedCategories: [],
       tooltipFields: undefined,
       temporalRange: null,
@@ -175,7 +181,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
 useVisualizationStore.subscribe(
   (s) => s.colorByField,
   () => {
-    useVisualizationStore.setState({ mutedCategories: [], hideUnclustered: false });
+    useVisualizationStore.setState({ mutedCategories: [], hideUnclustered: false, customNumericRange: null });
   },
 );
 
@@ -184,6 +190,7 @@ useVisualizationStore.subscribe(
 // ---------------------------------------------------------------------------
 export const selectColorByField = (s: VisualizationStore) => s.colorByField;
 export const selectColorScale = (s: VisualizationStore) => s.colorScale;
+export const selectCustomNumericRange = (s: VisualizationStore) => s.customNumericRange;
 export const selectCategoricalPalette = (s: VisualizationStore) => s.categoricalPalette;
 export const selectMode = (s: VisualizationStore) => s.mode;
 export const selectMethod = (s: VisualizationStore) => s.method;

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Palette } from 'lucide-react';
 import {
   Dialog,
@@ -17,10 +17,8 @@ import type { ColorScaleType, ColorScale } from '@/lib/types/types';
 import { defaultColorScaleForType } from '@/lib/types/types';
 import { useVisualizationStore } from '../../lib/stores/useVisualizationStore';
 import {
-  getSequentialScale,
-  getDivergingScale,
-  getMonochromeScale,
   generateCategoryColors,
+  colorScaleGradientCSS,
   D3_SEQUENTIAL_NAMES,
   D3_DIVERGING_NAMES,
   type SequentialScaleName,
@@ -39,7 +37,6 @@ import {
   CRAMERI_CATEGORICAL_LABELS,
   COLOR_STRIP_LABELS,
   preloadCrameriColormaps,
-  crameriGradientCSS,
   getCrameriColors,
   isCrameriLoaded,
   isCrameriScale,
@@ -72,43 +69,20 @@ interface ColorScalePreviewProps {
 }
 
 function ColorScalePreview({ colorScale }: ColorScalePreviewProps) {
-  const colors = useMemo(() => {
-    if (colorScale.type === 'categorical') {
-      return generateCategoryColors(10);
-    } else if (colorScale.type === 'sequential') {
-      const scale = getSequentialScale([0, 1], colorScale.scaleName);
-      return Array.from({ length: 10 }, (_, i) => scale(i / 9));
-    } else if (colorScale.type === 'monochrome') {
-      const scale = getMonochromeScale(colorScale.baseColor, [0, 1]);
-      return Array.from({ length: 10 }, (_, i) => scale(i / 9));
-    } else {
-      const scale = getDivergingScale([-1, 0, 1], colorScale.scaleName);
-      return Array.from({ length: 10 }, (_, i) => scale(-1 + (i * 2) / 9));
-    }
-  }, [colorScale]);
-  const type = colorScale.type;
-
-  if (type === 'categorical') {
+  if (colorScale.type === 'categorical') {
+    const colors = generateCategoryColors(10);
     return (
       <div className="flex gap-0.5">
         {colors.map((color, i) => (
-          <div
-            key={i}
-            className="h-4 w-4 rounded-sm"
-            style={{ backgroundColor: color }}
-          />
+          <div key={i} className="h-4 w-4 rounded-sm" style={{ backgroundColor: color }} />
         ))}
       </div>
     );
   }
 
+  const gradient = colorScaleGradientCSS(colorScale);
   return (
-    <div
-      className="h-2 w-full rounded-sm"
-      style={{
-        background: `linear-gradient(to right, ${colors.join(', ')})`,
-      }}
-    />
+    <div className="h-2 w-full rounded-sm" style={{ background: gradient }} />
   );
 }
 
@@ -116,20 +90,13 @@ function ColorScalePreview({ colorScale }: ColorScalePreviewProps) {
  * Renders a gradient preview from a Crameri colormap (from cache).
  * Shows a shimmer placeholder if the colormap is not yet loaded.
  */
-function CrameriGradientPreview({ name }: { name: string }) {
-  const gradient = isCrameriLoaded(name) ? crameriGradientCSS(name, 20) : null;
-
-  if (!gradient) {
-    return (
-      <div className="h-2 w-full rounded-sm bg-muted animate-pulse" />
-    );
+function CrameriGradientPreview({ name, scaleType = 'sequential' }: { name: string; scaleType?: 'sequential' | 'diverging' }) {
+  if (!isCrameriLoaded(name)) {
+    return <div className="h-2 w-full rounded-sm bg-muted animate-pulse" />;
   }
-
+  const gradient = colorScaleGradientCSS({ type: scaleType, scaleName: name } as ColorScale);
   return (
-    <div
-      className="h-2 w-full rounded-sm"
-      style={{ background: gradient }}
-    />
+    <div className="h-2 w-full rounded-sm" style={{ background: gradient || undefined }} />
   );
 }
 

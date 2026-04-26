@@ -6,17 +6,13 @@ import {
   buildCategoryColorMap,
   getCategoryLabel,
   getCategoryDisplayName,
-  getSequentialScale,
-  getDivergingScale,
-  getMonochromeScale,
-  generateGradientCSS,
-  type SequentialScaleName,
-  type DivergingScaleName,
+  colorScaleGradientCSS,
 } from '../../lib/utils/categoryColors';
-import { isCrameriScale, crameriGradientCSS } from '../../lib/colorMaps/crameriScales';
 import { cn } from '@/lib/utils/utils';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
-import type { NestedColorMap, ColorScale } from '../../lib/types/types';
+import { RotateCcw } from 'lucide-react';
+import type { NestedColorMap, ColorScale, HistogramBin, CustomNumericRange } from '../../lib/types/types';
+import { NumericRangeChart } from './charts/NumericRangeChart';
 
 interface LegendProps {
   className?: string;
@@ -28,6 +24,9 @@ interface LegendProps {
   onCategoryReset?: () => void;
   colorScale?: ColorScale;
   numericRange?: { min: number; max: number };
+  histogramBins?: HistogramBin[];
+  customNumericRange?: CustomNumericRange | null;
+  onCustomRangeChange?: (range: CustomNumericRange | null) => void;
   categoricalPalette?: string;
   nestedColorMap?: NestedColorMap | null;
   /** Pixel max-height for the scrollable content area. Overrides built-in max-h when provided. */
@@ -70,6 +69,9 @@ export function Legend({
   onCategoryReset,
   colorScale = { type: 'categorical' },
   numericRange,
+  histogramBins,
+  customNumericRange,
+  onCustomRangeChange,
   categoricalPalette,
   nestedColorMap,
   maxHeight,
@@ -79,51 +81,57 @@ export function Legend({
   const isContinuous = colorScale.type === 'sequential' || colorScale.type === 'diverging' || colorScale.type === 'monochrome';
 
   // Generate gradient dynamically from the actual scale function
-  const gradient = useMemo(() => {
-    if (colorScale.type === 'sequential') {
-      if (isCrameriScale(colorScale.scaleName)) {
-        const crameri = crameriGradientCSS(colorScale.scaleName, 20);
-        if (crameri) return crameri;
-      }
-      return generateGradientCSS(getSequentialScale([0, 1], colorScale.scaleName));
-    } else if (colorScale.type === 'diverging') {
-      if (isCrameriScale(colorScale.scaleName)) {
-        const crameri = crameriGradientCSS(colorScale.scaleName, 20);
-        if (crameri) return crameri;
-      }
-      return generateGradientCSS(getDivergingScale([0, 0.5, 1], colorScale.scaleName));
-    } else if (colorScale.type === 'monochrome') {
-      return generateGradientCSS(getMonochromeScale(colorScale.baseColor, [0, 1]));
-    }
-    return '';
-  }, [colorScale]);
+  const gradient = useMemo(() => colorScaleGradientCSS(colorScale), [colorScale]);
 
-  // For continuous scales, render a gradient bar
+  // For continuous scales, render histogram range chart or fallback gradient bar
   if (isContinuous && numericRange) {
     const { min, max } = numericRange;
-    const center = (min + max) / 2;
 
     return (
       <Card
         className={`w-fit gap-2 min-w-48 ${className ?? ''}`}
         variant="noBg"
       >
-        <CardHeader className="">
-          <CardTitle className="font-mono text-xs">{getCategoryDisplayName(categoryField ?? 'value')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {/* Gradient bar */}
-          <div
-            className="h-2 w-full rounded"
-            style={{ background: gradient }}
-            aria-label={`Color scale from ${min} to ${max}`}
-          />
-          {/* Labels: min, center, max */}
-          <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
-            <span>{formatNumericValue(min)}</span>
-            <span>{formatNumericValue(center)}</span>
-            <span>{formatNumericValue(max)}</span>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <CardTitle className="font-mono text-xs flex-1">{getCategoryDisplayName(categoryField ?? 'value')}</CardTitle>
+            {customNumericRange != null && (
+              <button
+                onClick={() => onCustomRangeChange?.(null)}
+                className="text-muted-foreground/50 hover:text-muted-foreground transition-colors pointer-events-auto"
+                aria-label="Reset to data range"
+                title="Reset to data range"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
           </div>
+        </CardHeader>
+        <CardContent className="space-y-1 pointer-events-auto">
+          {histogramBins && histogramBins.length > 0 ? (
+            <NumericRangeChart
+              bins={histogramBins}
+              dataMin={min}
+              dataMax={max}
+              colorScale={colorScale}
+              customRange={customNumericRange}
+              onRangeChange={onCustomRangeChange}
+              isDiverging={colorScale.type === 'diverging'}
+            />
+          ) : (
+            <>
+              <div
+                className="h-2 w-full rounded"
+                style={{ background: gradient }}
+                aria-label={`Color scale from ${min} to ${max}`}
+              />
+              <div className="flex justify-between text-xs text-muted-foreground tabular-nums">
+                <span>{formatNumericValue(min)}</span>
+                <span>{formatNumericValue((min + max) / 2)}</span>
+                <span>{formatNumericValue(max)}</span>
+              </div>
+            </>
+          )}
         </CardContent>
         {dragHandle}
       </Card>

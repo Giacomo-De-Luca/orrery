@@ -19,7 +19,8 @@ import {
 } from 'd3-scale-chromatic';
 import { interpolateRgb } from 'd3-interpolate';
 import { color } from 'd3-color';
-import { makeCrameriInterpolator, getCrameriColors } from '../colorMaps/crameriScales';
+import { makeCrameriInterpolator, getCrameriColors, isCrameriScale, crameriGradientCSS } from '../colorMaps/crameriScales';
+import type { ColorScale } from '../types/types';
 import { CATEGORY_PALETTES, DEFAULT_PALETTE_KEY, getPaletteColors } from './categoryPalettes';
 
 
@@ -207,6 +208,45 @@ export function generateGradientCSS(
   return `linear-gradient(to right, ${colors.join(', ')})`;
 }
 
+
+/**
+ * Generate a CSS linear-gradient string for any continuous ColorScale.
+ * Single source of truth — used by Legend and ColorScaleSelector.
+ */
+export function colorScaleGradientCSS(colorScale: ColorScale, steps: number = 20): string {
+  if (colorScale.type === 'categorical') return '';
+  const scaleName = (colorScale.type === 'sequential' || colorScale.type === 'diverging')
+    ? colorScale.scaleName : undefined;
+  if (scaleName && isCrameriScale(scaleName)) {
+    const crameri = crameriGradientCSS(scaleName, steps);
+    if (crameri) return crameri;
+  }
+  let scaleFunc: (t: number) => string;
+  if (colorScale.type === 'monochrome') {
+    scaleFunc = getMonochromeScale(colorScale.baseColor, [0, 1]);
+  } else if (colorScale.type === 'diverging') {
+    scaleFunc = getDivergingScale([0, 0.5, 1], colorScale.scaleName);
+  } else {
+    scaleFunc = getSequentialScale([0, 1], colorScale.scaleName);
+  }
+  return generateGradientCSS(scaleFunc, steps);
+}
+
+/**
+ * Get a (t: number) => color interpolator for any continuous ColorScale.
+ * Used by NumericRangeChart to color individual histogram bars.
+ */
+export function colorScaleInterpolator(colorScale: ColorScale): ((t: number) => string) | null {
+  if (colorScale.type === 'categorical') return null;
+  if (colorScale.type === 'monochrome') return getMonochromeScale(colorScale.baseColor, [0, 1]);
+  const name = colorScale.scaleName;
+  if (isCrameriScale(name)) {
+    const interp = makeCrameriInterpolator(name);
+    if (interp) return interp;
+  }
+  if (colorScale.type === 'diverging') return getDivergingScale([0, 0.5, 1], name);
+  return getSequentialScale([0, 1], name);
+}
 
 // Re-export palette registry for convenience
 export { CATEGORY_PALETTES, BUILTIN_PALETTE_NAMES, DEFAULT_PALETTE_KEY, getPaletteColors } from './categoryPalettes';
