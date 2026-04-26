@@ -23,6 +23,8 @@ from .converters import (
     convert_topic_infos,
 )
 from .chromadb_instance import get_chromadb_client
+from .duckdb_instance import get_duckdb_client
+from ..clients.duckdb_client import _sanitize_for_json
 from ..services.embedding_pipeline import (
     HuggingFaceEmbeddingPipeline,
     LocalFileEmbeddingPipeline,
@@ -96,10 +98,18 @@ class Mutation:
 
     @strawberry.mutation
     def delete_collection(self, collection_name: str, info=None) -> bool:
-        """Delete a collection from ChromaDB."""
+        """Delete a collection from both DuckDB and ChromaDB."""
         try:
+            # Delete from DuckDB (cascades items, projections, topics)
+            db = get_duckdb_client()
+            db.delete_dataset(collection_name)
+
+            # Delete from ChromaDB (vector storage)
             client = get_chromadb_client()
-            client.client.delete_collection(name=collection_name)
+            try:
+                client.client.delete_collection(name=collection_name)
+            except Exception:
+                pass  # ChromaDB collection may not exist
             return True
         except Exception:
             return False
@@ -113,11 +123,21 @@ class Mutation:
     ) -> UpdateCollectionMetadataResult:
         """Update metadata for a collection."""
         try:
+            # Update DuckDB (primary)
+            db = get_duckdb_client()
+            db.update_dataset(collection_name, extra_metadata=metadata)
+            ds = db.get_dataset(collection_name)
+
+            # Also update ChromaDB for backward compatibility during migration
             client = get_chromadb_client()
-            result = client.update_collection_metadata(collection_name, metadata)
+            try:
+                client.update_collection_metadata(collection_name, metadata)
+            except Exception:
+                pass
+
             return UpdateCollectionMetadataResult(
-                name=result["name"],
-                metadata=result["metadata"]
+                name=collection_name,
+                metadata=_sanitize_for_json(ds) if ds else {},
             )
         except Exception as e:
             return UpdateCollectionMetadataResult(

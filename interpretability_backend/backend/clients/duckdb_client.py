@@ -29,6 +29,18 @@ _TOPIC_KEYS = frozenset({"topic_id", "topic_label", "subtopic_id", "subtopic_lab
 _SNIPPET_RADIUS = 100
 
 
+def _sanitize_for_json(d: dict) -> dict:
+    """Convert non-JSON-serializable values (datetime, etc.) to strings."""
+    import datetime
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, (datetime.datetime, datetime.date)):
+            out[k] = v.isoformat()
+        else:
+            out[k] = v
+    return out
+
+
 class DuckDBClient:
     """Central data orchestrator using DuckDB as the document/metadata store."""
 
@@ -216,7 +228,7 @@ class DuckDBClient:
         columns = [desc[0] for desc in self._conn.description]
         result = []
         for row in rows:
-            d = dict(zip(columns, row))
+            d = _sanitize_for_json(dict(zip(columns, row)))
             count = d.pop("item_count", 0)
             name = d["name"]
             result.append({"name": name, "metadata": d, "count": count})

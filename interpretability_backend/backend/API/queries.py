@@ -37,6 +37,7 @@ from ..clients.local_data_client import (
     get_local_file_preview as get_local_preview,
 )
 from .chromadb_instance import get_chromadb_client
+from .duckdb_instance import get_duckdb_client
 from ..services.job_state import get_job_state_service, JobStatus
 
 
@@ -51,16 +52,16 @@ class Query:
         Returns:
             List of collections with metadata
         """
-        client = get_chromadb_client()
-        collections = client.list_collections()
+        db = get_duckdb_client()
+        datasets = db.list_datasets()
 
         return [
             Collection(
-                name=col["name"],
-                metadata=col["metadata"],
-                count=col["count"]
+                name=ds["name"],
+                metadata=ds["metadata"],
+                count=ds["count"]
             )
-            for col in collections
+            for ds in datasets
         ]
 
     @strawberry.field
@@ -240,52 +241,119 @@ class Query:
                             None means all four. Non-requested projections return null.
 
         Returns:
-            Projection data with PCA/UMAP projections from ChromaDB metadata.
+            Projection data with PCA/UMAP projections.
             Generic structure - no hardcoded field names.
         """
-        import json
+        db = get_duckdb_client()
 
-        client = get_chromadb_client()
+        all_types = ["pca_2d", "pca_3d", "umap_2d", "umap_3d"]
+        requested = projection_types or all_types
 
-        # Load projection data — only parse requested projection types
-        projection_data = client.get_projection_data(name, projection_types=projection_types)
+        # Load one projection type at a time from DuckDB
+        # First pass: load items + first requested type to get shared data
+        projections = {}
+        items_data = None
 
-        # Parse topic summary if present
-        metadata = projection_data["metadata"].copy()
-        if metadata.get("has_topics"):
-            try:
-                # Get full collection info to access topic_summary
-                collection_info = client.get_collection_info(name)
-                topic_summary_str = collection_info.get("metadata", {}).get("topic_summary")
+        for ptype in requested:
+            data = db.get_projection_data(name, ptype)
+            if data is not None:
+                projections[ptype] = data["coordinates"]
+                if items_data is None:
+                    items_data = data  # capture ids, documents, metadata from first result
 
-                if topic_summary_str:
-                    topic_summary = topic_summary_str if isinstance(topic_summary_str, list) else json.loads(topic_summary_str)
-                    # Convert to TopicInfo objects
-                    topics = []
-                    for topic_data in topic_summary:
-                        keywords = [
-                            TopicKeyword(word=kw["word"], score=kw["score"])
-                            for kw in topic_data.get("keywords", [])
-                        ]
-                        topics.append(TopicInfo(
-                            topic_id=topic_data["topic_id"],
-                            keywords=keywords,
-                            label=topic_data.get("label"),
-                            count=topic_data.get("count", 0)
-                        ))
-                    metadata["topics"] = topics
-            except Exception as e:
-                print(f"Error parsing topic summary: {e}")
+        # If no projections found, try loading items without projections
+        if items_data is None:
+            ds = db.get_dataset(name)
+            if ds is None:
+                return None
+            # Load items directly
+            rows = db._conn.execute(
+                "SELECT id, document, metadata FROM items WHERE dataset_id = ? ORDER BY row_index",
+                [ds["id"]]
+            ).fetchall()
+            if not rows:
+                return None
+            import json as json_mod
+            items_data = {
+                "ids": [r[0] for r in rows],
+                "documents": [r[1] for r in rows],
+                "item_metadata": [json_mod.loads(r[2]) if isinstance(r[2], str) and r[2] else {} for r in rows],
+                "available_fields": [],
+                "metadata": {},
+            }
+            if items_data["item_metadata"]:
+                all_keys = set()
+                for m in items_data["item_metadata"]:
+                    all_keys.update(m.keys())
+                items_data["available_fields"] = sorted(all_keys)
+
+        # Build collection-level metadata
+        metadata = dict(items_data.get("metadata", {}))
+
+        # Load topic data from DuckDB
+        topic_data = db.get_active_topics(name)
+        if topic_data and topic_data.get("topics"):
+            metadata["has_topics"] = True
+            metadata["topic_count"] = topic_data.get("topic_count") or len([t for t in topic_data["topics"] if t["topic_id"] != -1])
+            metadata["topics_extracted_at"] = str(topic_data.get("extracted_at", ""))
+
+            topics = []
+            for t in topic_data["topics"]:
+                kw_list = t.get("keywords") or []
+                keywords = [TopicKeyword(word=kw["word"], score=kw["score"]) for kw in kw_list]
+                topics.append(TopicInfo(
+                    topic_id=t["topic_id"],
+                    keywords=keywords,
+                    label=t.get("label"),
+                    count=t.get("count", 0),
+                    subtopics=t.get("subtopics"),
+                ))
+            metadata["topics"] = topics
+
+            # Load topic hierarchy from extraction
+            if topic_data.get("topic_hierarchy"):
+                import json as json_mod
+                raw = topic_data["topic_hierarchy"]
+                metadata["topic_hierarchy"] = json_mod.loads(raw) if isinstance(raw, str) else raw
+
+        # Merge topic assignments into item_metadata so frontend sees topic_id/topic_label
+        if topic_data and topic_data.get("topics"):
+            ext_id = topic_data["id"]
+            assignments = db._conn.execute(
+                "SELECT item_id, topic_id, topic_label, subtopic_id, subtopic_label FROM topic_assignments WHERE extraction_id = ?",
+                [ext_id]
+            ).fetchall()
+            assign_map = {}
+            for row in assignments:
+                assign_map[row[0]] = {
+                    "topic_id": str(row[1]),
+                    "topic_label": row[2] or "Unclustered",
+                }
+                if row[3] is not None:
+                    assign_map[row[0]]["subtopic_id"] = str(row[3])
+                if row[4] is not None:
+                    assign_map[row[0]]["subtopic_label"] = row[4]
+
+            for i, item_id in enumerate(items_data["ids"]):
+                if item_id in assign_map:
+                    items_data["item_metadata"][i].update(assign_map[item_id])
+
+            # Add topic fields to available_fields
+            avail = set(items_data["available_fields"])
+            avail.update(["topic_id", "topic_label"])
+            if any("subtopic_id" in a for a in assign_map.values()):
+                avail.update(["subtopic_id", "subtopic_label"])
+            items_data["available_fields"] = sorted(avail)
 
         return ProjectionData(
-            ids=projection_data["ids"],
-            documents=projection_data["documents"],
-            item_metadata=projection_data["item_metadata"],
-            available_fields=projection_data["available_fields"],
-            pca_2d=projection_data["pca_2d"],
-            pca_3d=projection_data["pca_3d"],
-            umap_2d=projection_data["umap_2d"],
-            umap_3d=projection_data["umap_3d"],
+            ids=items_data["ids"],
+            documents=items_data["documents"],
+            item_metadata=items_data["item_metadata"],
+            available_fields=items_data["available_fields"],
+            pca_2d=projections.get("pca_2d"),
+            pca_3d=projections.get("pca_3d"),
+            umap_2d=projections.get("umap_2d"),
+            umap_3d=projections.get("umap_3d"),
             metadata=CollectionMetadata(**metadata)
         )
 
@@ -315,47 +383,76 @@ class Query:
         Returns:
             List of embedding items
         """
-        client = get_chromadb_client()
+        db = get_duckdb_client()
+        ds = db.get_dataset(collection_name)
+        if not ds:
+            return []
 
-        # Build include list
-        include = []
-        if include_embeddings:
-            include.append("embeddings")
-        if include_documents:
-            include.append("documents")
-        if include_metadata:
-            include.append("metadatas")
+        # TODO: implement proper filtering via DuckDB JSON queries
+        # For now, use ChromaDB path if filters are provided
+        if filters:
+            client = get_chromadb_client()
+            include = []
+            if include_embeddings:
+                include.append("embeddings")
+            if include_documents:
+                include.append("documents")
+            if include_metadata:
+                include.append("metadatas")
+            where = build_where_clause(filters)
+            results = client.get_all_items(
+                collection_name=collection_name,
+                limit=limit, offset=offset,
+                where=where, include=include,
+            )
+            items = []
+            for i, item_id in enumerate(results["ids"]):
+                item = EmbeddingItem(id=item_id)
+                if "embeddings" in results and results["embeddings"]:
+                    item.embedding = results["embeddings"][i]
+                if "documents" in results and results["documents"]:
+                    item.document = results["documents"][i]
+                if "metadatas" in results and results["metadatas"]:
+                    metadata = results["metadatas"][i]
+                    item.word = metadata.get("word")
+                    item.definition = metadata.get("definition")
+                    item.pos = metadata.get("pos")
+                    item.metadata = metadata
+                items.append(item)
+            return items
 
-        # Build where clause
-        where = build_where_clause(filters)
+        # No filters: load from DuckDB
+        rows = db._conn.execute(
+            "SELECT id, document, metadata FROM items WHERE dataset_id = ? ORDER BY row_index LIMIT ? OFFSET ?",
+            [ds["id"], limit, offset],
+        ).fetchall()
 
-        # Get results
-        results = client.get_all_items(
-            collection_name=collection_name,
-            limit=limit,
-            offset=offset,
-            where=where,
-            include=include
-        )
+        import json as json_mod
+        # If embeddings requested, fetch from ChromaDB
+        embedding_map = {}
+        if include_embeddings and rows:
+            client = get_chromadb_client()
+            collection = client.get_collection(collection_name, load_embedding_function=False)
+            batch_ids = [r[0] for r in rows]
+            emb_result = collection.get(ids=batch_ids, include=["embeddings"])
+            for eid, evec in zip(emb_result["ids"], emb_result["embeddings"]):
+                embedding_map[eid] = evec
 
-        # Convert to EmbeddingItem list
         items = []
-        for i, item_id in enumerate(results["ids"]):
+        for r in rows:
+            item_id, document, meta_raw = r
+            metadata = json_mod.loads(meta_raw) if isinstance(meta_raw, str) and meta_raw else {}
+
             item = EmbeddingItem(id=item_id)
-
-            if "embeddings" in results and results["embeddings"]:
-                item.embedding = results["embeddings"][i]
-
-            if "documents" in results and results["documents"]:
-                item.document = results["documents"][i]
-
-            if "metadatas" in results and results["metadatas"]:
-                metadata = results["metadatas"][i]
+            if include_documents:
+                item.document = document
+            if include_metadata:
                 item.word = metadata.get("word")
                 item.definition = metadata.get("definition")
                 item.pos = metadata.get("pos")
                 item.metadata = metadata
-
+            if include_embeddings and item_id in embedding_map:
+                item.embedding = embedding_map[item_id]
             items.append(item)
 
         return items
@@ -375,6 +472,9 @@ class Query:
     ) -> List[SemanticSearchResult]:
         """Perform semantic search on a collection.
 
+        ChromaDB handles vector similarity (returns IDs + distances).
+        DuckDB enriches results with documents + metadata.
+
         Args:
             collection_name: Name of the collection
             query: Text query to search for
@@ -389,11 +489,12 @@ class Query:
             List of search results with similarities
         """
         client = get_chromadb_client()
+        db = get_duckdb_client()
 
         # Build where clause
         where = build_where_clause(filters)
 
-        # Perform search
+        # ChromaDB: vector similarity search (IDs + distances)
         results = client.semantic_search(
             collection_name=collection_name,
             query_texts=[query] if query else None,
@@ -404,27 +505,36 @@ class Query:
             query_prompt=query_prompt
         )
 
-        # Convert to SemanticSearchResult list
+        if not results["ids"]:
+            return []
+
+        result_ids = results["ids"][0]
+
+        # DuckDB: enrich with documents + metadata
+        items_by_id = {}
+        enriched = db.get_items_by_ids(collection_name, result_ids)
+        for item in enriched:
+            items_by_id[item["id"]] = item
+
+        # Build results in ChromaDB's ranked order
         search_results = []
-        if results["ids"]:
-            for i, item_id in enumerate(results["ids"][0]):
-                metadata = results["metadatas"][0][i] if results.get("metadatas") else {}
-                document = results["documents"][0][i] if results.get("documents") else None
-                distance = results["distances"][0][i]
-                similarity = results["similarities"][0][i]
+        for i, item_id in enumerate(result_ids):
+            distance = results["distances"][0][i]
+            similarity = results["similarities"][0][i]
+            enriched_item = items_by_id.get(item_id, {})
 
-                result = SemanticSearchResult(
-                    id=item_id,
-                    document=document,
-                    metadata=metadata,
-                    distance=distance,
-                    similarity=similarity
-                )
+            result = SemanticSearchResult(
+                id=item_id,
+                document=enriched_item.get("document"),
+                metadata=enriched_item.get("metadata", {}),
+                distance=distance,
+                similarity=similarity
+            )
 
-                if include_embeddings and results.get("embeddings"):
-                    result.embedding = results["embeddings"][0][i]
+            if include_embeddings and results.get("embeddings"):
+                result.embedding = results["embeddings"][0][i]
 
-                search_results.append(result)
+            search_results.append(result)
 
         return search_results
 
@@ -440,6 +550,9 @@ class Query:
     ) -> List[SemanticSearchResult]:
         """Find similar items using an existing item's embedding.
 
+        ChromaDB: lookup embedding + vector search.
+        DuckDB: enrich results with documents + metadata.
+
         Args:
             collection_name: Name of the collection
             item_id: ID of the item to find similar items for
@@ -451,27 +564,21 @@ class Query:
             List of search results with similarities
         """
         client = get_chromadb_client()
-        # Don't load EF - we're using pre-computed embeddings
+        db = get_duckdb_client()
+
+        # ChromaDB: get the embedding for the item
         collection = client.get_collection(collection_name, load_embedding_function=False)
+        item_data = collection.get(ids=[item_id], include=["embeddings"])
 
-        # Get the embedding for the item
-        item_data = collection.get(
-            ids=[item_id],
-            include=["embeddings"]
-        )
-
-        # Check if embeddings exist and have data
         if (item_data is None or
             "embeddings" not in item_data or
             len(item_data["embeddings"]) == 0):
             return []
 
         query_embedding = item_data["embeddings"][0]
-
-        # Build where clause
         where = build_where_clause(filters)
 
-        # Perform search using the item's embedding
+        # ChromaDB: vector similarity search
         results = client.semantic_search(
             collection_name=collection_name,
             query_texts=None,
@@ -481,24 +588,27 @@ class Query:
             distance_metric=similarity_measure.value
         )
 
-        # Convert to SemanticSearchResult list (including the query item itself)
+        if not results["ids"]:
+            return []
+
+        result_ids = results["ids"][0]
+
+        # DuckDB: enrich with documents + metadata
+        items_by_id = {}
+        enriched = db.get_items_by_ids(collection_name, result_ids)
+        for item in enriched:
+            items_by_id[item["id"]] = item
+
         search_results = []
-        if results["ids"]:
-            for i, result_id in enumerate(results["ids"][0]):
-                metadata = results["metadatas"][0][i] if results.get("metadatas") else {}
-                document = results["documents"][0][i] if results.get("documents") else None
-                distance = results["distances"][0][i]
-                similarity = results["similarities"][0][i]
-
-                result = SemanticSearchResult(
-                    id=result_id,
-                    document=document,
-                    metadata=metadata,
-                    distance=distance,
-                    similarity=similarity
-                )
-
-                search_results.append(result)
+        for i, result_id in enumerate(result_ids):
+            enriched_item = items_by_id.get(result_id, {})
+            search_results.append(SemanticSearchResult(
+                id=result_id,
+                document=enriched_item.get("document"),
+                metadata=enriched_item.get("metadata", {}),
+                distance=results["distances"][0][i],
+                similarity=results["similarities"][0][i],
+            ))
 
         return search_results
 
@@ -525,9 +635,9 @@ class Query:
         Returns:
             TextSearchResponse with matching items.
         """
-        client = get_chromadb_client()
-        result = client.text_search(
-            collection_name=collection_name,
+        db = get_duckdb_client()
+        result = db.text_search(
+            dataset_name=collection_name,
             query=query,
             fields=fields,
             mode=mode.value,
