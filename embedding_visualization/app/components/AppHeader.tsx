@@ -5,12 +5,13 @@ import { useTheme } from 'next-themes';
 import { useState, KeyboardEvent } from 'react';
 import Link from 'next/link';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/ui-primitives/select';
+  Combobox,
+  ComboboxInput,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+} from '@/lib/ui-primitives/combobox';
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { Badge } from '@/lib/ui-primitives/badge';
 import { Separator } from '@/lib/ui-primitives/separator';
@@ -178,24 +179,30 @@ export function AppHeader({
               <span className="text-sm text-destructive">Error</span>
             </div>
           ) : collections && Object.keys(collections).length > 0 ? (
-            <Select
-              value={selectedCollection || undefined}
-              onValueChange={onCollectionChange}
+            <Combobox
+              value={selectedCollection || ''}
+              onValueChange={(val) => {
+                if (val) onCollectionChange(val);
+              }}
             >
-              <SelectTrigger className="w-[200px] lg:w-[280px] backdrop-blur-sm">
-                <SelectValue placeholder="Select collection" />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(collections).map(([key, collection]) => (
-                  <SelectItem key={key} value={key}>
-                    <span className="font-medium">{collection.display_name}</span>
-                    <span className="text-xs text-muted-foreground ml-2 hidden lg:inline">
-                      ({collection.count.toLocaleString()})
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <ComboboxInput
+                placeholder="Search collections..."
+                className="w-[200px] lg:w-[280px] backdrop-blur-sm"
+              />
+              <ComboboxContent>
+                <ComboboxEmpty>No collections found.</ComboboxEmpty>
+                <ComboboxList>
+                  {Object.entries(collections).map(([key, collection]) => (
+                    <ComboboxItem key={key} value={key} label={collection.display_name}>
+                      <span className="font-medium">{collection.display_name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        ({collection.count.toLocaleString()})
+                      </span>
+                    </ComboboxItem>
+                  ))}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
           ) : null}
           <Link href="/test-embed">
             <Button variant="outline" className="gap-2 embeddingButton">

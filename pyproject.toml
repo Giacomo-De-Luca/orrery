@@ -40,6 +40,7 @@ dependencies = [
     "hilbertcurve>=2.0.5",
     "duckdb>=1.2.0",
     "pytest>=9.0.2",
+    "google-genai>=1.73.1",
 ]
 
 [project.optional-dependencies]
