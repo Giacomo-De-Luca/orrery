@@ -16,8 +16,7 @@ import { useTextSearch } from '../lib/hooks/useTextSearch';
 import { isInTemporalRange } from '../lib/utils/temporalFilters';
 import { useVisualizationStore } from '../lib/stores/useVisualizationStore';
 import type { HighlightMap } from '../lib/types/types';
-
-
+import { getSaeInfo } from '../lib/utils/saeCollections';
 
 export default function Home() {
   const { collections, loading: collectionsLoading, error: collectionsError } = useCollections();
@@ -274,6 +273,7 @@ export default function Home() {
                   semanticSearchResults={semanticSearchResults}
                   searchQueryLabel={searchQueryLabel}
                   embeddingDim={data.metadata.embedding_dim}
+                  saeInfo={getSaeInfo(selectedCollection)}
                   metadata={{
                     pca_2d_variance: data.metadata.pca_2d_variance,
                     pca_3d_variance: data.metadata.pca_3d_variance,
@@ -287,6 +287,7 @@ export default function Home() {
                   queryPromptName={queryPromptName}
                   onQueryPromptNameChange={setQueryPromptName}
                   availableFields={data.availableFields}
+                  itemMetadata={data.itemMetadata}
                   topics={selectedCollectionTopics}
                   topicSearchMode={topicSearch.mode}
                   onTopicSearchModeChange={topicSearch.setMode}

@@ -82,6 +82,7 @@ export function useTextSearch(
     setLoading(true);
 
     try {
+      const filters = config?.filters?.length ? config.filters : undefined;
       const result = await executeSearch({
         variables: {
           collectionName,
@@ -89,6 +90,7 @@ export function useTextSearch(
           fields: config?.fields ?? undefined,
           mode: config?.mode ?? 'CONTAINS',
           caseSensitive: config?.caseSensitive ?? false,
+          filters,
         },
         context: { fetchOptions: { signal: controller.signal } },
       });
@@ -110,7 +112,7 @@ export function useTextSearch(
         setLoading(false);
       }
     }
-  }, [collectionName, searchQuery, config?.fields, config?.mode, config?.caseSensitive, executeSearch]);
+  }, [collectionName, searchQuery, config?.fields, config?.mode, config?.caseSensitive, config?.filters, executeSearch]);
 
   // Trigger search whenever parameters change.
   useEffect(() => {

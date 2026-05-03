@@ -16,6 +16,8 @@ import { ToggleGroup, ToggleGroupItem } from '@/lib/ui-primitives/toggle-group';
 import type { TopicConfigInput } from '@/lib/graphql/mutations';
 
 export interface TopicConfigState {
+  clusteringMethod: string;      // "hdbscan" | "kmeans" | "gmm" | "spectral"
+  nClusters: number;
   minTopicSize: number;
   nKeywords: number;
   projectionType: string;
@@ -30,6 +32,8 @@ export interface TopicConfigState {
 }
 
 export const DEFAULT_TOPIC_CONFIG: TopicConfigState = {
+  clusteringMethod: 'hdbscan',
+  nClusters: 10,
   minTopicSize: 10,
   nKeywords: 10,
   projectionType: 'umap_2d',
@@ -49,7 +53,11 @@ export function toTopicConfigInput(state: TopicConfigState): TopicConfigInput {
     nKeywords: state.nKeywords,
     projectionType: state.projectionType,
     useLlmLabels: state.useLlmLabels,
+    clusteringMethod: state.clusteringMethod,
   };
+  if (state.clusteringMethod !== 'hdbscan') {
+    config.nClusters = state.nClusters;
+  }
   if (state.useLlmLabels) {
     config.llmProvider = state.llmProvider;
     config.llmModel = state.llmModel;
@@ -77,21 +85,62 @@ export function TopicConfigForm({ value, onChange }: TopicConfigFormProps) {
 
   return (
     <div className="space-y-4">
-      {/* Clustering Config */}
+      {/* Clustering Method */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="min-topic-size">Min Topic Size</Label>
-          <span className="text-sm text-muted-foreground">{value.minTopicSize}</span>
-        </div>
-        <Slider
-          id="min-topic-size"
-          min={5}
-          max={50}
-          step={1}
-          value={[value.minTopicSize]}
-          onValueChange={([v]) => update({ minTopicSize: v })}
-        />
+        <Label>Clustering Method</Label>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={value.clusteringMethod}
+          onValueChange={(v) => { if (v) update({ clusteringMethod: v }); }}
+        >
+          <ToggleGroupItem value="hdbscan" className="text-xs">HDBSCAN</ToggleGroupItem>
+          <ToggleGroupItem value="kmeans" className="text-xs">KMeans</ToggleGroupItem>
+          <ToggleGroupItem value="gmm" className="text-xs">GMM</ToggleGroupItem>
+          <ToggleGroupItem value="spectral" className="text-xs">Spectral</ToggleGroupItem>
+        </ToggleGroup>
+        {value.clusteringMethod === 'spectral' && (
+          <p className="text-xs text-muted-foreground">
+            Spectral clustering uses O(n<sup>2</sup>) memory. Best for datasets under 20k points.
+          </p>
+        )}
       </div>
+
+      {/* HDBSCAN: min topic size */}
+      {value.clusteringMethod === 'hdbscan' && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="min-topic-size">Min Topic Size</Label>
+            <span className="text-sm text-muted-foreground">{value.minTopicSize}</span>
+          </div>
+          <Slider
+            id="min-topic-size"
+            min={5}
+            max={50}
+            step={1}
+            value={[value.minTopicSize]}
+            onValueChange={([v]) => update({ minTopicSize: v })}
+          />
+        </div>
+      )}
+
+      {/* KMeans/GMM/Spectral: number of clusters */}
+      {value.clusteringMethod !== 'hdbscan' && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="n-clusters">Number of Clusters</Label>
+            <span className="text-sm text-muted-foreground">{value.nClusters}</span>
+          </div>
+          <Slider
+            id="n-clusters"
+            min={2}
+            max={100}
+            step={1}
+            value={[value.nClusters]}
+            onValueChange={([v]) => update({ nClusters: v })}
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">

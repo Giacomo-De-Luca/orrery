@@ -86,10 +86,13 @@ export class HazeRenderer {
   private sprites: THREE.Sprite[] = [];
   private lastW = 0;
   private lastH = 0;
+  private isDark: boolean;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, isDark = true) {
+    this.isDark = isDark;
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: false, antialias: false });
-    this.renderer.setClearColor(0x000000, 1); // opaque black — invisible with screen blend
+    // Screen blend: black = invisible. Multiply blend: white = invisible.
+    this.renderer.setClearColor(isDark ? 0x000000 : 0xffffff, 1);
     this.renderer.setPixelRatio(1);            // match Plotly's CSS-pixel viewport
 
     this.scene = new THREE.Scene();
@@ -186,17 +189,20 @@ export class HazeRenderer {
         if (accepted.length >= hazeCount) break;
       }
 
+      // In light mode, darken the color so multiply blend produces visible tints
+      const spriteColor = this.isDark ? color : color.clone().multiplyScalar(0.5);
+
       // Place haze sprites at accepted positions
       for (const p of accepted) {
 
         const material = new THREE.SpriteMaterial({
           map: texture,
-          color,
+          color: spriteColor,
           opacity: hazeOpacity,
           transparent: true,
           depthTest: false,
           depthWrite: false,
-          blending: THREE.AdditiveBlending,
+          blending: this.isDark ? THREE.AdditiveBlending : THREE.NormalBlending,
         });
 
         const sprite = new THREE.Sprite(material);
@@ -217,12 +223,12 @@ export class HazeRenderer {
       for (let i = 0; i < CORE_SPRITES; i++) {
         const material = new THREE.SpriteMaterial({
           map: texture,
-          color,
+          color: spriteColor,
           opacity: coreOpacity,
           transparent: true,
           depthTest: false,
           depthWrite: false,
-          blending: THREE.AdditiveBlending,
+          blending: this.isDark ? THREE.AdditiveBlending : THREE.NormalBlending,
         });
 
         const sprite = new THREE.Sprite(material);

@@ -46,6 +46,16 @@ from .types import (
     # Note: JobProgress is imported from subscriptions (not types) to avoid circular imports
     # Helper functions
     build_where_clause,
+    # SAE types
+    SaeLogitEntry,
+    SaeFeature,
+    SaeActivation,
+    SaeModelInfo,
+    SaeFeatureSearchResult,
+    SaeActivationQuantileGroup,
+    IngestSaeFeaturesInput,
+    IngestSaeActivationsInput,
+    IngestSaeResult,
 )
 
 # Create the schema with subscription support
@@ -90,4 +100,14 @@ __all__ = [
     "EmbeddingJob",
     "JobProgress",
     "build_where_clause",
+    # SAE types
+    "SaeLogitEntry",
+    "SaeFeature",
+    "SaeActivation",
+    "SaeModelInfo",
+    "SaeFeatureSearchResult",
+    "SaeActivationQuantileGroup",
+    "IngestSaeFeaturesInput",
+    "IngestSaeActivationsInput",
+    "IngestSaeResult",
 ]

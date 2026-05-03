@@ -27,10 +27,11 @@ const ICON_ORBIT = {
   path: 'M20.341 6.484A10 10 0 0 1 10.266 21.85 M3.659 17.516A10 10 0 0 1 13.74 2.152 M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M17 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M3 19a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
 };
 
-const ICON_HOME = {
+const ICON_UNDO = {
   width: 24,
   height: 24,
-  path: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8 M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  // Lucide "undo-2" icon: curved arrow pointing back
+  path: 'M9 14l-5-5 5-5 M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11',
 };
 
 const ICON_BOX_SELECT = {
@@ -58,6 +59,24 @@ const ICON_MAXIMIZE = {
 export function build3DModeBarButtons(
   plotlyLib: any,
 ): ModeBarButtonAny[][] {
+  // Helper: read the live camera from glplot so relayout preserves the current view
+  const getCurrentCamera = (gd: any) => {
+    const scene = gd._fullLayout?.scene;
+    const glplot = scene?._scene?.glplot;
+    const cam = glplot?.camera;
+    if (!cam) return undefined;
+    // glplot stores eye/center as arrays — convert to {x,y,z} for Plotly layout
+    const toXYZ = (v: any) => {
+      if (Array.isArray(v)) return { x: v[0], y: v[1], z: v[2] };
+      return v;
+    };
+    return {
+      eye: toXYZ(cam.eye),
+      center: toXYZ(cam.center || [0, 0, 0]),
+      up: toXYZ(cam.up || [0, 0, 1]),
+    };
+  };
+
   return [
     [
       {
@@ -65,7 +84,13 @@ export function build3DModeBarButtons(
         title: '',
         icon: ICON_MOVE,
         click: (gd: any) => {
-          if (plotlyLib) plotlyLib.relayout(gd, { 'scene.dragmode': 'pan' });
+          if (!plotlyLib) return;
+          // Preserve current camera when switching drag mode
+          const cam = getCurrentCamera(gd);
+          plotlyLib.relayout(gd, {
+            'scene.dragmode': 'pan',
+            ...(cam && { 'scene.camera': cam }),
+          });
         },
       },
       {
@@ -73,13 +98,19 @@ export function build3DModeBarButtons(
         title: '',
         icon: ICON_ORBIT,
         click: (gd: any) => {
-          if (plotlyLib) plotlyLib.relayout(gd, { 'scene.dragmode': 'orbit' });
+          if (!plotlyLib) return;
+          // Preserve current camera when switching drag mode
+          const cam = getCurrentCamera(gd);
+          plotlyLib.relayout(gd, {
+            'scene.dragmode': 'orbit',
+            ...(cam && { 'scene.camera': cam }),
+          });
         },
       },
       {
         name: 'resetCameraDefault3d',
         title: '',
-        icon: ICON_HOME,
+        icon: ICON_UNDO,
         click: (gd: any) => {
           if (plotlyLib) plotlyLib.relayout(gd, { 'scene.camera': gd._fullLayout?.scene?._scene?.viewInitial?.camera });
         },

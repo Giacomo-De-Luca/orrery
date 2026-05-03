@@ -68,6 +68,8 @@ Visualization state is managed by a **Zustand store** (`lib/stores/useVisualizat
 | Temporal analysis | `lib/utils/temporalAnalysis.ts` (field detection + cross-tab) + `lib/utils/temporalFilters.ts` (shared range predicates) + `lib/hooks/useTemporalData.ts` + `app/components/charts/TemporalFilterChart.tsx` |
 | Zoom limit | `lib/hooks/useZoomLimit.ts` — shared wheel-intercept hook for both 2D and 3D scatter plots |
 | Resize hooks | `lib/hooks/useVerticalResize.ts` — drag-to-resize with collapse-on-release for Legend |
+| SAE Feature Explorer | `app/features/page.tsx` + `components/` — token-strip heatmaps, logit charts, feature search |
+| SAE collection map | `lib/utils/saeCollections.ts` — single source of truth for collection ↔ SAE model/layer mapping |
 | UI primitives | `lib/ui-primitives/` — 34 Shadcn components |
 
 ## GraphQL Integration

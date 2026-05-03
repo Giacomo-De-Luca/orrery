@@ -69,6 +69,10 @@ interface CollectionManagerTabProps {
   generateLlmLabels: (input: GenerateLlmLabelsInput) => Promise<GenerateLlmLabelsResult | null>;
   llmLabelsLoading: boolean;
   lastLlmLabelsResult: GenerateLlmLabelsResult | null;
+  // Topic label renaming
+  renameTopicLabel: (collectionName: string, topicId: number, newLabel: string, isSubtopic?: boolean) => Promise<{ error?: string | null } | null>;
+  // Load previously-extracted topics
+  fetchCollectionTopics: (collectionName: string) => Promise<ExtractTopicsResult | null>;
 }
 
 // Read-only fields that cannot be edited (computed/system)
@@ -223,6 +227,8 @@ export function CollectionManagerTab({
   generateLlmLabels,
   llmLabelsLoading,
   lastLlmLabelsResult,
+  renameTopicLabel,
+  fetchCollectionTopics,
 }: CollectionManagerTabProps) {
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -252,6 +258,14 @@ export function CollectionManagerTab({
     setFieldErrors({});
     setDetailsOpen(true);
   }, [selectedCollection]);
+
+  // Auto-load previously-extracted topics when a collection with topics is selected
+  useEffect(() => {
+    if (selectedCollectionInfo?.metadata?.has_topics &&
+        lastTopicsResult?.collectionName !== selectedCollectionInfo.name) {
+      fetchCollectionTopics(selectedCollectionInfo.name);
+    }
+  }, [selectedCollectionInfo, lastTopicsResult?.collectionName, fetchCollectionTopics]);
 
   // Handle saving a single field
   const handleFieldSave = useCallback(async (
@@ -726,6 +740,7 @@ export function CollectionManagerTab({
           llmLabelsLoading={llmLabelsLoading}
           lastLlmLabelsResult={lastLlmLabelsResult}
           hasSubtopics={!!metadata.topic_hierarchy}
+          renameTopicLabel={renameTopicLabel}
         />
       )}
 

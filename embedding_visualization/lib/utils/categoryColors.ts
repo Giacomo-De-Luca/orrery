@@ -283,7 +283,33 @@ export const POS_PRESET: CategoryColorPreset = {
  * Fixed color for unclustered/noise points (HDBSCAN label -1).
  * Distinct from topic palette colors, clearly readable as "uncategorized".
  */
-export const UNCLUSTERED_COLOR = '#e416be';
+export const UNCLUSTERED_COLOR = '#B878A8';
+
+/* 
+
+PURPLE 
+'#e416be';
+BLUE NOT COOL
+"#178dd9";
+
+Dusty magenta (faded nebula glow):
+- #B878A8 — soft mauve-magenta
+- #C480B0 — slightly warmer, more pink nebula
+- #A070A0 — deeper, more purple-shifted dust
+
+Galactic blue (cool distant starlight):
+- #7E92B8 — steel blue, very "deep field"
+- #8898C0 — slightly brighter, periwinkle-ish
+- #6E82A8 — darker, more ink-sky
+
+Golden tint (warm ancient starlight):
+- #C4A868 — classic muted gold
+- #B8A078 — dustier, more champagne
+- #D0B878 — brighter, honey starlight
+
+
+
+*/
 
 /**
  * Topic clustering colors.

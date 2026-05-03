@@ -12,6 +12,15 @@ sys.path.insert(0, str(backend_dir))
 
 
 @pytest.fixture
+def db():
+    """Fresh in-memory DuckDB client for each test."""
+    from backend.clients.duckdb_client import DuckDBClient
+    client = DuckDBClient(db_path=":memory:")
+    yield client
+    client.close()
+
+
+@pytest.fixture
 def sample_metadata():
     """Sample item metadata for testing."""
     return [

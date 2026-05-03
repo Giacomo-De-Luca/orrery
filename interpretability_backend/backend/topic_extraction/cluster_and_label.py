@@ -124,24 +124,42 @@ class ClassTfidfTransformer(TfidfTransformer):
 
 class GenerateTopics:
 
+    SUPPORTED_METHODS = ("hdbscan", "kmeans", "gmm", "spectral")
+
     def __init__(
         self,
         documents: List[str],
-        #reduced_embeddings: np.ndarray = np.array([]),
         min_topic_size: int = 10,
         n_gram_range: Tuple[int, int] = (1, 1),
         language: Union[str, None] = None,
+        clustering_method: str = "hdbscan",
+        n_clusters: Union[int, None] = None,
 
         ):
         self.documents = documents
-        #self.embeddings = reduced_embeddings
         self.min_topic_size = min_topic_size
-        self.hdbscan_model = HDBSCAN(
-                min_cluster_size=self.min_topic_size,
-                metric="euclidean",
-                cluster_selection_method="eom",
-                prediction_data=True,
+        self.clustering_method = clustering_method
+        self.n_clusters = n_clusters
+
+        if clustering_method not in self.SUPPORTED_METHODS:
+            raise ValueError(
+                f"Unknown clustering_method '{clustering_method}'. "
+                f"Supported: {self.SUPPORTED_METHODS}"
             )
+        if clustering_method != "hdbscan" and n_clusters is None:
+            raise ValueError(
+                f"n_clusters is required when clustering_method='{clustering_method}'"
+            )
+
+        if clustering_method == "hdbscan":
+            self.hdbscan_model = HDBSCAN(
+                    min_cluster_size=self.min_topic_size,
+                    metric="euclidean",
+                    cluster_selection_method="eom",
+                    prediction_data=True,
+                )
+        else:
+            self.hdbscan_model = None
         self.docs_id = range(len(self.documents))
         self.n_gram_range = n_gram_range
         self.language = language
@@ -152,25 +170,52 @@ class GenerateTopics:
         
         
     def generate_clusters(self, reduced_embeddings: np.ndarray) -> pd.DataFrame:
-        """Cluster reduced embeddings using HDBSCAN.
+        """Cluster reduced embeddings using the configured clustering method.
 
         Arguments:
-            reduced_embeddings: The reduced sentence embeddings with UMAP
+            reduced_embeddings: The reduced sentence embeddings (from UMAP/PCA)
 
         Returns:
-            documents: DataFrame with documents and their corresponding IDs and newly added Topics
-            probabilities: The distribution of probabilities
+            documents_df: DataFrame with Document_ID, Document, and Topic columns
         """
-        logger.info("Cluster - Start clustering the reduced embeddings")
-        self.hdbscan_model.fit(reduced_embeddings)
-        labels = self.hdbscan_model.labels_
+        logger.info(f"Cluster - Start clustering with method='{self.clustering_method}'")
+
+        if self.n_clusters is not None and self.n_clusters > len(reduced_embeddings):
+            raise ValueError(
+                f"n_clusters ({self.n_clusters}) exceeds number of data points ({len(reduced_embeddings)})"
+            )
+
+        if self.clustering_method == "hdbscan":
+            self.hdbscan_model.fit(reduced_embeddings)
+            labels = self.hdbscan_model.labels_
+        elif self.clustering_method == "kmeans":
+            from sklearn.cluster import KMeans
+            labels = KMeans(
+                n_clusters=self.n_clusters, random_state=42, n_init=10
+            ).fit_predict(reduced_embeddings)
+        elif self.clustering_method == "gmm":
+            from sklearn.mixture import GaussianMixture
+            labels = GaussianMixture(
+                n_components=self.n_clusters, random_state=42
+            ).fit_predict(reduced_embeddings)
+        elif self.clustering_method == "spectral":
+            from sklearn.cluster import SpectralClustering
+            labels = SpectralClustering(
+                n_clusters=self.n_clusters, random_state=42,
+                affinity="nearest_neighbors"
+            ).fit_predict(reduced_embeddings)
+        else:
+            raise ValueError(f"Unknown clustering method: {self.clustering_method}")
+
         documents_df = pd.DataFrame({
             "Document_ID": self.docs_id,
             "Document": self.documents,
             "Topic": labels
         })
-        logger.info("Cluster - Completed \u2713")
-        
+        n_clusters = len(set(labels) - {-1})
+        n_noise = int((np.array(labels) == -1).sum())
+        logger.info(f"Cluster - Completed ✓ ({n_clusters} clusters, {n_noise} noise points)")
+
         return documents_df
 
     def extract_topics(self, documents_df: pd.DataFrame, n_words: int = 10) -> Dict[int, List[Tuple[str, float]]]:

@@ -37,6 +37,10 @@ class TopicExtractionConfig:
     projection_type: str = "umap_2d"  # pca_2d, pca_3d, umap_2d, umap_3d
     language: Optional[str] = "english"  # Stop words language for CountVectorizer
 
+    # Clustering config
+    clustering_method: str = "hdbscan"  # hdbscan, kmeans, gmm, spectral
+    n_clusters: Optional[int] = None  # Required for kmeans, gmm, spectral
+
     # Reduction config
     reduce_topics: bool = False
     reduction_method: str = "auto"  # "auto" or "fixed_n"
@@ -110,6 +114,8 @@ def _sync_topics_to_duckdb(
                 "n_keywords": getattr(config, "n_keywords", None),
                 "projection_type": getattr(config, "projection_type", None),
                 "used_llm": getattr(config, "use_llm_labels", None),
+                "clustering_method": getattr(config, "clustering_method", None),
+                "n_clusters": getattr(config, "n_clusters", None),
             }
 
         ext_id = db.create_topic_extraction(
@@ -259,14 +265,16 @@ def extract_topics(config: TopicExtractionConfig) -> TopicExtractionResult:
             job_id=job_id, status="running",
             items_processed=0, total_items=total_items,
             current_batch=1, total_batches=5,
-            message="Running HDBSCAN clustering..."
+            message=f"Running {config.clustering_method.upper()} clustering..."
         )
-        logger.info(f"Clustering with min_topic_size={config.min_topic_size}")
+        logger.info(f"Clustering with method={config.clustering_method}, min_topic_size={config.min_topic_size}, n_clusters={config.n_clusters}")
 
         generator = GenerateTopics(
             documents=documents,
             min_topic_size=config.min_topic_size,
-            language=config.language
+            language=config.language,
+            clustering_method=config.clustering_method,
+            n_clusters=config.n_clusters,
         )
         documents_df = generator.generate_clusters(reduced_embeddings)
 

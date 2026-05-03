@@ -184,6 +184,7 @@ export interface TextSearchConfig {
   fields: string[] | null; // null = document only (default, fastest)
   mode: TextSearchMode;
   caseSensitive: boolean;
+  filters: FilterInput[];  // metadata pre-filters (empty = no filters)
 }
 
 export interface TextSearchMatch {
@@ -289,5 +290,49 @@ export interface NestedColorMap {
   topicCounts: Record<string, number>;
   /** Map from subtopic label → point count */
   subtopicCounts: Record<string, number>;
+}
+
+// ============ SAE (Sparse Autoencoder) types ============
+
+export interface SaeLogitEntry {
+  token: string;
+  score: number;
+}
+
+export interface SaeFeature {
+  modelId: string;
+  saeId: string;
+  featureIndex: number;
+  density: number | null;
+  label: string | null;
+  topLogits: SaeLogitEntry[] | null;
+  bottomLogits: SaeLogitEntry[] | null;
+}
+
+export interface SaeActivation {
+  id: string;
+  tokens: string[];
+  values: number[];
+  maxValue: number;
+  maxValueTokenIndex: number;
+}
+
+export interface SaeModelInfo {
+  modelId: string;
+  saeId: string;
+  featureCount: number;
+  activationCount: number;
+}
+
+export interface SaeFeatureSearchResult {
+  feature: SaeFeature;
+  activationCount: number | null;
+}
+
+export interface SaeActivationQuantileGroup {
+  quantile: number;
+  binMin: number;
+  binMax: number;
+  activations: SaeActivation[];
 }
 

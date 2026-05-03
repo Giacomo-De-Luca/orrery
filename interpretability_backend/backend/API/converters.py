@@ -139,6 +139,8 @@ def build_topic_extraction_config(
         llm_provider=tc.llm_provider if tc else "gemini",
         llm_model=tc.llm_model if tc else "gemini-3-flash-preview",
         projection_type=tc.projection_type if tc else "umap_2d",
+        clustering_method=tc.clustering_method if tc else "hdbscan",
+        n_clusters=tc.n_clusters if tc else None,
         reduce_topics=reduce_topics,
         reduction_method=reduction_method,
         nr_topics=nr_topics,

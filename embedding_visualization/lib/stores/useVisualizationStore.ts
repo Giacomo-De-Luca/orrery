@@ -40,6 +40,7 @@ export interface VisualizationStoreState {
   showContours: boolean;
   hideUnclustered: boolean;
   showClusterLabels: boolean;
+  showAllClusterLabels: boolean;
   nebulaMode: boolean;
 
   // Muting / filtering
@@ -77,7 +78,7 @@ interface VisualizationStoreActions {
   // Boolean toggles (generic setter)
   setFlag: (flag: keyof Pick<VisualizationStoreState,
     'showOnlyHighlighted' | 'showLabels' | 'showContours' |
-    'hideUnclustered' | 'showClusterLabels' | 'nebulaMode' |
+    'hideUnclustered' | 'showClusterLabels' | 'showAllClusterLabels' | 'nebulaMode' |
     'hideFilteredPoints'
   >, value: boolean) => void;
 
@@ -112,13 +113,14 @@ export const useVisualizationStore = create<VisualizationStore>()(
     categoricalPalette: undefined,
     nestedColorMode: false,
     searchQuery: '',
-    textSearchConfig: { fields: null, mode: 'CONTAINS', caseSensitive: false },
+    textSearchConfig: { fields: null, mode: 'CONTAINS', caseSensitive: false, filters: [] },
     distanceMetric: 'COSINE',
     showOnlyHighlighted: false,
     showLabels: false,
     showContours: false,
     hideUnclustered: false,
     showClusterLabels: false,
+    showAllClusterLabels: false,
     nebulaMode: false,
     mutedCategories: [],
     hideFilteredPoints: false,
@@ -169,7 +171,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
       temporalRange: null,
       hideFilteredPoints: false,
       mutedPointOpacity: 0.15,
-      textSearchConfig: { fields: null, mode: 'CONTAINS', caseSensitive: false },
+      textSearchConfig: { fields: null, mode: 'CONTAINS', caseSensitive: false, filters: [] },
     }),
   }))
 );

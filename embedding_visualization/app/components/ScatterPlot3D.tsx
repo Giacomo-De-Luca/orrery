@@ -16,6 +16,7 @@ import { HazeRenderer } from '../../lib/utils/hazeRenderer';
 import { computeMVP, projectToScreen, multiplyMat4Vec4 } from '../utils/labelPlacement';
 import { buildDataToSceneMatrix, getSceneNormalization } from '../utils/rendeding';
 import { CollisionGrid, type BoundingBox } from '../../lib/utils/collisionGrid';
+import { useVisualizationStore } from '../../lib/stores/useVisualizationStore';
 import { build3DModeBarButtons } from '../../lib/utils/plotlyIcons';
 
 type PlotlyData = Partial<PlotData>;
@@ -132,6 +133,8 @@ interface ScatterPlot3DProps {
   mutedPointOpacity?: number;
   /** Custom numeric range overrides for cmin/cmax */
   customNumericRange?: CustomNumericRange | null;
+  /** Callback when a point is right-clicked (contextmenu) */
+  onPointContextMenu?: (point: Point3D, event: MouseEvent) => void;
 }
 
 interface PlotlyGraphDiv extends HTMLDivElement {
@@ -171,8 +174,10 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   hideFilteredPoints = false,
   mutedPointOpacity,
   customNumericRange,
+  onPointContextMenu,
 }: ScatterPlot3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const hoveredPointRef = useRef<Point3D | null>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
 
   // Deferred selected point: only sync to traces when highlightedIndices changes,
@@ -185,8 +190,8 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   const isDark = theme === 'dark';
   // Theme colors
   const axisColor = isDark ? '#e2e8f0' : '#0f172a';
-  const sceneBg = 'rgba(0,0,0,0)';
-  const paperBg = 'rgba(0,0,0,0)';
+  const sceneBg = isDark ? 'rgba(0,0,0,0)' : '#ffffff';
+  const paperBg = isDark ? 'rgba(0,0,0,0)' : '#ffffff';
 
   // --- Camera & Bounds Logic ---
   const bounds = useMemo(() => {
@@ -422,7 +427,8 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     if (showOnlyHighlighted) return [];
 
     const traces: PlotlyData[] = [];
-    const dimOpacity = markerStyle.opacity;
+    // Light backgrounds wash out colored points — boost opacity
+    const dimOpacity = Math.min(markerStyle.opacity * (isDark ? 1.0 : 1.6), 1.0);
     const dimSize = Math.max(markerStyle.size * 0.7, 2);
     const mutedOp = dimOpacity * (mutedPointOpacity ?? 0.20);
 
@@ -549,7 +555,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   }, [
     displayPoints, markerStyle, showOnlyHighlighted,
     categoryValues, colorMap, activeNumericData, effectiveRange, plotlyColorScale, categoryField,
-    mutedCategories, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity
+    mutedCategories, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity, isDark
   ]);
 
   // Bounds of active (non-muted) points — computed directly from muting state
@@ -907,21 +913,23 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'center';
 
-      // Sort labels by distance to camera (closest first), size as tiebreaker
+      const showAll = useVisualizationStore.getState().showAllClusterLabels;
+
+      // In "show all" mode, iterate all labels at full opacity; otherwise sort by distance and cap
       const camEye = glplot.camera.eye as number[];
-      const sorted = clusterData!.labels
-        .map(cl => {
-          const sp = multiplyMat4Vec4(model, [cl.x, cl.y, cl.z, 1]);
-          const dx = sp[0] - camEye[0], dy = sp[1] - camEye[1], dz = sp[2] - camEye[2];
-          return { ...cl, dist: Math.sqrt(dx * dx + dy * dy + dz * dz) };
-        })
-        .sort((a, b) => a.dist - b.dist || b.pointCount - a.pointCount);
+      const sorted = showAll
+        ? clusterData!.labels.map(cl => ({ ...cl, dist: 0 }))
+        : clusterData!.labels
+            .map(cl => {
+              const sp = multiplyMat4Vec4(model, [cl.x, cl.y, cl.z, 1]);
+              const dx = sp[0] - camEye[0], dy = sp[1] - camEye[1], dz = sp[2] - camEye[2];
+              return { ...cl, dist: Math.sqrt(dx * dx + dy * dy + dz * dz) };
+            })
+            .sort((a, b) => a.dist - b.dist || b.pointCount - a.pointCount);
 
-      // Adaptive cap
       const total = sorted.length;
-      const maxLabels = Math.min(total, Math.max(8, Math.floor(Math.sqrt(total) * 2.5)));
+      const maxLabels = showAll ? total : Math.min(total, Math.max(8, Math.floor(Math.sqrt(total) * 2.5)));
 
-      // Opacity: closest → 1.0, farthest in capped set → 0.5
       const minD = sorted[0]?.dist ?? 0;
       const maxD = sorted[Math.min(maxLabels, total) - 1]?.dist ?? 1;
       const dRange = maxD - minD || 1;
@@ -944,15 +952,14 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
         };
         if (!grid.insert(realBox)) continue;
 
-        const labelOpacity = 1.0 - 0.5 * ((cl.dist - minD) / dRange);
-        ctx.globalAlpha = labelOpacity;
+        ctx.globalAlpha = showAll ? 1.0 : 1.0 - 0.35 * ((cl.dist - minD) / dRange);
         ctx.font = clusterFontStr;
         ctx.textAlign = 'center';
-        ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-        ctx.lineWidth = 4;
+        ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = isDark ? 4 : 3;
         ctx.lineJoin = 'round';
         ctx.strokeText(cl.label, sx, sy);
-        ctx.fillStyle = desaturateHex(cl.color, 0.1, isDark);
+        ctx.fillStyle = desaturateHex(cl.color, isDark ? 0.1 : 0.35, isDark);
         ctx.fillText(cl.label, sx, sy);
       }
     }
@@ -1171,7 +1178,22 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     // Rebuild all traces: base + current overlays
     const allTraces = [...baseTraces, ...overlayTraces];
     overlayTraceCountRef.current = overlayTraces.length;
-    Plotly.react(gd, allTraces as PlotData[], layout, config);
+
+    // Preserve current camera position so Plotly.react doesn't reset the view
+    // (layout contains defaultEye/defaultCenter which would snap the camera back)
+    const cam = currentCameraRef.current;
+    const preservedLayout = {
+      ...layout,
+      scene: {
+        ...layout.scene,
+        camera: {
+          eye: cam.eye,
+          center: cam.center,
+          up: { x: 0, y: 0, z: 1 },
+        },
+      },
+    };
+    Plotly.react(gd, allTraces as PlotData[], preservedLayout, config);
   }, [baseTraces, layout, config, plotReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 3. Update overlay traces (highlights + selected) — single atomic redraw
@@ -1271,6 +1293,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
           y = pt.yaxis?.l2p?.(pt.y) ?? (containerRect?.height ?? 300) / 2;
         }
 
+        hoveredPointRef.current = point;
         setTooltipData({
           x,
           y,
@@ -1282,7 +1305,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
         });
       }
     };
-    const handlePlotlyUnhover = () => setTooltipData(null);
+    const handlePlotlyUnhover = () => { hoveredPointRef.current = null; setTooltipData(null); };
     if (typeof graphDiv.on === 'function') {
       graphDiv.on('plotly_hover', handlePlotlyHover);
       graphDiv.on('plotly_unhover', handlePlotlyUnhover);
@@ -1346,7 +1369,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
 
     syncCanvasLayout();
 
-    const haze = new HazeRenderer(canvas);
+    const haze = new HazeRenderer(canvas, isDark);
     hazeRendererRef.current = haze;
     haze.resize(canvas.clientWidth, canvas.clientHeight);
     haze.updateClusters(clusterDataMap, points.length);
@@ -1376,10 +1399,17 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
       hazeRendererRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nebulaMode, plotReady, clusterDataMap]);
+  }, [nebulaMode, plotReady, clusterDataMap, isDark]);
 
   return (
-    <div ref={containerRef} className={className ?? 'h-full w-full'} style={{ position: 'relative' }}>
+    <div ref={containerRef} className={className ?? 'h-full w-full'} style={{ position: 'relative' }}
+      onContextMenu={(e) => {
+        if (onPointContextMenu && hoveredPointRef.current) {
+          e.preventDefault();
+          onPointContextMenu(hoveredPointRef.current, e.nativeEvent);
+        }
+      }}
+    >
       <div ref={graphDivRef as React.RefObject<HTMLDivElement>} style={{ width: '100%', height: '100%' }} />
       {nebulaMode && (
         <canvas
@@ -1390,7 +1420,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
             top: 0,
             pointerEvents: 'none',
             zIndex: 5,
-            mixBlendMode: 'screen',
+            mixBlendMode: isDark ? 'screen' : 'multiply',
           }}
         />
       )}

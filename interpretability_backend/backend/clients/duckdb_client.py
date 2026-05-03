@@ -186,6 +186,42 @@ class DuckDBClient:
             )
         """)
 
+        # -- SAE (Sparse Autoencoder) tables --
+
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS sae_features (
+                model_id        VARCHAR NOT NULL,
+                sae_id          VARCHAR NOT NULL,
+                feature_index   INTEGER NOT NULL,
+                density         FLOAT,
+                label           VARCHAR,
+                top_logits      JSON,
+                bottom_logits   JSON,
+                created_at      TIMESTAMP DEFAULT current_timestamp,
+                PRIMARY KEY (model_id, sae_id, feature_index)
+            )
+        """)
+
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS sae_activations (
+                id                   VARCHAR PRIMARY KEY,
+                model_id             VARCHAR NOT NULL,
+                sae_id               VARCHAR NOT NULL,
+                feature_index        INTEGER NOT NULL,
+                tokens               JSON NOT NULL,
+                act_values           JSON NOT NULL,
+                max_value            FLOAT,
+                max_value_token_idx  INTEGER,
+                min_value            FLOAT,
+                qualifying_token_idx INTEGER
+            )
+        """)
+
+        self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sae_act_feature
+            ON sae_activations (model_id, sae_id, feature_index)
+        """)
+
         # FTS extension
         self._conn.execute("INSTALL fts")
         self._conn.execute("LOAD fts")
@@ -232,15 +268,65 @@ class DuckDBClient:
         return name
 
     def list_datasets(self) -> List[Dict[str, Any]]:
-        """List all datasets with cached item counts. Returns [{name, metadata, count}]."""
+        """List all datasets with cached item counts. Returns [{name, metadata, count}].
+
+        Enriches each dataset with vector_collection fields (embedding_provider,
+        embedding_model, embedding_dim, has_projections, has_topics) from the
+        first matching vector_collection row.
+        """
         rows = self._conn.execute(
             "SELECT * FROM datasets ORDER BY created_at DESC"
         ).fetchall()
         columns = [desc[0] for desc in self._conn.description]
+
+        # Build lookup of vector_collections keyed by dataset_name
+        vc_rows = self._conn.execute(
+            "SELECT * FROM vector_collections ORDER BY created_at"
+        ).fetchall()
+        vc_columns = [desc[0] for desc in self._conn.description]
+        vc_by_dataset: Dict[str, Dict[str, Any]] = {}
+        for vr in vc_rows:
+            vc = dict(zip(vc_columns, vr))
+            ds_name = vc["dataset_name"]
+            if ds_name not in vc_by_dataset:
+                vc_by_dataset[ds_name] = vc
+
+        # Build lookup of active topic extractions keyed by collection_name
+        te_rows = self._conn.execute(
+            "SELECT collection_name, topic_count, topic_hierarchy FROM topic_extractions WHERE is_active = TRUE"
+        ).fetchall()
+        te_by_collection: Dict[str, Dict[str, Any]] = {}
+        for tr in te_rows:
+            te_by_collection[tr[0]] = {"topic_count": tr[1], "topic_hierarchy": tr[2]}
+
         result = []
         for row in rows:
             d = _sanitize_for_json(dict(zip(columns, row)))
             count = d.pop("item_count", 0)
+            # Enrich with vector collection data
+            vc = vc_by_dataset.get(d["name"])
+            if vc:
+                d["embedding_provider"] = vc.get("embedding_provider")
+                d["embedding_model"] = vc.get("embedding_model")
+                d["embedding_dim"] = vc.get("embedding_dim")
+                d["has_projections"] = vc.get("has_projections", False)
+                d["has_topics"] = vc.get("has_topics", False)
+                # Enrich with topic extraction data
+                te = te_by_collection.get(vc["collection_name"])
+                if te:
+                    d["topic_count"] = te["topic_count"]
+                    if te["topic_hierarchy"]:
+                        d["topic_hierarchy"] = te["topic_hierarchy"]
+            # Parse extra_metadata JSON into top-level keys
+            extra = d.pop("extra_metadata", None)
+            if extra:
+                if isinstance(extra, str):
+                    try:
+                        extra = json.loads(extra)
+                    except (json.JSONDecodeError, TypeError):
+                        extra = None
+                if isinstance(extra, dict):
+                    d.update(extra)
             result.append({"name": d["name"], "metadata": d, "count": count})
         return result
 
@@ -388,17 +474,14 @@ class DuckDBClient:
             result.append(item)
         return result
 
-    def get_filtered_items(self, dataset_name: str, filters: List[Dict],
-                           limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """Get items with JSON metadata filtering.
+    def _build_metadata_where(self, filters: List[Dict]) -> tuple:
+        """Build SQL WHERE clause from metadata filter dicts.
 
-        filters: list of {field, operator, value} dicts.
-                 operator: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin
+        Returns (where_sql, params) where where_sql is "cond1 AND cond2 ..."
+        or "TRUE" if no filters.
         """
-        table = self._items_table(dataset_name)
-
-        where_parts = []
-        params = []
+        where_parts: List[str] = []
+        params: List = []
 
         for f in filters:
             field = f["field"]
@@ -439,6 +522,17 @@ class DuckDBClient:
                     params.extend([str(v) for v in value])
 
         where_sql = " AND ".join(where_parts) if where_parts else "TRUE"
+        return where_sql, params
+
+    def get_filtered_items(self, dataset_name: str, filters: List[Dict],
+                           limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get items with JSON metadata filtering.
+
+        filters: list of {field, operator, value} dicts.
+                 operator: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin
+        """
+        table = self._items_table(dataset_name)
+        where_sql, params = self._build_metadata_where(filters)
         params.extend([limit, offset])
 
         rows = self._conn.execute(
@@ -639,12 +733,29 @@ class DuckDBClient:
     def text_search(self, dataset_name: str, query: str,
                     fields: Optional[List[str]] = None,
                     mode: str = "contains",
-                    case_sensitive: bool = False) -> Dict[str, Any]:
-        """Search documents and/or metadata fields within one dataset."""
+                    case_sensitive: bool = False,
+                    filters: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """Search documents and/or metadata fields within one dataset.
+
+        When filters are provided, results are restricted to items matching
+        the metadata filters (same operators as get_filtered_items).
+        """
         ds = self.get_dataset(dataset_name)
         if not ds:
             return {"matches": [], "total_matches": 0}
         table = self._items_table(dataset_name)
+
+        # Pre-filter: compute allowed IDs from metadata filters
+        allowed_ids: Optional[Set[str]] = None
+        if filters:
+            where_sql, where_params = self._build_metadata_where(filters)
+            rows = self._conn.execute(
+                f"SELECT id FROM {table} WHERE {where_sql}",
+                where_params,
+            ).fetchall()
+            allowed_ids = {r[0] for r in rows}
+            if not allowed_ids:
+                return {"matches": [], "total_matches": 0}
 
         if fields is None:
             fields = ["__document__"]
@@ -654,6 +765,8 @@ class DuckDBClient:
 
         if "__document__" in fields:
             doc_matches = self._search_documents(table, query, mode, case_sensitive)
+            if allowed_ids is not None:
+                doc_matches = [m for m in doc_matches if m["id"] in allowed_ids]
             for m in doc_matches:
                 if m["id"] not in seen_ids:
                     matches.append(m)
@@ -662,6 +775,8 @@ class DuckDBClient:
         meta_fields = [f for f in fields if f != "__document__"]
         if meta_fields:
             meta_matches = self._search_metadata_fields(table, query, meta_fields, mode, case_sensitive)
+            if allowed_ids is not None:
+                meta_matches = [m for m in meta_matches if m["id"] in allowed_ids]
             for m in meta_matches:
                 if m["id"] not in seen_ids:
                     matches.append(m)
@@ -879,11 +994,39 @@ class DuckDBClient:
         )
 
     def update_subtopic_label(self, extraction_id: str, subtopic_id: int, new_label: str) -> None:
-        """Update a subtopic label in topic_assignments."""
+        """Update a subtopic label in topic_assignments and topic_info.subtopics JSON."""
+        # Get old label before update
+        old_row = self._conn.execute(
+            "SELECT DISTINCT subtopic_label FROM topic_assignments WHERE extraction_id = ? AND subtopic_id = ?",
+            [extraction_id, subtopic_id],
+        ).fetchone()
+        old_label = old_row[0] if old_row else None
+
+        # Update topic_assignments
         self._conn.execute(
             "UPDATE topic_assignments SET subtopic_label = ? WHERE extraction_id = ? AND subtopic_id = ?",
             [new_label, extraction_id, subtopic_id],
         )
+
+        # Also update topic_info.subtopics JSON array
+        if old_label:
+            topic_row = self._conn.execute(
+                "SELECT DISTINCT topic_id FROM topic_assignments WHERE extraction_id = ? AND subtopic_id = ?",
+                [extraction_id, subtopic_id],
+            ).fetchone()
+            if topic_row:
+                topic_id = topic_row[0]
+                info_row = self._conn.execute(
+                    "SELECT subtopics FROM topic_info WHERE extraction_id = ? AND topic_id = ?",
+                    [extraction_id, topic_id],
+                ).fetchone()
+                if info_row and info_row[0]:
+                    subtopics = json.loads(info_row[0]) if isinstance(info_row[0], str) else info_row[0]
+                    subtopics = [new_label if s == old_label else s for s in subtopics]
+                    self._conn.execute(
+                        "UPDATE topic_info SET subtopics = ? WHERE extraction_id = ? AND topic_id = ?",
+                        [json.dumps(subtopics), extraction_id, topic_id],
+                    )
 
     # ------------------------------------------------------------------
     # Field Analysis
@@ -921,3 +1064,254 @@ class DuckDBClient:
             analysis[key] = {"total": row[0], "distinct_count": row[1]}
 
         return analysis
+
+    # ------------------------------------------------------------------
+    # SAE Features
+    # ------------------------------------------------------------------
+
+    def insert_sae_features_batch(
+        self, model_id: str, sae_id: str, df: pd.DataFrame
+    ) -> int:
+        """Bulk-insert SAE feature rows.
+
+        Expected DataFrame columns: feature_index, density, label,
+        top_logits (JSON str), bottom_logits (JSON str).
+        """
+        insert_df = pd.DataFrame({
+            "model_id": model_id,
+            "sae_id": sae_id,
+            "feature_index": df["feature_index"],
+            "density": df["density"],
+            "label": df["label"],
+            "top_logits": df["top_logits"],
+            "bottom_logits": df["bottom_logits"],
+            "created_at": pd.Timestamp.now(),
+        })
+        self._conn.execute(
+            "INSERT OR REPLACE INTO sae_features "
+            "SELECT * FROM insert_df"
+        )
+        count = self._conn.execute(
+            "SELECT COUNT(*) FROM sae_features WHERE model_id = ? AND sae_id = ?",
+            [model_id, sae_id],
+        ).fetchone()[0]
+        logger.info("Inserted SAE features for %s/%s — %d total", model_id, sae_id, count)
+        return int(count)
+
+    def insert_sae_activations_batch(self, df: pd.DataFrame) -> int:
+        """Bulk-insert SAE activation rows.
+
+        Expected DataFrame columns: id, model_id, sae_id, feature_index,
+        tokens (JSON str), act_values (JSON str), max_value,
+        max_value_token_idx, min_value, qualifying_token_idx.
+        """
+        self._conn.execute(
+            "INSERT OR REPLACE INTO sae_activations "
+            "SELECT * FROM df"
+        )
+        return len(df)
+
+    def get_sae_feature(
+        self, model_id: str, sae_id: str, feature_index: int
+    ) -> Optional[Dict[str, Any]]:
+        """Return a single SAE feature or None."""
+        row = self._conn.execute(
+            "SELECT feature_index, density, label, top_logits, bottom_logits "
+            "FROM sae_features "
+            "WHERE model_id = ? AND sae_id = ? AND feature_index = ?",
+            [model_id, sae_id, feature_index],
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "model_id": model_id,
+            "sae_id": sae_id,
+            "feature_index": row[0],
+            "density": row[1],
+            "label": row[2],
+            "top_logits": json.loads(row[3]) if isinstance(row[3], str) else row[3],
+            "bottom_logits": json.loads(row[4]) if isinstance(row[4], str) else row[4],
+        }
+
+    def get_sae_activations(
+        self, model_id: str, sae_id: str, feature_index: int, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Return top activations for a feature, ordered by max_value desc."""
+        rows = self._conn.execute(
+            "SELECT id, tokens, act_values, max_value, max_value_token_idx "
+            "FROM sae_activations "
+            "WHERE model_id = ? AND sae_id = ? AND feature_index = ? "
+            "ORDER BY max_value DESC LIMIT ?",
+            [model_id, sae_id, feature_index, limit],
+        ).fetchall()
+        return [
+            {
+                "id": r[0],
+                "tokens": json.loads(r[1]) if isinstance(r[1], str) else r[1],
+                "values": json.loads(r[2]) if isinstance(r[2], str) else r[2],
+                "max_value": r[3],
+                "max_value_token_index": r[4],
+            }
+            for r in rows
+        ]
+
+    def search_sae_features(
+        self,
+        model_id: str,
+        sae_id: str,
+        query: Optional[str] = None,
+        min_density: Optional[float] = None,
+        max_density: Optional[float] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Search features by label (ILIKE) and/or density range."""
+        conditions = ["model_id = ?", "sae_id = ?"]
+        params: list = [model_id, sae_id]
+
+        if query:
+            conditions.append("label ILIKE ?")
+            params.append(f"%{query}%")
+        if min_density is not None:
+            conditions.append("density >= ?")
+            params.append(min_density)
+        if max_density is not None:
+            conditions.append("density <= ?")
+            params.append(max_density)
+
+        where = " AND ".join(conditions)
+        params.extend([limit, offset])
+
+        rows = self._conn.execute(
+            f"SELECT feature_index, density, label, top_logits, bottom_logits "
+            f"FROM sae_features WHERE {where} "
+            f"ORDER BY density DESC "
+            f"LIMIT ? OFFSET ?",
+            params,
+        ).fetchall()
+
+        results = []
+        for r in rows:
+            feat = {
+                "model_id": model_id,
+                "sae_id": sae_id,
+                "feature_index": r[0],
+                "density": r[1],
+                "label": r[2],
+                "top_logits": json.loads(r[3]) if isinstance(r[3], str) else r[3],
+                "bottom_logits": json.loads(r[4]) if isinstance(r[4], str) else r[4],
+            }
+            results.append(feat)
+        return results
+
+    def list_sae_models(self) -> List[Dict[str, Any]]:
+        """List distinct (model_id, sae_id) pairs with counts."""
+        rows = self._conn.execute("""
+            SELECT f.model_id, f.sae_id, COUNT(*) AS feature_count,
+                   COALESCE(a.act_count, 0) AS activation_count
+            FROM sae_features f
+            LEFT JOIN (
+                SELECT model_id, sae_id, COUNT(*) AS act_count
+                FROM sae_activations GROUP BY model_id, sae_id
+            ) a ON f.model_id = a.model_id AND f.sae_id = a.sae_id
+            GROUP BY f.model_id, f.sae_id, a.act_count
+        """).fetchall()
+        return [
+            {
+                "model_id": r[0],
+                "sae_id": r[1],
+                "feature_count": r[2],
+                "activation_count": r[3],
+            }
+            for r in rows
+        ]
+
+    def get_sae_feature_densities(
+        self, model_id: str, sae_id: str
+    ) -> List[float]:
+        """Return all non-null density values for a model/sae pair."""
+        rows = self._conn.execute(
+            "SELECT density FROM sae_features "
+            "WHERE model_id = ? AND sae_id = ? AND density IS NOT NULL "
+            "ORDER BY feature_index",
+            [model_id, sae_id],
+        ).fetchall()
+        return [r[0] for r in rows]
+
+    def get_sae_activations_by_quantile(
+        self, model_id: str, sae_id: str, feature_index: int,
+        n_quantiles: int = 5, per_quantile_limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Return activations grouped into quantile bins by max_value.
+
+        Uses NTILE window function. Quantile 1 = highest activations.
+        Returns list of dicts with keys: quantile, bin_min, bin_max, activations.
+        """
+        rows = self._conn.execute("""
+            WITH ranked AS (
+                SELECT id, tokens, act_values, max_value, max_value_token_idx,
+                       NTILE(?) OVER (ORDER BY max_value DESC) AS quantile
+                FROM sae_activations
+                WHERE model_id = ? AND sae_id = ? AND feature_index = ?
+            ),
+            numbered AS (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY quantile ORDER BY max_value DESC
+                ) AS rn
+                FROM ranked
+            )
+            SELECT quantile, id, tokens, act_values, max_value, max_value_token_idx
+            FROM numbered
+            WHERE rn <= ?
+            ORDER BY quantile, max_value DESC
+        """, [n_quantiles, model_id, sae_id, feature_index, per_quantile_limit]).fetchall()
+
+        # Also get bin boundaries per quantile
+        bounds = self._conn.execute("""
+            WITH ranked AS (
+                SELECT max_value,
+                       NTILE(?) OVER (ORDER BY max_value DESC) AS quantile
+                FROM sae_activations
+                WHERE model_id = ? AND sae_id = ? AND feature_index = ?
+            )
+            SELECT quantile, MIN(max_value), MAX(max_value)
+            FROM ranked GROUP BY quantile ORDER BY quantile
+        """, [n_quantiles, model_id, sae_id, feature_index]).fetchall()
+
+        bounds_map = {b[0]: (b[1], b[2]) for b in bounds}
+
+        # Group rows by quantile
+        groups: Dict[int, List[Dict[str, Any]]] = {}
+        for r in rows:
+            q = r[0]
+            act = {
+                "id": r[1],
+                "tokens": json.loads(r[2]) if isinstance(r[2], str) else r[2],
+                "values": json.loads(r[3]) if isinstance(r[3], str) else r[3],
+                "max_value": r[4],
+                "max_value_token_index": r[5],
+            }
+            groups.setdefault(q, []).append(act)
+
+        return [
+            {
+                "quantile": q,
+                "bin_min": bounds_map.get(q, (0, 0))[0],
+                "bin_max": bounds_map.get(q, (0, 0))[1],
+                "activations": acts,
+            }
+            for q, acts in sorted(groups.items())
+        ]
+
+    def delete_sae_data(self, model_id: str, sae_id: str) -> bool:
+        """Delete all SAE features and activations for a model/sae pair."""
+        self._conn.execute(
+            "DELETE FROM sae_activations WHERE model_id = ? AND sae_id = ?",
+            [model_id, sae_id],
+        )
+        self._conn.execute(
+            "DELETE FROM sae_features WHERE model_id = ? AND sae_id = ?",
+            [model_id, sae_id],
+        )
+        logger.info("Deleted SAE data for %s/%s", model_id, sae_id)
+        return True

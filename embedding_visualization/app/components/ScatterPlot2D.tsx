@@ -75,6 +75,8 @@ interface ScatterPlot2DProps {
   topicLabelToIdMap?: Map<string, number> | null;
   /** Custom numeric range overrides for cmin/cmax */
   customNumericRange?: CustomNumericRange | null;
+  /** Callback when a point is right-clicked (contextmenu) */
+  onPointContextMenu?: (point: Point2D, event: MouseEvent) => void;
 }
 
 
@@ -101,9 +103,11 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   onClusterLabelClick,
   topicLabelToIdMap,
   customNumericRange,
+  onPointContextMenu,
 }: ScatterPlot2DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphDivRef = useRef<any>(null);
+  const hoveredPointRef = useRef<Point2D | null>(null);
   const { width, height } = useContainerDimensions(containerRef, { width: 800, height: 600 });
 
   // Deferred selected point: only sync to traces when highlightedIndices changes,
@@ -160,8 +164,8 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
 
   const axisColor = isDark ? '#e2e8f0' : '#0f172a';
   const gridColor = isDark ? '#334155' : '#e5e7eb';
-  const plotBg = isDark ? "rgba(0,0,0,0" : "rgba(0,0,0,0)";
-  const paperBg = isDark ? "rgba(0,0,0,0" : "rgba(0,0,0,0";
+  const plotBg = isDark ? 'rgba(0,0,0,0)' : '#ffffff';
+  const paperBg = isDark ? 'rgba(0,0,0,0)' : '#ffffff';
   const legendBg = isDark ? 'rgba(2,6,23,0.85)' : 'rgba(255,255,255,0.85)';
 
   // Build color map based on category values
@@ -319,11 +323,11 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
 
       // Draw label with stroke outline for readability (same style as 3D)
       ctx.globalAlpha = 1.0;
-      ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.85)';
-      ctx.lineWidth = 4;
+      ctx.strokeStyle = isDark ? 'rgba(15, 23, 42, 0.85)' : 'rgba(255, 255, 255, 0.6)';
+      ctx.lineWidth = isDark ? 4 : 3;
       ctx.lineJoin = 'round';
       ctx.strokeText(cl.label, screen.x, screen.y);
-      ctx.fillStyle = desaturateHex(cl.color, 0.3, isDark);
+      ctx.fillStyle = desaturateHex(cl.color, isDark ? 0.3 : 0.45, isDark);
       ctx.fillText(cl.label, screen.x, screen.y);
 
       boxes.push(box);
@@ -475,9 +479,14 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   }, [colorScale]);
 
   // Calculate dynamic marker style based on point count
-  const markerStyle = useMemo(() => {
+  const markerStyleRaw = useMemo(() => {
     return calculateMarkerStyle(points.length);
   }, [points.length]);
+  // Light backgrounds wash out colored points — boost opacity
+  const markerStyle = useMemo(() => ({
+    ...markerStyleRaw,
+    opacity: Math.min(markerStyleRaw.opacity * (isDark ? 1.0 : 1.6), 1.0),
+  }), [markerStyleRaw, isDark]);
 
   // Calculate dynamic highlight scaling based on point count
   const highlightScale = useMemo(() => {
@@ -1359,6 +1368,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
       // Only show tooltip for points with valid customdata (skip glow layers)
       if (pt.customdata && typeof pt.customdata === 'object') {
         const point = pt.customdata as unknown as Point2D;
+        hoveredPointRef.current = point;
         const mouseEvent = event.event as MouseEvent;
         // Get position relative to container
         const containerRect = containerRef.current?.getBoundingClientRect();
@@ -1378,6 +1388,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   };
 
   const handleUnhover = () => {
+    hoveredPointRef.current = null;
     setTooltipData(null);
   };
 
@@ -1389,6 +1400,12 @@ return (
     className={className ?? 'h-full w-full'}
     style={{ position: 'relative' }}
     onClickCapture={hasClusterLabels ? handleContainerClick : undefined}
+    onContextMenu={(e) => {
+      if (onPointContextMenu && hoveredPointRef.current) {
+        e.preventDefault();
+        onPointContextMenu(hoveredPointRef.current, e.nativeEvent);
+      }
+    }}
   >
     <Plot
       data={plotData}

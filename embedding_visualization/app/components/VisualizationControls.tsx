@@ -48,7 +48,7 @@ export function VisualizationControls({
   const {
     method, mode, colorByField, selectedDimensions,
     nebulaMode, hideUnclustered, nestedColorMode,
-    showClusterLabels, hideFilteredPoints, mutedPointOpacity,
+    showClusterLabels, showAllClusterLabels, hideFilteredPoints, mutedPointOpacity,
     distanceMetric, tooltipFields,
   } = store(useShallow((s) => ({
     method: s.method,
@@ -59,6 +59,7 @@ export function VisualizationControls({
     hideUnclustered: s.hideUnclustered,
     nestedColorMode: s.nestedColorMode,
     showClusterLabels: s.showClusterLabels,
+    showAllClusterLabels: s.showAllClusterLabels,
     hideFilteredPoints: s.hideFilteredPoints,
     mutedPointOpacity: s.mutedPointOpacity,
     distanceMetric: s.distanceMetric,
@@ -305,6 +306,21 @@ export function VisualizationControls({
                 className="font-normal cursor-pointer text-sm"
               >
                 Show cluster labels
+              </Label>
+            </div>
+          )}
+          {showClusterLabels && (
+            <div className="flex items-center space-x-2 mt-1 ml-6">
+              <Checkbox
+                id="show-all-cluster-labels"
+                checked={showAllClusterLabels ?? false}
+                onCheckedChange={(checked) => store.getState().setFlag('showAllClusterLabels', checked === true)}
+              />
+              <Label
+                htmlFor="show-all-cluster-labels"
+                className="font-normal cursor-pointer text-sm"
+              >
+                Show all labels
               </Label>
             </div>
           )}

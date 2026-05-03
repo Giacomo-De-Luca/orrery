@@ -8,6 +8,7 @@ from .types import (
     CollectionMetadata,
     EmbeddingItem,
     EmbeddingJob,
+    ExtractTopicsResult,
     FilterInput,
     HFConfigInfo,
     HFDatasetInfo,
@@ -24,6 +25,13 @@ from .types import (
     TextSearchResponse,
     TopicInfo,
     TopicKeyword,
+    # SAE types
+    SaeFeature,
+    SaeActivation,
+    SaeLogitEntry,
+    SaeModelInfo,
+    SaeFeatureSearchResult,
+    SaeActivationQuantileGroup,
 )
 
 # Import clients at module level
@@ -38,6 +46,22 @@ from ..clients.local_data_client import (
 from .chromadb_instance import get_chromadb_client
 from .duckdb_instance import get_duckdb_client
 from ..services.job_state import get_job_state_service, JobStatus
+
+
+def _dicts_to_topic_infos(topic_dicts: list) -> list:
+    """Convert DuckDB topic dicts to Strawberry TopicInfo list."""
+    topics = []
+    for t in topic_dicts:
+        kw_list = t.get("keywords") or []
+        keywords = [TopicKeyword(word=kw["word"], score=kw["score"]) for kw in kw_list]
+        topics.append(TopicInfo(
+            topic_id=t["topic_id"],
+            keywords=keywords,
+            label=t.get("label"),
+            count=t.get("count", 0),
+            subtopics=t.get("subtopics"),
+        ))
+    return topics
 
 
 @strawberry.type
@@ -296,18 +320,7 @@ class Query:
             metadata["topic_count"] = topic_data.get("topic_count") or len([t for t in topic_data["topics"] if t["topic_id"] != -1])
             metadata["topics_extracted_at"] = str(topic_data.get("extracted_at", ""))
 
-            topics = []
-            for t in topic_data["topics"]:
-                kw_list = t.get("keywords") or []
-                keywords = [TopicKeyword(word=kw["word"], score=kw["score"]) for kw in kw_list]
-                topics.append(TopicInfo(
-                    topic_id=t["topic_id"],
-                    keywords=keywords,
-                    label=t.get("label"),
-                    count=t.get("count", 0),
-                    subtopics=t.get("subtopics"),
-                ))
-            metadata["topics"] = topics
+            metadata["topics"] = _dicts_to_topic_infos(topic_data["topics"])
 
             # Load topic hierarchy from extraction
             if topic_data.get("topic_hierarchy"):
@@ -354,6 +367,28 @@ class Query:
             umap_2d=projections.get("umap_2d"),
             umap_3d=projections.get("umap_3d"),
             metadata=CollectionMetadata(**metadata)
+        )
+
+    @strawberry.field
+    def collection_topics(self, collection_name: str, info=None) -> Optional[ExtractTopicsResult]:
+        """Get previously-extracted topics for a collection without re-running extraction."""
+        db = get_duckdb_client()
+        topic_data = db.get_active_topics(collection_name)
+        if not topic_data or not topic_data.get("topics"):
+            return None
+
+        topics = _dicts_to_topic_infos(topic_data["topics"])
+        num_topics = len([t for t in topics if t.topic_id != -1])
+        num_noise = sum(t.count for t in topics if t.topic_id == -1)
+
+        return ExtractTopicsResult(
+            collection_name=collection_name,
+            num_topics=num_topics,
+            num_noise_points=num_noise,
+            topics=topics,
+            duration_seconds=0.0,
+            num_topics_before_reduction=topic_data.get("num_topics_before_reduction"),
+            reduction_applied=topic_data.get("reduction_applied", False),
         )
 
     @strawberry.field
@@ -614,6 +649,7 @@ class Query:
         fields: Optional[List[str]] = None,
         mode: TextSearchMode = TextSearchMode.CONTAINS,
         case_sensitive: bool = False,
+        filters: Optional[List[FilterInput]] = None,
         info=None,
     ) -> TextSearchResponse:
         """Full-text search across document content and/or metadata fields.
@@ -625,17 +661,23 @@ class Query:
                 None (default) searches documents only.
             mode: CONTAINS (substring) or EXACT (full value).
             case_sensitive: Whether matching is case-sensitive.
+            filters: Optional metadata filters to restrict search scope.
 
         Returns:
             TextSearchResponse with matching items.
         """
         db = get_duckdb_client()
+        filter_dicts = None
+        if filters:
+            filter_dicts = [{"field": f.field, "operator": f.operator.value, "value": f.value}
+                            for f in filters]
         result = db.text_search(
             dataset_name=collection_name,
             query=query,
             fields=fields,
             mode=mode.value,
             case_sensitive=case_sensitive,
+            filters=filter_dicts,
         )
 
         matches = [
@@ -651,3 +693,126 @@ class Query:
             matches=matches,
             total_matches=result["total_matches"],
         )
+
+    # ------------------------------------------------------------------
+    # SAE (Sparse Autoencoder) queries
+    # ------------------------------------------------------------------
+
+    @strawberry.field
+    def sae_models(self, info) -> List[SaeModelInfo]:
+        """List available SAE model/layer combinations with counts."""
+        db = get_duckdb_client()
+        rows = db.list_sae_models()
+        return [
+            SaeModelInfo(
+                model_id=r["model_id"],
+                sae_id=r["sae_id"],
+                feature_count=r["feature_count"],
+                activation_count=r["activation_count"],
+            )
+            for r in rows
+        ]
+
+    @strawberry.field
+    def sae_feature(
+        self, model_id: str, sae_id: str, feature_index: int, info=None
+    ) -> Optional[SaeFeature]:
+        """Get a single SAE feature with metadata and logits."""
+        db = get_duckdb_client()
+        row = db.get_sae_feature(model_id, sae_id, feature_index)
+        if not row:
+            return None
+        return _dict_to_sae_feature(row)
+
+    @strawberry.field
+    def sae_activations(
+        self, model_id: str, sae_id: str, feature_index: int,
+        limit: int = 20, info=None,
+    ) -> List[SaeActivation]:
+        """Get top activations for a feature, ordered by max value."""
+        db = get_duckdb_client()
+        rows = db.get_sae_activations(model_id, sae_id, feature_index, limit)
+        return [
+            SaeActivation(
+                id=r["id"],
+                tokens=r["tokens"],
+                values=r["values"],
+                max_value=r["max_value"],
+                max_value_token_index=r["max_value_token_index"],
+            )
+            for r in rows
+        ]
+
+    @strawberry.field
+    def sae_feature_search(
+        self, model_id: str, sae_id: str,
+        query: Optional[str] = None,
+        min_density: Optional[float] = None,
+        max_density: Optional[float] = None,
+        limit: int = 50, offset: int = 0,
+        info=None,
+    ) -> List[SaeFeatureSearchResult]:
+        """Search features by label text and/or density range."""
+        db = get_duckdb_client()
+        features = db.search_sae_features(
+            model_id, sae_id,
+            query=query, min_density=min_density,
+            max_density=max_density, limit=limit, offset=offset,
+        )
+        return [
+            SaeFeatureSearchResult(feature=_dict_to_sae_feature(f))
+            for f in features
+        ]
+
+    @strawberry.field
+    def sae_feature_densities(
+        self, model_id: str, sae_id: str, info=None,
+    ) -> List[float]:
+        """Return all density values for a model/sae pair (for histogram)."""
+        db = get_duckdb_client()
+        return db.get_sae_feature_densities(model_id, sae_id)
+
+    @strawberry.field
+    def sae_activations_by_quantile(
+        self, model_id: str, sae_id: str, feature_index: int,
+        n_quantiles: int = 5, per_quantile_limit: int = 5,
+        info=None,
+    ) -> List[SaeActivationQuantileGroup]:
+        """Return activations grouped by quantile bins."""
+        db = get_duckdb_client()
+        groups = db.get_sae_activations_by_quantile(
+            model_id, sae_id, feature_index, n_quantiles, per_quantile_limit,
+        )
+        return [
+            SaeActivationQuantileGroup(
+                quantile=g["quantile"],
+                bin_min=g["bin_min"],
+                bin_max=g["bin_max"],
+                activations=[
+                    SaeActivation(
+                        id=a["id"],
+                        tokens=a["tokens"],
+                        values=a["values"],
+                        max_value=a["max_value"],
+                        max_value_token_index=a["max_value_token_index"],
+                    )
+                    for a in g["activations"]
+                ],
+            )
+            for g in groups
+        ]
+
+
+def _dict_to_sae_feature(d: dict) -> SaeFeature:
+    """Convert a DuckDB feature dict to a Strawberry SaeFeature."""
+    top = d.get("top_logits") or []
+    bottom = d.get("bottom_logits") or []
+    return SaeFeature(
+        model_id=d["model_id"],
+        sae_id=d["sae_id"],
+        feature_index=d["feature_index"],
+        density=d.get("density"),
+        label=d.get("label"),
+        top_logits=[SaeLogitEntry(token=e["token"], score=e["score"]) for e in top] if top else None,
+        bottom_logits=[SaeLogitEntry(token=e["token"], score=e["score"]) for e in bottom] if bottom else None,
+    )

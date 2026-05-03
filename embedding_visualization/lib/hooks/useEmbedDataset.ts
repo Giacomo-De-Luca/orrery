@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useMutation, useLazyQuery, useApolloClient } from '@apollo/client/react';
 import {
   GET_HF_DATASET_INFO,
@@ -11,6 +11,8 @@ import {
   EMBED_LOCAL_FILE,
   DELETE_COLLECTION,
   UPDATE_COLLECTION_METADATA,
+  RENAME_TOPIC_LABEL,
+  REGENERATE_TOPIC_LABEL,
   type HFDatasetInfo,
   type HFDatasetPreview,
   type LocalFileInfo,
@@ -25,8 +27,9 @@ import {
   type ReduceTopicsResult,
   type GenerateLlmLabelsInput,
   type GenerateLlmLabelsResult,
+  type RenameTopicLabelResult,
 } from '../graphql/mutations';
-import { GET_COLLECTIONS, EXTRACT_TOPICS, REDUCE_TOPICS, GENERATE_LLM_LABELS } from '../graphql/queries';
+import { GET_COLLECTIONS, EXTRACT_TOPICS, REDUCE_TOPICS, GENERATE_LLM_LABELS, GET_COLLECTION_TOPICS } from '../graphql/queries';
 
 // ========== Hook Return Types ==========
 
@@ -86,6 +89,13 @@ export interface UseEmbedDatasetReturn {
   generateLlmLabels: (input: GenerateLlmLabelsInput) => Promise<GenerateLlmLabelsResult | null>;
   llmLabelsLoading: boolean;
   lastLlmLabelsResult: GenerateLlmLabelsResult | null;
+
+  // Topic label renaming
+  renameTopicLabel: (collectionName: string, topicId: number, newLabel: string, isSubtopic?: boolean) => Promise<RenameTopicLabelResult | null>;
+  regenerateTopicLabel: (collectionName: string, topicId: number, llmConfig?: string) => Promise<RenameTopicLabelResult | null>;
+
+  // Load previously-extracted topics
+  fetchCollectionTopics: (collectionName: string) => Promise<ExtractTopicsResult | null>;
 
   // Active job tracking for progress display
   activeJobCollectionName: string | null;
@@ -166,6 +176,18 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
   >(GENERATE_LLM_LABELS);
 
   const [lastLlmLabelsResult, setLastLlmLabelsResult] = useState<GenerateLlmLabelsResult | null>(null);
+
+  const [renameTopicLabelMutation] = useMutation<
+    { renameTopicLabel: RenameTopicLabelResult }
+  >(RENAME_TOPIC_LABEL);
+
+  const [regenerateTopicLabelMutation] = useMutation<
+    { regenerateTopicLabel: RenameTopicLabelResult }
+  >(REGENERATE_TOPIC_LABEL);
+
+  const [getCollectionTopics] = useLazyQuery<
+    { collectionTopics: ExtractTopicsResult | null }
+  >(GET_COLLECTION_TOPICS, { fetchPolicy: 'network-only' });
 
   // ========== HuggingFace Operations ==========
 
@@ -499,6 +521,116 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     }
   }, [generateLlmLabelsMutation]);
 
+  // ========== Topic Label Renaming ==========
+
+  const lastTopicsResultRef = useRef(lastTopicsResult);
+  lastTopicsResultRef.current = lastTopicsResult;
+
+  const renameTopicLabel = useCallback(async (
+    collectionName: string,
+    topicId: number,
+    newLabel: string,
+    isSubtopic: boolean = false
+  ): Promise<RenameTopicLabelResult | null> => {
+    setError(null);
+
+    try {
+      const { data, errors } = await renameTopicLabelMutation({
+        variables: { input: { collectionName, topicId, newLabel, isSubtopic } }
+      });
+
+      if (errors && errors.length > 0) {
+        setError(errors.map(e => e.message).join(', '));
+        return null;
+      }
+
+      const result = data?.renameTopicLabel || null;
+
+      if (result?.error) {
+        setError(result.error);
+        return result;
+      }
+
+      // Optimistic update of lastTopicsResult
+      if (result && !isSubtopic && lastTopicsResultRef.current) {
+        const updatedTopics = lastTopicsResultRef.current.topics.map(t =>
+          t.topicId === topicId ? { ...t, label: newLabel } : t
+        );
+        setLastTopicsResult({ ...lastTopicsResultRef.current, topics: updatedTopics });
+      }
+
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to rename topic label';
+      setError(message);
+      return null;
+    }
+  }, [renameTopicLabelMutation]);
+
+  const regenerateTopicLabel = useCallback(async (
+    collectionName: string,
+    topicId: number,
+    llmConfig?: string
+  ): Promise<RenameTopicLabelResult | null> => {
+    setError(null);
+
+    try {
+      const { data, errors } = await regenerateTopicLabelMutation({
+        variables: { input: { collectionName, topicId, newLabel: llmConfig || "" } }
+      });
+
+      if (errors && errors.length > 0) {
+        setError(errors.map(e => e.message).join(', '));
+        return null;
+      }
+
+      const result = data?.regenerateTopicLabel || null;
+
+      if (result?.error) {
+        setError(result.error);
+        return result;
+      }
+
+      // Optimistic update
+      if (result?.newLabel && lastTopicsResultRef.current) {
+        const updatedTopics = lastTopicsResultRef.current.topics.map(t =>
+          t.topicId === topicId ? { ...t, label: result.newLabel } : t
+        );
+        setLastTopicsResult({ ...lastTopicsResultRef.current, topics: updatedTopics });
+      }
+
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to regenerate topic label';
+      setError(message);
+      return null;
+    }
+  }, [regenerateTopicLabelMutation]);
+
+  // ========== Fetch Previously-Extracted Topics ==========
+
+  const fetchCollectionTopics = useCallback(async (
+    collectionName: string
+  ): Promise<ExtractTopicsResult | null> => {
+    try {
+      const { data, error: queryError } = await getCollectionTopics({
+        variables: { collectionName }
+      });
+
+      if (queryError) {
+        return null;
+      }
+
+      const result = data?.collectionTopics || null;
+      if (result) {
+        setLastTopicsResult(result);
+      }
+      return result;
+    } catch {
+      return null;
+    }
+  }, [getCollectionTopics]);
+
   // ========== Collection Operations ==========
 
   const deleteCollection = useCallback(async (collectionName: string): Promise<boolean> => {
@@ -592,6 +724,12 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     generateLlmLabels,
     llmLabelsLoading,
     lastLlmLabelsResult,
+
+    // Topic label renaming
+    renameTopicLabel,
+
+    // Load previously-extracted topics
+    fetchCollectionTopics,
 
     // Collection operations
     deleteCollection,

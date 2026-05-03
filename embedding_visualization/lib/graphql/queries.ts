@@ -63,6 +63,7 @@ export const TEXT_SEARCH = gql`
     $fields: [String!]
     $mode: TextSearchMode
     $caseSensitive: Boolean
+    $filters: [FilterInput!]
   ) {
     textSearch(
       collectionName: $collectionName
@@ -70,6 +71,7 @@ export const TEXT_SEARCH = gql`
       fields: $fields
       mode: $mode
       caseSensitive: $caseSensitive
+      filters: $filters
     ) {
       matches {
         id
@@ -286,6 +288,171 @@ export const TOPIC_EXTRACTION_PROGRESS_SUBSCRIPTION = gql`
       totalBatches
       error
       message
+    }
+  }
+`;
+
+// ========== Collection Topics Query ==========
+
+/**
+ * Get previously-extracted topics for a collection (loads from DB without re-extracting)
+ */
+export const GET_COLLECTION_TOPICS = gql`
+  query GetCollectionTopics($collectionName: String!) {
+    collectionTopics(collectionName: $collectionName) {
+      collectionName
+      numTopics
+      numNoisePoints
+      durationSeconds
+      topics {
+        topicId
+        keywords {
+          word
+          score
+        }
+        label
+        count
+        subtopics
+      }
+      numTopicsBeforeReduction
+      reductionApplied
+    }
+  }
+`;
+
+// ========== SAE (Sparse Autoencoder) Queries ==========
+
+/**
+ * List available SAE model/layer combinations with feature and activation counts
+ */
+export const GET_SAE_MODELS = gql`
+  query GetSaeModels {
+    saeModels {
+      modelId
+      saeId
+      featureCount
+      activationCount
+    }
+  }
+`;
+
+/**
+ * Get all density values for a model/SAE pair (for histogram)
+ */
+export const GET_SAE_FEATURE_DENSITIES = gql`
+  query GetSaeFeatureDensities($modelId: String!, $saeId: String!) {
+    saeFeatureDensities(modelId: $modelId, saeId: $saeId)
+  }
+`;
+
+/**
+ * Get activations grouped by quantile bins (for polysemanticity analysis)
+ */
+export const GET_SAE_ACTIVATIONS_BY_QUANTILE = gql`
+  query GetSaeActivationsByQuantile(
+    $modelId: String!
+    $saeId: String!
+    $featureIndex: Int!
+    $nQuantiles: Int = 5
+    $perQuantileLimit: Int = 5
+  ) {
+    saeActivationsByQuantile(
+      modelId: $modelId
+      saeId: $saeId
+      featureIndex: $featureIndex
+      nQuantiles: $nQuantiles
+      perQuantileLimit: $perQuantileLimit
+    ) {
+      quantile
+      binMin
+      binMax
+      activations {
+        id
+        tokens
+        values
+        maxValue
+        maxValueTokenIndex
+      }
+    }
+  }
+`;
+
+/**
+ * Get a single SAE feature with metadata and logits
+ */
+export const GET_SAE_FEATURE = gql`
+  query GetSaeFeature($modelId: String!, $saeId: String!, $featureIndex: Int!) {
+    saeFeature(modelId: $modelId, saeId: $saeId, featureIndex: $featureIndex) {
+      modelId
+      saeId
+      featureIndex
+      density
+      label
+      topLogits {
+        token
+        score
+      }
+      bottomLogits {
+        token
+        score
+      }
+    }
+  }
+`;
+
+/**
+ * Get top activations for a feature, ordered by max activation value
+ */
+export const GET_SAE_ACTIVATIONS = gql`
+  query GetSaeActivations($modelId: String!, $saeId: String!, $featureIndex: Int!, $limit: Int = 20) {
+    saeActivations(modelId: $modelId, saeId: $saeId, featureIndex: $featureIndex, limit: $limit) {
+      id
+      tokens
+      values
+      maxValue
+      maxValueTokenIndex
+    }
+  }
+`;
+
+/**
+ * Search SAE features by label text and/or density range
+ */
+export const SEARCH_SAE_FEATURES = gql`
+  query SearchSaeFeatures(
+    $modelId: String!
+    $saeId: String!
+    $query: String
+    $minDensity: Float
+    $maxDensity: Float
+    $limit: Int = 50
+    $offset: Int = 0
+  ) {
+    saeFeatureSearch(
+      modelId: $modelId
+      saeId: $saeId
+      query: $query
+      minDensity: $minDensity
+      maxDensity: $maxDensity
+      limit: $limit
+      offset: $offset
+    ) {
+      feature {
+        modelId
+        saeId
+        featureIndex
+        density
+        label
+        topLogits {
+          token
+          score
+        }
+        bottomLogits {
+          token
+          score
+        }
+      }
+      activationCount
     }
   }
 `;

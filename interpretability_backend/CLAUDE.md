@@ -81,6 +81,9 @@ Storage:
   - `text_search_bm25(dataset, query)` - FTS extension BM25 search (known issue: needs debugging)
   - `create_topic_extraction()`, `insert_topic_info_batch()`, `insert_topic_assignments_batch()` - Topic storage
   - `get_active_topics()`, `update_topic_label()`, `update_subtopic_label()` - Topic reads/updates
+  - `insert_sae_features_batch()`, `get_sae_feature()`, `search_sae_features()`, `list_sae_models()` - SAE feature storage
+  - `insert_sae_activations_batch()`, `get_sae_activations()` - SAE activation storage
+  - `delete_sae_data()` - Remove SAE data for a model/sae pair
 - **`chromadb_client.py`** - Vector-only wrapper (~170 lines, stripped from ~610). Key methods:
   - `get_collection(name, load_embedding_function, for_query, query_prompt)` - Lazy EF loading
   - `semantic_search(...)` - Vector similarity search, returns IDs + distances (no documents/metadata)
@@ -94,6 +97,14 @@ Storage:
 - **`embed_local_file.py`** - Dispatches to `embed_text_from_local()`, `embed_images()`, or `embed_vectors()` based on `DataType`. Same dual-write pattern.
 - **`embed_images.py`** - ViT pipeline (`transformers.pipeline("image-feature-extraction")`). Handles bytes, dicts with "bytes" key, or file paths.
 - **`embed_vectors.py`** - Direct vector ingestion (no model needed). Auto-detects vector column.
+
+### SAE Ingestion (`embedding_functions/ingest_sae.py`)
+- **`ingest_sae_features(parquet_path, model_id, sae_id, store_vectors, progress_callback)`** — Load SAE feature parquet (index, density, label, top/bottom logits, explanation vectors) into DuckDB `sae_features` table. Optionally stores 2560-d explanation-embedding vectors in ChromaDB for semantic search.
+- **`ingest_sae_activations(jsonl_path, model_id, sae_id, batch_size, progress_callback)`** — Stream activation JSONL (~20 samples per feature, 512 tokens each) into DuckDB `sae_activations` table in configurable batches. Auto-detects `model_id`/`sae_id` from JSONL fields.
+- Composite join key: `(model_id, sae_id, feature_index)` across both tables.
+- GraphQL mutations: `ingestSaeFeatures`, `ingestSaeActivations`.
+- GraphQL queries: `saeModels`, `saeFeature`, `saeActivations`, `saeFeatureSearch`.
+- Full architecture documentation: `documentation/SAE_ARCHITECTURE.md` (schema, data flow, frontend components, cross-linking, planned enhancements).
 
 ### Specific Embedding Functions (`embedding_functions/specific_functions/`)
 - **`embed_sentence_transformer.py`** - Fork of ChromaDB's implementation. Adds prompt support (known prompt names like "Retrieval-query" → `prompt_name`, custom strings → `prompt`). Class-level model cache shared across instances.
@@ -136,6 +147,8 @@ Storage:
 - **`topic_extractions`** — extraction config snapshots, reduction metadata, `is_active` flag for history
 - **`topic_info`** — per-topic keywords, labels, counts
 - **`topic_assignments`** — per-item topic_id/label + subtopic_id/label
+- **`sae_features`** — SAE feature metadata: PK (model_id, sae_id, feature_index), density, label, top/bottom logits as JSON
+- **`sae_activations`** — SAE activation examples: indexed by (model_id, sae_id, feature_index), stores tokens[512] and activation values[512] as JSON, plus max_value for ordering
 - Full schema, API, data flows: `documentation/DATABASE_ARCHITECTURE.md`
 - Migration plan: `documentation/DUCKDB_MIGRATION_PLAN.md`
 - Migration script: `scripts/migrate_chromadb_to_duckdb.py`

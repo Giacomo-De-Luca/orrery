@@ -11,9 +11,14 @@ from .types import (
     ExtractTopicsResult,
     GenerateLlmLabelsInput,
     GenerateLlmLabelsResult,
+    IngestSaeActivationsInput,
+    IngestSaeFeaturesInput,
+    IngestSaeResult,
     JSON,
     ReduceTopicsInput,
     ReduceTopicsResult,
+    RenameTopicLabelInput,
+    RenameTopicLabelResult,
     UpdateCollectionMetadataResult,
 )
 from .converters import (
@@ -206,4 +211,193 @@ class Mutation:
             total_subtopics=result.total_subtopics,
             duration_seconds=result.duration_seconds,
             error=result.error,
+        )
+
+    # ------------------------------------------------------------------
+    # Topic label renaming
+    # ------------------------------------------------------------------
+
+    @strawberry.mutation
+    def rename_topic_label(self, input: RenameTopicLabelInput, info=None) -> RenameTopicLabelResult:
+        """Rename a topic or subtopic label."""
+        new_label = input.new_label.strip()
+        if not new_label:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label="",
+                error="Label cannot be empty",
+            )
+        if input.topic_id == -1 and not input.is_subtopic:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label=new_label,
+                error="Cannot rename the noise/unclustered topic",
+            )
+
+        db = get_duckdb_client()
+        topic_data = db.get_active_topics(input.collection_name)
+        if not topic_data:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label=new_label,
+                error="No active topic extraction found for this collection",
+            )
+
+        extraction_id = topic_data["id"]
+        try:
+            if input.is_subtopic:
+                db.update_subtopic_label(extraction_id, input.topic_id, new_label)
+            else:
+                db.update_topic_label(extraction_id, input.topic_id, new_label)
+        except Exception as e:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label=new_label,
+                error=str(e),
+            )
+
+        return RenameTopicLabelResult(
+            collection_name=input.collection_name,
+            topic_id=input.topic_id,
+            new_label=new_label,
+        )
+
+    @strawberry.mutation
+    async def regenerate_topic_label(self, input: RenameTopicLabelInput, info=None) -> RenameTopicLabelResult:
+        """Regenerate an LLM label for a single topic using its keywords and sample documents."""
+        import asyncio
+
+        if input.topic_id == -1:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label="",
+                error="Cannot label the noise/unclustered topic",
+            )
+
+        db = get_duckdb_client()
+        topic_data = db.get_active_topics(input.collection_name)
+        if not topic_data:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label="",
+                error="No active topic extraction found for this collection",
+            )
+
+        extraction_id = topic_data["id"]
+
+        # Find the topic's keywords
+        topic_info = next((t for t in topic_data["topics"] if t["topic_id"] == input.topic_id), None)
+        if not topic_info:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label="",
+                error=f"Topic {input.topic_id} not found",
+            )
+
+        keywords = [(kw["word"], kw["score"]) for kw in (topic_info.get("keywords") or [])]
+
+        # Get sample documents for this topic
+        item_ids = db.get_items_for_topic(extraction_id, input.topic_id)
+        dataset_name = topic_data.get("dataset_name", input.collection_name)
+        items_table = db._items_table(dataset_name)
+        sample_ids = item_ids[:10]
+        if sample_ids:
+            placeholders = ", ".join(["?"] * len(sample_ids))
+            docs_rows = db._conn.execute(
+                f"SELECT document FROM {items_table} WHERE id IN ({placeholders})",
+                sample_ids,
+            ).fetchall()
+            sample_docs = [r[0] for r in docs_rows if r[0]]
+        else:
+            sample_docs = []
+
+        # Use the LLM provider from input.new_label as "provider:model" or default
+        llm_provider = "gemini"
+        llm_model = "gemini-2.5-flash"
+        if input.new_label and ":" in input.new_label:
+            parts = input.new_label.split(":", 1)
+            llm_provider = parts[0]
+            llm_model = parts[1]
+
+        def _do_label():
+            from ..topic_extraction.llm_labeling import generate_llm_label_for_topic, _create_labeler
+            labeler = _create_labeler(llm_provider, llm_model)
+            return generate_llm_label_for_topic(
+                topic_id=input.topic_id,
+                keywords=keywords,
+                sample_documents=sample_docs,
+                labeler=labeler,
+            )
+
+        label = await asyncio.to_thread(_do_label)
+
+        if not label:
+            return RenameTopicLabelResult(
+                collection_name=input.collection_name,
+                topic_id=input.topic_id,
+                new_label="",
+                error="LLM failed to generate a label",
+            )
+
+        # Save the new label
+        db.update_topic_label(extraction_id, input.topic_id, label)
+
+        return RenameTopicLabelResult(
+            collection_name=input.collection_name,
+            topic_id=input.topic_id,
+            new_label=label,
+        )
+
+    # ------------------------------------------------------------------
+    # SAE ingestion
+    # ------------------------------------------------------------------
+
+    @strawberry.mutation
+    async def ingest_sae_features(
+        self, input: IngestSaeFeaturesInput, info=None
+    ) -> IngestSaeResult:
+        """Ingest SAE feature parquet into DuckDB (+ optional ChromaDB vectors)."""
+        from ..embedding_functions.ingest_sae import ingest_sae_features
+
+        result = await asyncio.to_thread(
+            ingest_sae_features,
+            parquet_path=input.parquet_path,
+            model_id=input.model_id,
+            sae_id=input.sae_id,
+            store_vectors=input.store_vectors,
+        )
+        return IngestSaeResult(
+            model_id=result["model_id"],
+            sae_id=result["sae_id"],
+            records_inserted=result["records_inserted"],
+            duration_seconds=result["duration_seconds"],
+            error=result.get("error"),
+        )
+
+    @strawberry.mutation
+    async def ingest_sae_activations(
+        self, input: IngestSaeActivationsInput, info=None
+    ) -> IngestSaeResult:
+        """Ingest SAE activation JSONL into DuckDB."""
+        from ..embedding_functions.ingest_sae import ingest_sae_activations
+
+        result = await asyncio.to_thread(
+            ingest_sae_activations,
+            jsonl_path=input.jsonl_path,
+            model_id=input.model_id,
+            sae_id=input.sae_id,
+        )
+        return IngestSaeResult(
+            model_id=result["model_id"],
+            sae_id=result["sae_id"],
+            records_inserted=result["records_inserted"],
+            duration_seconds=result["duration_seconds"],
+            error=result.get("error"),
         )

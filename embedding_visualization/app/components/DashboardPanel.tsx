@@ -13,12 +13,14 @@ import { SimilarItemsTable } from './SimilarItemsTable';
 import { EmbeddingSidebar } from './EmbeddingSidebar';
 import { SearchSidebar } from './SearchSidebar';
 import { AnalyticsSidebar } from './AnalyticsSidebar';
-import { Table2, Palette } from 'lucide-react';
+import { Table2, Palette, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/lib/ui-primitives/button';
 import type { Point2D, Point3D, SemanticSearchResult, HighlightMap, TopicInfo, TemporalRange } from '../../lib/types/types';
 import type { TopicSearchMode, TopicSearchResult } from '../../lib/hooks/useTopicSearch';
 import type { ColorFieldOption } from '../../lib/utils/fieldAnalysis';
 import { cn } from '@/lib/utils/utils';
+import { SAE_FEATURE_INDEX_FIELD } from '../../lib/utils/saeCollections';
 import { useCategoryData } from '../../lib/hooks/useCategoryData';
 import { useNestedCategoryData } from '../../lib/hooks/useNestedCategoryData';
 import { useVerticalResize } from '../../lib/hooks/useVerticalResize';
@@ -57,6 +59,9 @@ interface DashboardPanelProps {
   onQueryPromptNameChange?: (value: string | null) => void;
   // Tooltip configuration
   availableFields?: string[];
+  itemMetadata?: Record<string, unknown>[];
+  // SAE cross-link (when collection is an SAE embedding collection)
+  saeInfo?: { modelId: string; saeId: string } | null;
   // Topic search props (threaded to SearchSidebar)
   topics?: TopicInfo[];
   topicSearchMode?: TopicSearchMode;
@@ -96,6 +101,9 @@ export function DashboardPanel({
   queryPromptName,
   onQueryPromptNameChange,
   availableFields = [],
+  itemMetadata,
+  // SAE cross-link
+  saeInfo,
   // Topic search props
   topics,
   topicSearchMode,
@@ -137,6 +145,28 @@ export function DashboardPanel({
   const setTemporalRange = useVisualizationStore((s) => s.setTemporalRange);
 
   const is2D = mode === '2d';
+
+  // --- Context menu for SAE feature cross-link ---
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; featureIndex: number } | null>(null);
+
+  const handlePointContextMenu = useCallback((point: Point2D | Point3D, event: MouseEvent) => {
+    if (!saeInfo || point.metadata?.[SAE_FEATURE_INDEX_FIELD] == null) return;
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      featureIndex: Number(point.metadata[SAE_FEATURE_INDEX_FIELD]),
+    });
+  }, [saeInfo]);
+
+  // Close context menu on click anywhere or escape
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('click', close);
+    window.addEventListener('keydown', handleKey);
+    return () => { window.removeEventListener('click', close); window.removeEventListener('keydown', handleKey); };
+  }, [contextMenu]);
 
   // Compute category values and counts from points
   const points = is2D ? points2d : points3d;
@@ -448,6 +478,7 @@ export function DashboardPanel({
       highlightedIndices={highlightedIndices}
       selectedPoint={selectedPoint as Point2D | null}
       onPointClick={onPointClick}
+      onPointContextMenu={saeInfo ? handlePointContextMenu : undefined}
       showOnlyHighlighted={showOnlyHighlighted}
       showLabels={showLabels}
       mutedCategories={effectiveMutedCategories}
@@ -487,6 +518,7 @@ export function DashboardPanel({
       hideFilteredPoints={hideFilteredPoints}
       mutedPointOpacity={mutedPointOpacity}
       customNumericRange={customNumericRange}
+      onPointContextMenu={saeInfo ? handlePointContextMenu : undefined}
     />
   );
 
@@ -598,6 +630,23 @@ export function DashboardPanel({
         </div>
       )}
 
+      {/* 3c. LAYER: SAE Context Menu (Z-50) */}
+      {contextMenu && saeInfo && (
+        <div
+          className="fixed z-50 min-w-40 rounded-md border bg-popover p-1 shadow-md"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <Link
+            href={`/features?modelId=${encodeURIComponent(saeInfo.modelId)}&saeId=${encodeURIComponent(saeInfo.saeId)}&featureIndex=${contextMenu.featureIndex}`}
+            className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent cursor-pointer"
+            onClick={() => setContextMenu(null)}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            View Feature #{contextMenu.featureIndex}
+          </Link>
+        </div>
+      )}
+
       {/* 4. LAYER: Sidebar Overlay (Z-40) */}
       <div className="absolute inset-y-0 left-0 z-40 pointer-events-none">
         {/* Controls Sidebar */}
@@ -648,6 +697,7 @@ export function DashboardPanel({
           categoricalPalette={categoricalPalette}
           textSearchLoading={textSearchLoading}
           availableFields={availableFields}
+          itemMetadata={itemMetadata}
           variant="floating"
           className={cn(
             "pointer-events-auto absolute top-20 bottom-2 z-40 w-80 shadow-2xl transition-all duration-300 ease-in-out",

@@ -1,6 +1,6 @@
 'use client';
 
-import { Moon, Sun, Search, Upload, Settings2, BarChart3 } from 'lucide-react';
+import { Moon, Sun, Search, Upload, Settings2, BarChart3, Brain } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useState, KeyboardEvent } from 'react';
 import Link from 'next/link';
@@ -19,6 +19,7 @@ import { Button } from '@/lib/ui-primitives/button';
 import { cn } from '@/lib/utils/utils';
 import { Input } from '@/lib/ui-primitives/input';
 import type { CollectionsManifest } from '../../lib/types/types';
+import { getSaeInfo } from '../../lib/utils/saeCollections';
 
 function ModeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -73,6 +74,7 @@ export function AppHeader({
   onToggleAnalytics,
 }: AppHeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [collectionFilter, setCollectionFilter] = useState('');
 
   const handleSearch = () => {
     if (searchQuery.trim() && onSemanticSearch) {
@@ -184,26 +186,46 @@ export function AppHeader({
               onValueChange={(val) => {
                 if (val) onCollectionChange(val);
               }}
+              items={Object.keys(collections)}
+              itemToStringLabel={(key) => collections[key]?.display_name ?? key}
+              filter={(key, query) => {
+                const name = collections[key]?.display_name ?? key;
+                return name.toLowerCase().includes(query.toLowerCase());
+              }}
+              onInputValueChange={(val) => setCollectionFilter(val)}
             >
               <ComboboxInput
                 placeholder="Search collections..."
-                className="w-[200px] lg:w-[280px] backdrop-blur-sm"
+                className="w-[200px] lg:w-[280px] backdrop-blur-sm bg-transparent dark:bg-transparent [&_input]:bg-transparent [&_input]:dark:bg-transparent"
               />
               <ComboboxContent>
-                <ComboboxEmpty>No collections found.</ComboboxEmpty>
+                {collectionFilter.trim() && (
+                  <ComboboxEmpty>No collections found.</ComboboxEmpty>
+                )}
                 <ComboboxList>
-                  {Object.entries(collections).map(([key, collection]) => (
-                    <ComboboxItem key={key} value={key} label={collection.display_name}>
-                      <span className="font-medium">{collection.display_name}</span>
+                  {(key) => (
+                    <ComboboxItem key={key} value={key}>
+                      <span className="font-medium">{collections[key]?.display_name ?? key}</span>
                       <span className="text-xs text-muted-foreground ml-2">
-                        ({collection.count.toLocaleString()})
+                        ({collections[key]?.count.toLocaleString()})
                       </span>
                     </ComboboxItem>
-                  ))}
+                  )}
                 </ComboboxList>
               </ComboboxContent>
             </Combobox>
           ) : null}
+          <Link href={(() => {
+            const sae = getSaeInfo(selectedCollection ?? null);
+            return sae
+              ? `/features?modelId=${encodeURIComponent(sae.modelId)}&saeId=${encodeURIComponent(sae.saeId)}`
+              : '/features';
+          })()}>
+            <Button variant="outline" className="gap-2">
+              <Brain className="w-4" />
+              <span className="hidden sm:inline">Features</span>
+            </Button>
+          </Link>
           <Link href="/test-embed">
             <Button variant="outline" className="gap-2 embeddingButton">
               <Upload className=" w-4" />

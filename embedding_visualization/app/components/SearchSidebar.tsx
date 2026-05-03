@@ -17,20 +17,26 @@ import {
   CollapsibleTrigger,
 } from '@/lib/ui-primitives/collapsible';
 import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuSeparator,
-} from '@/lib/ui-primitives/dropdown-menu';
+  Combobox,
+  ComboboxChips,
+  ComboboxChip,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+  useComboboxAnchor,
+} from '@/lib/ui-primitives/combobox';
 import { ToggleGroup, ToggleGroupItem } from '@/lib/ui-primitives/toggle-group';
 import { PromptCombobox } from '@/lib/ui-primitives/prompt-combobox';
 import { DebouncedSearchInput } from './DebouncedSearchInput';
 import { TextSearchResultsList } from './TextSearchResultsList';
 import { TopicSearchSection } from './TopicSearchSection';
+import { MetadataFilters } from './MetadataFilters';
 import type { Point2D, Point3D, TopicInfo, TextSearchConfig } from '../../lib/types/types';
 import type { TopicSearchMode, TopicSearchResult } from '../../lib/hooks/useTopicSearch';
 import { cn } from '@/lib/utils/utils';
+import { fieldToDisplayName } from '../../lib/utils/fieldAnalysis';
 import { useVisualizationStore } from '../../lib/stores/useVisualizationStore';
 
 // Must match ChromaDBClient.DOCUMENT_SENTINEL in the backend
@@ -54,6 +60,7 @@ interface SearchSidebarProps extends React.ComponentProps<typeof Sidebar> {
   // Text search config
   textSearchLoading?: boolean;
   availableFields?: string[];
+  itemMetadata?: Record<string, unknown>[];
   // Topic search props
   topics?: TopicInfo[];
   topicSearchMode?: TopicSearchMode;
@@ -89,6 +96,7 @@ export function SearchSidebar({
   onQueryPromptNameChange,
   textSearchLoading,
   availableFields = [],
+  itemMetadata,
   // Topic search props
   topics,
   topicSearchMode,
@@ -116,45 +124,14 @@ export function SearchSidebar({
   const textSearchConfig = useVisualizationStore((s) => s.textSearchConfig);
   const setTextSearchConfig = useVisualizationStore((s) => s.setTextSearchConfig);
 
-  // Derive selected fields set (null = document only)
-  const selectedFields = textSearchConfig.fields;
-  const isAllFields = selectedFields !== null &&
-    selectedFields.includes(DOCUMENT_SENTINEL) &&
-    availableFields.every(f => selectedFields.includes(f));
+  // Derive selected fields for combobox (null = document only → [DOCUMENT_SENTINEL])
+  const selectedFields = textSearchConfig.fields ?? [DOCUMENT_SENTINEL];
+  const chipsRef = useComboboxAnchor();
 
-  const toggleField = React.useCallback((field: string) => {
-    const current = selectedFields ?? [DOCUMENT_SENTINEL];
-    const next = current.includes(field)
-      ? current.filter(f => f !== field)
-      : [...current, field];
-    // If nothing selected, revert to document only (null)
-    setTextSearchConfig({
-      ...textSearchConfig,
-      fields: next.length === 0 ? null : next,
-    });
-  }, [selectedFields, textSearchConfig, setTextSearchConfig]);
-
-  const toggleAllFields = React.useCallback(() => {
-    if (isAllFields) {
-      // Reset to document only
-      setTextSearchConfig({ ...textSearchConfig, fields: null });
-    } else {
-      setTextSearchConfig({
-        ...textSearchConfig,
-        fields: [DOCUMENT_SENTINEL, ...availableFields],
-      });
-    }
-  }, [isAllFields, availableFields, textSearchConfig, setTextSearchConfig]);
-
-  const fieldSummary = React.useMemo(() => {
-    if (selectedFields === null) return 'Document';
-    const count = selectedFields.length;
-    if (isAllFields) return 'All fields';
-    if (count === 1) {
-      return selectedFields[0] === DOCUMENT_SENTINEL ? 'Document' : selectedFields[0];
-    }
-    return `${count} fields`;
-  }, [selectedFields, isAllFields]);
+  const handleFieldsChange = React.useCallback((newValue: string[] | undefined) => {
+    const fields = newValue && newValue.length > 0 ? newValue : null;
+    setTextSearchConfig({ ...textSearchConfig, fields });
+  }, [textSearchConfig, setTextSearchConfig]);
 
   return (
     <Sidebar
@@ -242,41 +219,34 @@ export function SearchSidebar({
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="space-y-4 pt-2">
-              {/* Search fields selector */}
+              {/* Search fields selector (combobox with chips) */}
               <div className="space-y-2">
                 <Label className="text-sm">Search in</Label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="w-full justify-between h-8 text-xs">
-                      {fieldSummary}
-                      <ChevronDown className="h-3 w-3 ml-1 opacity-50" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-56 max-h-64 overflow-y-auto">
-                    <DropdownMenuCheckboxItem
-                      checked={isAllFields}
-                      onCheckedChange={toggleAllFields}
-                    >
-                      All fields
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuCheckboxItem
-                      checked={(selectedFields ?? [DOCUMENT_SENTINEL]).includes(DOCUMENT_SENTINEL)}
-                      onCheckedChange={() => toggleField(DOCUMENT_SENTINEL)}
-                    >
-                      Document
-                    </DropdownMenuCheckboxItem>
-                    {availableFields.map((field) => (
-                      <DropdownMenuCheckboxItem
-                        key={field}
-                        checked={(selectedFields ?? []).includes(field)}
-                        onCheckedChange={() => toggleField(field)}
-                      >
-                        {field}
-                      </DropdownMenuCheckboxItem>
+                <Combobox<string, true>
+                  multiple
+                  value={selectedFields}
+                  onValueChange={handleFieldsChange}
+                >
+                  <ComboboxChips ref={chipsRef} className="min-h-8">
+                    {selectedFields.map((field) => (
+                      <ComboboxChip key={field}>
+                        {field === DOCUMENT_SENTINEL ? 'Document' : fieldToDisplayName(field)}
+                      </ComboboxChip>
                     ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    <ComboboxChipsInput placeholder="Add fields..." className="text-xs" />
+                  </ComboboxChips>
+                  <ComboboxContent anchor={chipsRef}>
+                    <ComboboxList>
+                      <ComboboxItem value={DOCUMENT_SENTINEL}>Document</ComboboxItem>
+                      {availableFields.map((field) => (
+                        <ComboboxItem key={field} value={field}>
+                          {fieldToDisplayName(field)}
+                        </ComboboxItem>
+                      ))}
+                    </ComboboxList>
+                    <ComboboxEmpty>No matching fields</ComboboxEmpty>
+                  </ComboboxContent>
+                </Combobox>
               </div>
 
               {/* Match mode toggle */}
@@ -312,6 +282,19 @@ export function SearchSidebar({
                   Case sensitive
                 </Label>
               </div>
+
+              {/* Metadata filters */}
+              {availableFields.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Filters</Label>
+                  <MetadataFilters
+                    filters={textSearchConfig.filters}
+                    onChange={(filters) => setTextSearchConfig({ ...textSearchConfig, filters })}
+                    availableFields={availableFields}
+                    itemMetadata={itemMetadata ?? []}
+                  />
+                </div>
+              )}
 
               {/* Query prompt name */}
               <div className="space-y-2">

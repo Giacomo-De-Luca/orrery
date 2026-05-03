@@ -150,6 +150,11 @@ class TopicConfigInput:
     llm_model: str = "gemini-3-flash-preview"
     projection_type: str = "umap_2d"
 
+    # Clustering method: "hdbscan" (default), "kmeans", "gmm", "spectral"
+    clustering_method: str = "hdbscan"
+    # Number of clusters (required for kmeans, gmm, spectral; ignored for hdbscan)
+    n_clusters: Optional[int] = None
+
     # Topic reduction config
     reduction: Optional[TopicReductionInput] = None
 
@@ -221,6 +226,24 @@ class GenerateLlmLabelsResult:
     total_topics: int
     total_subtopics: int
     duration_seconds: float
+    error: Optional[str] = None
+
+
+@strawberry.input
+class RenameTopicLabelInput:
+    """Input for renaming a topic or subtopic label."""
+    collection_name: str
+    topic_id: int
+    new_label: str
+    is_subtopic: bool = False  # If True, topic_id is treated as subtopic_id
+
+
+@strawberry.type
+class RenameTopicLabelResult:
+    """Result of renaming a topic label."""
+    collection_name: str
+    topic_id: int
+    new_label: str
     error: Optional[str] = None
 
 
@@ -534,3 +557,86 @@ class EmbeddingJob:
 
 # JobProgress is defined in subscriptions.py to avoid circular imports
 # when embedding functions import emit_progress_sync
+
+
+# ========== SAE (Sparse Autoencoder) Types ==========
+
+@strawberry.type
+class SaeLogitEntry:
+    """A single token/score pair from top or bottom logits."""
+    token: str
+    score: float
+
+
+@strawberry.type
+class SaeFeature:
+    """SAE feature with metadata, label, and logits."""
+    model_id: str
+    sae_id: str
+    feature_index: int
+    density: Optional[float] = None
+    label: Optional[str] = None
+    top_logits: Optional[List[SaeLogitEntry]] = None
+    bottom_logits: Optional[List[SaeLogitEntry]] = None
+
+
+@strawberry.type
+class SaeActivation:
+    """A single top-activating example for a feature."""
+    id: str
+    tokens: List[str]
+    values: List[float]
+    max_value: float
+    max_value_token_index: int
+
+
+@strawberry.type
+class SaeModelInfo:
+    """Available SAE model/layer combination with counts."""
+    model_id: str
+    sae_id: str
+    feature_count: int
+    activation_count: int
+
+
+@strawberry.type
+class SaeFeatureSearchResult:
+    """Feature search result with optional activation count."""
+    feature: SaeFeature
+    activation_count: Optional[int] = None
+
+
+@strawberry.input
+class IngestSaeFeaturesInput:
+    """Input for ingesting SAE feature parquet."""
+    parquet_path: str
+    model_id: str
+    sae_id: str
+    store_vectors: bool = True
+
+
+@strawberry.input
+class IngestSaeActivationsInput:
+    """Input for ingesting SAE activation JSONL."""
+    jsonl_path: str
+    model_id: Optional[str] = None
+    sae_id: Optional[str] = None
+
+
+@strawberry.type
+class IngestSaeResult:
+    """Result of SAE data ingestion."""
+    model_id: str
+    sae_id: str
+    records_inserted: int
+    duration_seconds: float
+    error: Optional[str] = None
+
+
+@strawberry.type
+class SaeActivationQuantileGroup:
+    """A quantile bin of activations for a feature."""
+    quantile: int
+    bin_min: float
+    bin_max: float
+    activations: List[SaeActivation]

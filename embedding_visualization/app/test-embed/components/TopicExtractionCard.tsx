@@ -11,7 +11,7 @@ import { Button } from '@/lib/ui-primitives/button';
 import { Badge } from '@/lib/ui-primitives/badge';
 import { Separator } from '@/lib/ui-primitives/separator';
 import { Spinner } from '@/lib/ui-primitives/spinner';
-import { X, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, Pencil, Check } from 'lucide-react';
 import { ProgressModal } from './EmbeddingProgressModal';
 import { Label } from '@/lib/ui-primitives/label';
 import { Input } from '@/lib/ui-primitives/input';
@@ -47,6 +47,8 @@ interface TopicExtractionCardProps {
   llmLabelsLoading: boolean;
   lastLlmLabelsResult: GenerateLlmLabelsResult | null;
   hasSubtopics: boolean;
+  // Topic label renaming
+  renameTopicLabel: (collectionName: string, topicId: number, newLabel: string, isSubtopic?: boolean) => Promise<{ error?: string | null } | null>;
 }
 
 export function TopicExtractionCard({
@@ -66,9 +68,14 @@ export function TopicExtractionCard({
   llmLabelsLoading,
   lastLlmLabelsResult,
   hasSubtopics,
+  renameTopicLabel,
 }: TopicExtractionCardProps) {
   const [open, setOpen] = useState(false);
   const [config, setConfig] = useState<TopicConfigState>(DEFAULT_TOPIC_CONFIG);
+  const [editingTopicId, setEditingTopicId] = useState<number | null>(null);
+  const [editingLabel, setEditingLabel] = useState('');
+  const [renamingSaving, setRenamingSaving] = useState(false);
+  const [showAllTopics, setShowAllTopics] = useState(false);
 
   // Standalone reduction state
   const [reduceMethod, setReduceMethod] = useState<string>('fixed_n');
@@ -184,20 +191,78 @@ export function TopicExtractionCard({
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="secondary">{lastTopicsResult.numTopics} topics</Badge>
                   <Badge variant="outline">{lastTopicsResult.numNoisePoints} unclustered</Badge>
-                  <Badge variant="outline">{lastTopicsResult.durationSeconds.toFixed(1)}s</Badge>
+                  {!!lastTopicsResult.durationSeconds && (
+                    <Badge variant="outline">{lastTopicsResult.durationSeconds.toFixed(1)}s</Badge>
+                  )}
                   {lastTopicsResult.reductionApplied && lastTopicsResult.numTopicsBeforeReduction != null && (
                     <Badge variant="outline">reduced from {lastTopicsResult.numTopicsBeforeReduction}</Badge>
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  {lastTopicsResult.topics.slice(0, 5).map((topic) => (
-                    <div key={topic.topicId} className="text-sm border rounded-md p-2">
+                <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                  {(showAllTopics ? lastTopicsResult.topics : lastTopicsResult.topics.slice(0, 5)).map((topic) => (
+                    <div key={topic.topicId} className="text-sm border rounded-md p-2 group">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium">
-                          {topic.label || `Topic ${topic.topicId}`}
-                        </span>
-                        <Badge variant="secondary" className="text-xs">
+                        {editingTopicId === topic.topicId ? (
+                          <form
+                            className="flex items-center gap-1 flex-1 mr-2"
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (!editingLabel.trim()) return;
+                              setRenamingSaving(true);
+                              await renameTopicLabel(collectionName, topic.topicId, editingLabel.trim());
+                              setRenamingSaving(false);
+                              setEditingTopicId(null);
+                            }}
+                          >
+                            <Input
+                              value={editingLabel}
+                              onChange={(e) => setEditingLabel(e.target.value)}
+                              className="h-6 text-sm py-0 px-1"
+                              autoFocus
+                              disabled={renamingSaving}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') setEditingTopicId(null);
+                              }}
+                            />
+                            <Button
+                              type="submit"
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              disabled={renamingSaving || !editingLabel.trim()}
+                            >
+                              <Check className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => setEditingTopicId(null)}
+                              disabled={renamingSaving}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </form>
+                        ) : (
+                          <span className="font-medium flex items-center gap-1">
+                            {topic.label || `Topic ${topic.topicId}`}
+                            {topic.topicId !== -1 && (
+                              <button
+                                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                                onClick={() => {
+                                  setEditingTopicId(topic.topicId);
+                                  setEditingLabel(topic.label || `Topic ${topic.topicId}`);
+                                }}
+                                title="Rename topic"
+                              >
+                                <Pencil className="h-3 w-3 text-muted-foreground" />
+                              </button>
+                            )}
+                          </span>
+                        )}
+                        <Badge variant="secondary" className="text-xs shrink-0">
                           {topic.count} pts
                         </Badge>
                       </div>
@@ -206,10 +271,21 @@ export function TopicExtractionCard({
                       </p>
                     </div>
                   ))}
-                  {lastTopicsResult.topics.length > 5 && (
-                    <p className="text-xs text-muted-foreground">
+                  {!showAllTopics && lastTopicsResult.topics.length > 5 && (
+                    <button
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowAllTopics(true)}
+                    >
                       +{lastTopicsResult.topics.length - 5} more topics
-                    </p>
+                    </button>
+                  )}
+                  {showAllTopics && lastTopicsResult.topics.length > 5 && (
+                    <button
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowAllTopics(false)}
+                    >
+                      Show less
+                    </button>
                   )}
                 </div>
 

@@ -382,6 +382,8 @@ export interface TopicConfigInput {
   llmProvider?: string;
   llmModel?: string;
   projectionType?: string;
+  clusteringMethod?: string;  // "hdbscan" | "kmeans" | "gmm" | "spectral"
+  nClusters?: number;         // Required for kmeans, gmm, spectral
   reduction?: TopicReductionInput;
 }
 
@@ -434,6 +436,78 @@ export interface GenerateLlmLabelsResult {
   subtopicsLabeled: number;
   totalTopics: number;
   totalSubtopics: number;
+  durationSeconds: number;
+  error: string | null;
+}
+
+// ========== Topic Label Renaming ==========
+
+export const RENAME_TOPIC_LABEL = gql`
+  mutation RenameTopicLabel($input: RenameTopicLabelInput!) {
+    renameTopicLabel(input: $input) {
+      collectionName
+      topicId
+      newLabel
+      error
+    }
+  }
+`;
+
+export const REGENERATE_TOPIC_LABEL = gql`
+  mutation RegenerateTopicLabel($input: RenameTopicLabelInput!) {
+    regenerateTopicLabel(input: $input) {
+      collectionName
+      topicId
+      newLabel
+      error
+    }
+  }
+`;
+
+export interface RenameTopicLabelInput {
+  collectionName: string;
+  topicId: number;
+  newLabel: string;
+  isSubtopic?: boolean;
+}
+
+export interface RenameTopicLabelResult {
+  collectionName: string;
+  topicId: number;
+  newLabel: string;
+  error: string | null;
+}
+
+// ========== SAE Ingestion ==========
+
+export const INGEST_SAE_FEATURES = gql`
+  mutation IngestSaeFeatures($input: IngestSaeFeaturesInput!) {
+    ingestSaeFeatures(input: $input) {
+      modelId
+      saeId
+      recordsInserted
+      durationSeconds
+      error
+    }
+  }
+`;
+
+export const INGEST_SAE_ACTIVATIONS = gql`
+  mutation IngestSaeActivations($input: IngestSaeActivationsInput!) {
+    ingestSaeActivations(input: $input) {
+      modelId
+      saeId
+      recordsInserted
+      durationSeconds
+      error
+    }
+  }
+`;
+
+export interface IngestSaeResult {
+  modelId: string;
+  saeId: string;
+  recordsInserted: number;
   durationSeconds: number;
   error: string | null;
 }
