@@ -71,6 +71,7 @@ export default function TestEmbedPage() {
     llmLabelsLoading,
     lastLlmLabelsResult,
     renameTopicLabel,
+    regenerateTopicLabel,
     fetchCollectionTopics,
   } = useEmbedDataset();
 
@@ -173,6 +174,7 @@ export default function TestEmbedPage() {
           llmLabelsLoading={llmLabelsLoading}
           lastLlmLabelsResult={lastLlmLabelsResult}
           renameTopicLabel={renameTopicLabel}
+          regenerateTopicLabel={regenerateTopicLabel}
           fetchCollectionTopics={fetchCollectionTopics}
         />
       )}

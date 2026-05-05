@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import Color from 'color';
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/ui-primitives/card';
 import {
   buildCategoryColorMap,
@@ -10,10 +11,20 @@ import {
 } from '../../lib/utils/categoryColors';
 import { cn } from '@/lib/utils/utils';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
+import { Popover, PopoverAnchor, PopoverContent } from '@/lib/ui-primitives/popover';
 import { X, RotateCcw } from 'lucide-react';
 import { useDebounceValue } from '@/lib/hooks/use-debounce-value';
 import type { NestedColorMap, ColorScale, HistogramBin, CustomNumericRange } from '../../lib/types/types';
 import { NumericRangeChart } from './charts/NumericRangeChart';
+import {
+  ColorPicker,
+  ColorPickerSelection,
+  ColorPickerHue,
+  ColorPickerAlpha,
+  ColorPickerEyeDropper,
+  ColorPickerOutput,
+  ColorPickerFormat,
+} from './ColorPicker';
 
 interface LegendProps {
   className?: string;
@@ -34,6 +45,12 @@ interface LegendProps {
   maxHeight?: number;
   /** Rendered at the bottom of the Card (e.g. a drag handle). */
   dragHandle?: React.ReactNode;
+  /** Callback to set a custom color for a category value. */
+  onColorOverride?: (category: string, color: string) => void;
+  /** Callback to clear all custom color overrides for the current field. */
+  onColorOverrideClear?: () => void;
+  /** Current custom color overrides for the active field (for visual indicators). */
+  categoryColorOverrides?: Record<string, string>;
 }
 
 /**
@@ -142,6 +159,9 @@ export function Legend({
   nestedColorMap,
   maxHeight,
   dragHandle,
+  onColorOverride,
+  onColorOverrideClear,
+  categoryColorOverrides,
 }: LegendProps) {
   // Check if this is a continuous scale (sequential, diverging, or monochrome)
   const isContinuous = colorScale.type === 'sequential' || colorScale.type === 'diverging' || colorScale.type === 'monochrome';
@@ -150,6 +170,17 @@ export function Legend({
   const [filterText, setFilterText] = useState('');
   const [debouncedFilter] = useDebounceValue(filterText, 200);
   const filterInputRef = useRef<HTMLInputElement>(null);
+
+  // Color picker popover state
+  const [pickerCategory, setPickerCategory] = useState<string | null>(null);
+
+  const hasOverrides = categoryColorOverrides && Object.keys(categoryColorOverrides).length > 0;
+
+  const handleColorChange = useCallback((rgba: Parameters<typeof Color.rgb>[0]) => {
+    if (!pickerCategory || !onColorOverride) return;
+    const hex = Color.rgb(rgba).hex();
+    onColorOverride(pickerCategory, hex);
+  }, [pickerCategory, onColorOverride]);
 
   useEffect(() => { setFilterText(''); }, [categoryField]);
 
@@ -176,6 +207,16 @@ export function Legend({
           <X className="h-3 w-3" />
         </button>
       )}
+      {hasOverrides && (
+        <button
+          onClick={onColorOverrideClear}
+          className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          aria-label="Reset custom colors"
+          title="Reset custom colors"
+        >
+          <RotateCcw className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 
@@ -186,7 +227,10 @@ export function Legend({
   const isPosLegend = !categoryField || categoryField === 'pos';
   const values = categoryValues || (isPosLegend ? ['n', 'v', 'a', 'r', 's', 'unknown'] : []);
 
-  const colorMap = buildCategoryColorMap(categoryField ?? 'pos', values, categoricalPalette);
+  const colorMap = useMemo(
+    () => buildCategoryColorMap(categoryField ?? 'pos', values, categoricalPalette, categoryColorOverrides),
+    [categoryField, values, categoricalPalette, categoryColorOverrides]
+  );
 
   // Filter flat category values by display label
   const filteredValues = useMemo(() => {
@@ -333,13 +377,42 @@ export function Legend({
                     }
                   }}
                 >
-                  <span
-                    className="h-3 w-3 rounded-sm shrink-0 transition-colors"
-                    style={{
-                      backgroundColor: isTopicMuted ? '#9ca3af' : (nestedColorMap.topicColors[topic] || '#7f7f7f'),
-                    }}
-                    aria-hidden="true"
-                  />
+                  <Popover open={pickerCategory === topic} onOpenChange={(open) => setPickerCategory(open ? topic : null)}>
+                    <PopoverAnchor asChild>
+                      <span
+                        className={cn(
+                          "h-3 w-3 rounded-sm shrink-0 transition-all",
+                          onColorOverride && "cursor-context-menu hover:ring-2 hover:ring-foreground/40 hover:ring-offset-1 hover:scale-125"
+                        )}
+                        style={{
+                          backgroundColor: isTopicMuted ? '#9ca3af' : (nestedColorMap.topicColors[topic] || '#7f7f7f'),
+                          outline: categoryColorOverrides?.[topic] ? '1.5px solid currentColor' : undefined,
+                          outlineOffset: '1px',
+                        }}
+                        onContextMenu={(e) => {
+                          if (!onColorOverride) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPickerCategory(pickerCategory === topic ? null : topic);
+                        }}
+                        aria-hidden="true"
+                      />
+                    </PopoverAnchor>
+                    {pickerCategory === topic && (
+                      <PopoverContent className="w-64 p-3" side="right" align="start" onOpenAutoFocus={(e) => e.preventDefault()} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                        <ColorPicker value={nestedColorMap.topicColors[topic] || '#7f7f7f'} onChange={handleColorChange} className="h-auto">
+                          <ColorPickerSelection className="h-32 rounded-lg" />
+                          <ColorPickerHue />
+                          <ColorPickerAlpha />
+                          <div className="flex items-center gap-2">
+                            <ColorPickerEyeDropper />
+                            <ColorPickerOutput />
+                            <ColorPickerFormat />
+                          </div>
+                        </ColorPicker>
+                      </PopoverContent>
+                    )}
+                  </Popover>
                   <span
                     className={cn(
                       "text-sm font-semibold flex-1 max-w-44 truncate text-foreground/70",
@@ -385,13 +458,42 @@ export function Legend({
                         }
                       }}
                     >
-                      <span
-                        className="h-2.5 w-2.5 rounded-full shrink-0 transition-colors"
-                        style={{
-                          backgroundColor: isSubMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
-                        }}
-                        aria-hidden="true"
-                      />
+                      <Popover open={pickerCategory === sub} onOpenChange={(open) => setPickerCategory(open ? sub : null)}>
+                        <PopoverAnchor asChild>
+                          <span
+                            className={cn(
+                              "h-2.5 w-2.5 rounded-full shrink-0 transition-all",
+                              onColorOverride && "cursor-context-menu hover:ring-2 hover:ring-foreground/40 hover:ring-offset-1 hover:scale-125"
+                            )}
+                            style={{
+                              backgroundColor: isSubMuted ? '#9ca3af' : (nestedColorMap.subtopicColors[sub] || '#7f7f7f'),
+                              outline: categoryColorOverrides?.[sub] ? '1.5px solid currentColor' : undefined,
+                              outlineOffset: '1px',
+                            }}
+                            onContextMenu={(e) => {
+                              if (!onColorOverride) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setPickerCategory(pickerCategory === sub ? null : sub);
+                            }}
+                            aria-hidden="true"
+                          />
+                        </PopoverAnchor>
+                        {pickerCategory === sub && (
+                          <PopoverContent className="w-64 p-3" side="right" align="start" onOpenAutoFocus={(e) => e.preventDefault()} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                            <ColorPicker value={nestedColorMap.subtopicColors[sub] || '#7f7f7f'} onChange={handleColorChange} className="h-auto">
+                              <ColorPickerSelection className="h-32 rounded-lg" />
+                              <ColorPickerHue />
+                              <ColorPickerAlpha />
+                              <div className="flex items-center gap-2">
+                                <ColorPickerEyeDropper />
+                                <ColorPickerOutput />
+                                <ColorPickerFormat />
+                              </div>
+                            </ColorPicker>
+                          </PopoverContent>
+                        )}
+                      </Popover>
                       <span
                         className={cn(
                           "text-xs flex-1 max-w-40 truncate text-foreground/60",
@@ -415,6 +517,7 @@ export function Legend({
         <ScrollBar className="px-0" orientation="vertical" />
         </ScrollArea>
         {dragHandle}
+
       </Card>
     );
   }
@@ -456,13 +559,42 @@ export function Legend({
                 }
               }}
             >
-              <span
-                className="h-3 w-3 rounded-full shrink-0 transition-colors"
-                style={{
-                  backgroundColor: isMuted ? '#9ca3af' : (colorMap[value] || '#7f7f7f'),
-                }}
-                aria-hidden="true"
-              />
+              <Popover open={pickerCategory === value} onOpenChange={(open) => setPickerCategory(open ? value : null)}>
+                <PopoverAnchor asChild>
+                  <span
+                    className={cn(
+                      "h-3 w-3 rounded-full shrink-0 transition-all",
+                      onColorOverride && "cursor-context-menu hover:ring-2 hover:ring-foreground/40 hover:ring-offset-1 hover:scale-125"
+                    )}
+                    style={{
+                      backgroundColor: isMuted ? '#9ca3af' : (colorMap[value] || '#7f7f7f'),
+                      outline: categoryColorOverrides?.[value] ? '1.5px solid currentColor' : undefined,
+                      outlineOffset: '1px',
+                    }}
+                    onContextMenu={(e) => {
+                      if (!onColorOverride) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setPickerCategory(pickerCategory === value ? null : value);
+                    }}
+                    aria-hidden="true"
+                  />
+                </PopoverAnchor>
+                {pickerCategory === value && (
+                  <PopoverContent className="w-64 p-3" side="right" align="start" onOpenAutoFocus={(e) => e.preventDefault()} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                    <ColorPicker value={colorMap[value] || '#7f7f7f'} onChange={handleColorChange} className="h-auto">
+                      <ColorPickerSelection className="h-32 rounded-lg" />
+                      <ColorPickerHue />
+                      <ColorPickerAlpha />
+                      <div className="flex items-center gap-2">
+                        <ColorPickerEyeDropper />
+                        <ColorPickerOutput />
+                        <ColorPickerFormat />
+                      </div>
+                    </ColorPicker>
+                  </PopoverContent>
+                )}
+              </Popover>
               <span
                 className={cn(
                   "text-sm flex-1 max-w-48 truncate text-foreground/70",

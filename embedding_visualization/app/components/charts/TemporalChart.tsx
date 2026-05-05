@@ -16,6 +16,7 @@ import {
   type ChartConfig,
 } from '@/lib/ui-primitives/chart';
 import { buildCategoryColorMap, getCategoryLabel, getCategoryDisplayName } from '@/lib/utils/categoryColors';
+import { useVisualizationStore } from '@/lib/stores/useVisualizationStore';
 import { fieldToDisplayName } from '@/lib/utils/fieldAnalysis';
 import type { TemporalCrossTabRow } from '@/lib/utils/temporalAnalysis';
 
@@ -39,9 +40,12 @@ export function TemporalChart({
   crossTabData,
   categoricalPalette,
 }: TemporalChartProps) {
+  const colorOverrides = useVisualizationStore(
+    (s) => categoryField ? s.categoryColorOverrides[categoryField] : undefined
+  );
   const colorMap = useMemo(
-    () => buildCategoryColorMap(categoryField, categoryValues, categoricalPalette),
-    [categoryField, categoryValues, categoricalPalette]
+    () => buildCategoryColorMap(categoryField, categoryValues, categoricalPalette, colorOverrides),
+    [categoryField, categoryValues, categoricalPalette, colorOverrides]
   );
 
   // Pick top N categories by count for the stacked areas

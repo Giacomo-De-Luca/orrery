@@ -28,7 +28,8 @@ export function isNestedColorAvailable(
  */
 export function buildNestedColorMap(
   points: (Point2D | Point3D)[],
-  palette?: string
+  palette?: string,
+  topicOverrides?: Record<string, string>,
 ): NestedColorMap {
   // Build hierarchy: topic → Set<subtopic>, and counts
   const hierarchySet: Record<string, Set<string>> = {};
@@ -75,7 +76,7 @@ export function buildNestedColorMap(
 
   // Assign hue-based colors for real topics
   colorTopics.forEach((topic, i) => {
-    const baseHex = baseColors[i];
+    const baseHex = topicOverrides?.[topic] ?? baseColors[i];
     topicColors[topic] = baseHex;
 
     const subs = hierarchy[topic];

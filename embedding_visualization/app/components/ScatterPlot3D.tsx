@@ -131,6 +131,8 @@ interface ScatterPlot3DProps {
   hideFilteredPoints?: boolean;
   /** 0-1 multiplier applied to the base opacity for muted points (default 0.20) */
   mutedPointOpacity?: number;
+  /** 0-1 multiplier applied to the base opacity for normal points (default 1.0) */
+  pointOpacity?: number;
   /** Custom numeric range overrides for cmin/cmax */
   customNumericRange?: CustomNumericRange | null;
   /** Callback when a point is right-clicked (contextmenu) */
@@ -173,6 +175,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   combinedMutedIndices,
   hideFilteredPoints = false,
   mutedPointOpacity,
+  pointOpacity,
   customNumericRange,
   onPointContextMenu,
 }: ScatterPlot3DProps) {
@@ -302,9 +305,12 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
     }
   }, []);
 
+  const colorOverrides = useVisualizationStore(
+    (s) => categoryField ? s.categoryColorOverrides[categoryField] : undefined
+  );
   const colorMap = useMemo(() => {
-    return buildCategoryColorMap(categoryField, categoryValues, categoricalPalette);
-  }, [categoryField, categoryValues, categoricalPalette]);
+    return buildCategoryColorMap(categoryField, categoryValues, categoricalPalette, colorOverrides);
+  }, [categoryField, categoryValues, categoricalPalette, colorOverrides]);
 
   // --- 1. OPTIMIZED DATA EXTRACTION (Raw Numbers) ---
   const numericData = useMemo(() => {
@@ -428,7 +434,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
 
     const traces: PlotlyData[] = [];
     // Light backgrounds wash out colored points — boost opacity
-    const dimOpacity = Math.min(markerStyle.opacity * (isDark ? 1.0 : 1.6), 1.0);
+    const dimOpacity = Math.min(markerStyle.opacity * (isDark ? 1.0 : 1.6) * (pointOpacity ?? 1.0), 1.0);
     const dimSize = Math.max(markerStyle.size * 0.7, 2);
     const mutedOp = dimOpacity * (mutedPointOpacity ?? 0.20);
 
@@ -555,7 +561,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
   }, [
     displayPoints, markerStyle, showOnlyHighlighted,
     categoryValues, colorMap, activeNumericData, effectiveRange, plotlyColorScale, categoryField,
-    mutedCategories, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity, isDark
+    mutedCategories, nestedColorMap, combinedMutedIndices, hideFilteredPoints, mutedPointOpacity, pointOpacity, isDark
   ]);
 
   // Bounds of active (non-muted) points — computed directly from muting state

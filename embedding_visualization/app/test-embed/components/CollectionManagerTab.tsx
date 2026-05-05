@@ -71,6 +71,7 @@ interface CollectionManagerTabProps {
   lastLlmLabelsResult: GenerateLlmLabelsResult | null;
   // Topic label renaming
   renameTopicLabel: (collectionName: string, topicId: number, newLabel: string, isSubtopic?: boolean) => Promise<{ error?: string | null } | null>;
+  regenerateTopicLabel: (collectionName: string, topicId: number, llmConfig?: string) => Promise<{ error?: string | null; newLabel?: string } | null>;
   // Load previously-extracted topics
   fetchCollectionTopics: (collectionName: string) => Promise<ExtractTopicsResult | null>;
 }
@@ -228,6 +229,7 @@ export function CollectionManagerTab({
   llmLabelsLoading,
   lastLlmLabelsResult,
   renameTopicLabel,
+  regenerateTopicLabel,
   fetchCollectionTopics,
 }: CollectionManagerTabProps) {
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
@@ -741,6 +743,7 @@ export function CollectionManagerTab({
           lastLlmLabelsResult={lastLlmLabelsResult}
           hasSubtopics={!!metadata.topic_hierarchy}
           renameTopicLabel={renameTopicLabel}
+          regenerateTopicLabel={regenerateTopicLabel}
         />
       )}
 

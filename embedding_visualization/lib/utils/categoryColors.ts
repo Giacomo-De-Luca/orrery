@@ -385,6 +385,7 @@ export function buildCategoryColorMap(
   categoryField: string | null,
   values: string[],
   palette?: string,
+  overrides?: Record<string, string>,
 ): Record<string, string> {
   const colorMap: Record<string, string> = {};
 
@@ -417,6 +418,13 @@ export function buildCategoryColorMap(
     const colors = generateCategoryColors(values.length, palette);
     for (let i = 0; i < values.length; i++) {
       colorMap[values[i]] = colors[i];
+    }
+  }
+
+  // Apply custom overrides (only for values present in the map)
+  if (overrides) {
+    for (const [k, v] of Object.entries(overrides)) {
+      if (k in colorMap) colorMap[k] = v;
     }
   }
 

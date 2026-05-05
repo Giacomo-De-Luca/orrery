@@ -25,6 +25,7 @@ import {
 } from '@/lib/ui-primitives/select';
 import { Input } from '@/lib/ui-primitives/input';
 import { buildCategoryColorMap, getCategoryLabel, getCategoryDisplayName } from '@/lib/utils/categoryColors';
+import { useVisualizationStore } from '@/lib/stores/useVisualizationStore';
 import type { ColorFieldOption } from '@/lib/utils/fieldAnalysis';
 
 const MAX_BARS = 15;
@@ -60,9 +61,12 @@ export function CategoryBarChart({
     setCategoryFilter('');
   }, [categoryField]);
 
+  const colorOverrides = useVisualizationStore(
+    (s) => categoryField ? s.categoryColorOverrides[categoryField] : undefined
+  );
   const colorMap = useMemo(
-    () => buildCategoryColorMap(categoryField, categoryValues, categoricalPalette),
-    [categoryField, categoryValues, categoricalPalette]
+    () => buildCategoryColorMap(categoryField, categoryValues, categoricalPalette, colorOverrides),
+    [categoryField, categoryValues, categoricalPalette, colorOverrides]
   );
 
   const isSearchActive = useMemo(

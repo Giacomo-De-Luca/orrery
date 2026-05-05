@@ -14,6 +14,7 @@ import {
   type ChartConfig,
 } from '@/lib/ui-primitives/chart';
 import { buildCategoryColorMap, getCategoryLabel, getCategoryDisplayName } from '@/lib/utils/categoryColors';
+import { useVisualizationStore } from '@/lib/stores/useVisualizationStore';
 import { fieldToDisplayName } from '@/lib/utils/fieldAnalysis';
 import type { TemporalCrossTabRow, TemporalCountRow } from '@/lib/utils/temporalAnalysis';
 
@@ -93,6 +94,10 @@ export function TemporalFilterChart({
     if (brushEndIndex === undefined) setRangeEnd(allPeriods.length - 1);
   }, [allPeriods.length, brushStartIndex, brushEndIndex]);
 
+  const colorOverrides = useVisualizationStore(
+    (s) => categoryField ? s.categoryColorOverrides[categoryField] : undefined
+  );
+
   const visibleCategories = useMemo(() => {
     if (!categoryField || categoryValues.length === 0) return [];
     return categoryValues.filter(c => !mutedCategories.includes(c));
@@ -104,8 +109,8 @@ export function TemporalFilterChart({
 
   // --- Stacked mode computations ---
   const colorMap = useMemo(
-    () => isStackedMode ? buildCategoryColorMap(categoryField!, categoryValues, categoricalPalette) : {},
-    [isStackedMode, categoryField, categoryValues, categoricalPalette]
+    () => isStackedMode ? buildCategoryColorMap(categoryField!, categoryValues, categoricalPalette, colorOverrides) : {},
+    [isStackedMode, categoryField, categoryValues, categoricalPalette, colorOverrides]
   );
 
   const topCategories = useMemo(() => {

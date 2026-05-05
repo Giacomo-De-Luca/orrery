@@ -11,7 +11,7 @@ import { Button } from '@/lib/ui-primitives/button';
 import { Badge } from '@/lib/ui-primitives/badge';
 import { Separator } from '@/lib/ui-primitives/separator';
 import { Spinner } from '@/lib/ui-primitives/spinner';
-import { X, ChevronDown, ChevronRight, Pencil, Check } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, Pencil, Check, RotateCw } from 'lucide-react';
 import { ProgressModal } from './EmbeddingProgressModal';
 import { Label } from '@/lib/ui-primitives/label';
 import { Input } from '@/lib/ui-primitives/input';
@@ -49,6 +49,7 @@ interface TopicExtractionCardProps {
   hasSubtopics: boolean;
   // Topic label renaming
   renameTopicLabel: (collectionName: string, topicId: number, newLabel: string, isSubtopic?: boolean) => Promise<{ error?: string | null } | null>;
+  regenerateTopicLabel: (collectionName: string, topicId: number, llmConfig?: string) => Promise<{ error?: string | null; newLabel?: string } | null>;
 }
 
 export function TopicExtractionCard({
@@ -69,12 +70,14 @@ export function TopicExtractionCard({
   lastLlmLabelsResult,
   hasSubtopics,
   renameTopicLabel,
+  regenerateTopicLabel,
 }: TopicExtractionCardProps) {
   const [open, setOpen] = useState(false);
   const [config, setConfig] = useState<TopicConfigState>(DEFAULT_TOPIC_CONFIG);
   const [editingTopicId, setEditingTopicId] = useState<number | null>(null);
   const [editingLabel, setEditingLabel] = useState('');
   const [renamingSaving, setRenamingSaving] = useState(false);
+  const [regeneratingTopicId, setRegeneratingTopicId] = useState<number | null>(null);
   const [showAllTopics, setShowAllTopics] = useState(false);
 
   // Standalone reduction state
@@ -247,18 +250,34 @@ export function TopicExtractionCard({
                           </form>
                         ) : (
                           <span className="font-medium flex items-center gap-1">
+                            {regeneratingTopicId === topic.topicId ? (
+                              <RotateCw className="h-3 w-3 animate-spin text-muted-foreground" />
+                            ) : null}
                             {topic.label || `Topic ${topic.topicId}`}
-                            {topic.topicId !== -1 && (
-                              <button
-                                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
-                                onClick={() => {
-                                  setEditingTopicId(topic.topicId);
-                                  setEditingLabel(topic.label || `Topic ${topic.topicId}`);
-                                }}
-                                title="Rename topic"
-                              >
-                                <Pencil className="h-3 w-3 text-muted-foreground" />
-                              </button>
+                            {topic.topicId !== -1 && regeneratingTopicId !== topic.topicId && (
+                              <>
+                                <button
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                                  onClick={() => {
+                                    setEditingTopicId(topic.topicId);
+                                    setEditingLabel(topic.label || `Topic ${topic.topicId}`);
+                                  }}
+                                  title="Rename topic"
+                                >
+                                  <Pencil className="h-3 w-3 text-muted-foreground" />
+                                </button>
+                                <button
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-muted"
+                                  onClick={async () => {
+                                    setRegeneratingTopicId(topic.topicId);
+                                    await regenerateTopicLabel(collectionName, topic.topicId);
+                                    setRegeneratingTopicId(null);
+                                  }}
+                                  title="Regenerate LLM label"
+                                >
+                                  <RotateCw className="h-3 w-3 text-muted-foreground" />
+                                </button>
+                              </>
                             )}
                           </span>
                         )}

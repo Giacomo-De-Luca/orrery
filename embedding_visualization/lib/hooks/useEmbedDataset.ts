@@ -727,6 +727,7 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
 
     // Topic label renaming
     renameTopicLabel,
+    regenerateTopicLabel,
 
     // Load previously-extracted topics
     fetchCollectionTopics,

@@ -139,10 +139,16 @@ export function DashboardPanel({
   const showClusterLabels = useVisualizationStore((s) => s.showClusterLabels);
   const hideFilteredPoints = useVisualizationStore((s) => s.hideFilteredPoints);
   const mutedPointOpacity = useVisualizationStore((s) => s.mutedPointOpacity);
+  const pointOpacity = useVisualizationStore((s) => s.pointOpacity);
   const customNumericRange = useVisualizationStore((s) => s.customNumericRange);
   const setCustomNumericRange = useVisualizationStore((s) => s.setCustomNumericRange);
   const setMutedCategories = useVisualizationStore((s) => s.setMutedCategories);
   const setTemporalRange = useVisualizationStore((s) => s.setTemporalRange);
+  const setCategoryColorOverride = useVisualizationStore((s) => s.setCategoryColorOverride);
+  const clearCategoryColorOverrides = useVisualizationStore((s) => s.clearCategoryColorOverrides);
+  const colorOverrides = useVisualizationStore(
+    (s) => colorByField ? s.categoryColorOverrides[colorByField] : undefined
+  );
 
   const is2D = mode === '2d';
 
@@ -431,6 +437,14 @@ export function DashboardPanel({
     }
   }, [isTopicColorField, onClearAllTopics, setMutedCategories]);
 
+  const handleColorOverride = useCallback((category: string, color: string) => {
+    if (colorByField) setCategoryColorOverride(colorByField, category, color);
+  }, [colorByField, setCategoryColorOverride]);
+
+  const handleColorOverrideClear = useCallback(() => {
+    if (colorByField) clearCategoryColorOverrides(colorByField);
+  }, [colorByField, clearCategoryColorOverrides]);
+
   // Show legend for categorical scales with values, or continuous scales with numeric range
   const showLegend = colorByField && (
     (categoryValues.length > 0 && !isContinuousScale) ||
@@ -489,6 +503,7 @@ export function DashboardPanel({
       combinedMutedIndices={combinedMutedIndices}
       hideFilteredPoints={hideFilteredPoints}
       mutedPointOpacity={mutedPointOpacity}
+      pointOpacity={pointOpacity}
       showClusterLabels={showClusterLabels}
       onClusterLabelClick={isTopicColorField ? onToggleTopic : undefined}
       topicLabelToIdMap={isTopicColorField ? topicLabelToIdMap : undefined}
@@ -517,6 +532,7 @@ export function DashboardPanel({
       combinedMutedIndices={combinedMutedIndices}
       hideFilteredPoints={hideFilteredPoints}
       mutedPointOpacity={mutedPointOpacity}
+      pointOpacity={pointOpacity}
       customNumericRange={customNumericRange}
       onPointContextMenu={saeInfo ? handlePointContextMenu : undefined}
     />
@@ -555,6 +571,9 @@ export function DashboardPanel({
             nestedColorMap={nestedColorMap}
             maxHeight={legendHeight}
             dragHandle={legendDragHandle}
+            onColorOverride={handleColorOverride}
+            onColorOverrideClear={handleColorOverrideClear}
+            categoryColorOverrides={colorOverrides}
           />
         </div>
       )}

@@ -20,6 +20,7 @@ import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
 import { useZoomLimit } from '../../lib/hooks/useZoomLimit';
 import { formatHoverText } from '../utils/rendeding';
 import { groupPointsByCluster, type ClusterData } from '../../lib/utils/clusterGeometry';
+import { useVisualizationStore } from '../../lib/stores/useVisualizationStore';
 import {
   computeClusterLabelPlacements,
   computeCurrentScale,
@@ -67,6 +68,8 @@ interface ScatterPlot2DProps {
   hideFilteredPoints?: boolean;
   /** 0-1 multiplier applied to the base opacity for muted points (default 0.20) */
   mutedPointOpacity?: number;
+  /** 0-1 multiplier applied to the base opacity for normal points (default 1.0) */
+  pointOpacity?: number;
   /** Show topic/subtopic names at cluster centroids */
   showClusterLabels?: boolean;
   /** Callback when a cluster label is clicked (topic toggle) */
@@ -99,6 +102,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   combinedMutedIndices,
   hideFilteredPoints = false,
   mutedPointOpacity,
+  pointOpacity,
   showClusterLabels = false,
   onClusterLabelClick,
   topicLabelToIdMap,
@@ -168,10 +172,13 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   const paperBg = isDark ? 'rgba(0,0,0,0)' : '#ffffff';
   const legendBg = isDark ? 'rgba(2,6,23,0.85)' : 'rgba(255,255,255,0.85)';
 
-  // Build color map based on category values
+  // Build color map based on category values (with custom overrides)
+  const colorOverrides = useVisualizationStore(
+    (s) => categoryField ? s.categoryColorOverrides[categoryField] : undefined
+  );
   const colorMap = useMemo(() => {
-    return buildCategoryColorMap(categoryField, categoryValues, categoricalPalette);
-  }, [categoryField, categoryValues, categoricalPalette]);
+    return buildCategoryColorMap(categoryField, categoryValues, categoricalPalette, colorOverrides);
+  }, [categoryField, categoryValues, categoricalPalette, colorOverrides]);
 
   // --- Cluster label data (shared with 3D pattern via groupPointsByCluster) ---
   const clusterDataMap = useMemo(() => {
@@ -485,8 +492,8 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
   // Light backgrounds wash out colored points — boost opacity
   const markerStyle = useMemo(() => ({
     ...markerStyleRaw,
-    opacity: Math.min(markerStyleRaw.opacity * (isDark ? 1.0 : 1.6), 1.0),
-  }), [markerStyleRaw, isDark]);
+    opacity: Math.min(markerStyleRaw.opacity * (isDark ? 1.0 : 1.6) * (pointOpacity ?? 1.0), 1.0),
+  }), [markerStyleRaw, isDark, pointOpacity]);
 
   // Calculate dynamic highlight scaling based on point count
   const highlightScale = useMemo(() => {

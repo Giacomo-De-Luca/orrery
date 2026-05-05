@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils/utils';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
 import { buildCategoryColorMap } from '@/lib/utils/categoryColors';
+import { useVisualizationStore } from '@/lib/stores/useVisualizationStore';
 import { DebouncedSearchInput } from './DebouncedSearchInput';
 import type { TopicInfo } from '@/lib/types/types';
 import type { TopicSearchMode, TopicSearchResult } from '@/lib/hooks/useTopicSearch';
@@ -60,13 +61,16 @@ export function TopicSearchSection({
   onClearAll,
   categoricalPalette,
 }: TopicSearchSectionProps) {
-  // Build color map for topic labels
+  // Build color map for topic labels (with custom overrides)
+  const topicColorOverrides = useVisualizationStore(
+    (s) => s.categoryColorOverrides['topic_id']
+  );
   const topicColorMap = React.useMemo(() => {
     const values = topics
       .filter(t => t.topicId !== -1)
       .map(t => String(t.topicId));
-    return buildCategoryColorMap('topic_id', ['-1', ...values], categoricalPalette);
-  }, [topics, categoricalPalette]);
+    return buildCategoryColorMap('topic_id', ['-1', ...values], categoricalPalette, topicColorOverrides);
+  }, [topics, categoricalPalette, topicColorOverrides]);
 
   const handleSemanticKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {

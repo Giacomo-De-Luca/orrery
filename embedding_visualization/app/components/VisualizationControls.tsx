@@ -49,7 +49,7 @@ export function VisualizationControls({
     method, mode, colorByField, selectedDimensions,
     nebulaMode, hideUnclustered, nestedColorMode,
     showClusterLabels, showAllClusterLabels, hideFilteredPoints, mutedPointOpacity,
-    distanceMetric, tooltipFields,
+    pointOpacity, distanceMetric, tooltipFields,
   } = store(useShallow((s) => ({
     method: s.method,
     mode: s.mode,
@@ -62,6 +62,7 @@ export function VisualizationControls({
     showAllClusterLabels: s.showAllClusterLabels,
     hideFilteredPoints: s.hideFilteredPoints,
     mutedPointOpacity: s.mutedPointOpacity,
+    pointOpacity: s.pointOpacity,
     distanceMetric: s.distanceMetric,
     tooltipFields: s.tooltipFields,
   })));
@@ -360,6 +361,22 @@ export function VisualizationControls({
               />
             </div>
           )}
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-normal">Point opacity</Label>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {Math.round((pointOpacity ?? 1.0) * 100)}%
+              </span>
+            </div>
+            <Slider
+              min={5}
+              max={100}
+              step={5}
+              value={[Math.round((pointOpacity ?? 1.0) * 100)]}
+              onValueChange={([v]) => store.getState().setPointOpacity(v / 100)}
+            />
+          </div>
         </div>
 
         <Separator />

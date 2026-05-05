@@ -28,6 +28,8 @@ export interface VisualizationStoreState {
   customNumericRange: CustomNumericRange | null;
   categoricalPalette: string | undefined;
   nestedColorMode: boolean;
+  /** Per-field custom color overrides. Outer key = field name, inner key = category value. */
+  categoryColorOverrides: Record<string, Record<string, string>>;
 
   // Search / filter
   searchQuery: string;
@@ -47,6 +49,7 @@ export interface VisualizationStoreState {
   mutedCategories: string[];
   hideFilteredPoints: boolean;
   mutedPointOpacity: number;
+  pointOpacity: number;
   temporalRange: TemporalRange | null;
 
   // Tooltip
@@ -69,6 +72,9 @@ interface VisualizationStoreActions {
   setCustomNumericRange: (range: CustomNumericRange | null) => void;
   setCategoricalPalette: (palette: string | undefined) => void;
   setNestedColorMode: (enabled: boolean) => void;
+  setCategoryColorOverride: (field: string, category: string, color: string) => void;
+  removeCategoryColorOverride: (field: string, category: string) => void;
+  clearCategoryColorOverrides: (field?: string) => void;
 
   // Search / filter
   setSearchQuery: (query: string) => void;
@@ -85,6 +91,7 @@ interface VisualizationStoreActions {
   // Muting / filtering
   setMutedCategories: (categories: string[]) => void;
   setMutedPointOpacity: (opacity: number) => void;
+  setPointOpacity: (opacity: number) => void;
   setTemporalRange: (range: TemporalRange | null) => void;
 
   // Tooltip
@@ -112,6 +119,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
     customNumericRange: null,
     categoricalPalette: undefined,
     nestedColorMode: false,
+    categoryColorOverrides: {},
     searchQuery: '',
     textSearchConfig: { fields: null, mode: 'CONTAINS', caseSensitive: false, filters: [] },
     distanceMetric: 'COSINE',
@@ -125,6 +133,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
     mutedCategories: [],
     hideFilteredPoints: false,
     mutedPointOpacity: 0.20,
+    pointOpacity: 1.0,
     temporalRange: null,
     tooltipFields: undefined,
 
@@ -147,6 +156,30 @@ export const useVisualizationStore = create<VisualizationStore>()(
     setCategoricalPalette: (palette) => set({ categoricalPalette: palette }),
     setNestedColorMode: (enabled) => set({ nestedColorMode: enabled }),
 
+    setCategoryColorOverride: (field, category, color) => set((prev) => ({
+      categoryColorOverrides: {
+        ...prev.categoryColorOverrides,
+        [field]: { ...prev.categoryColorOverrides[field], [category]: color },
+      },
+    })),
+    removeCategoryColorOverride: (field, category) => set((prev) => {
+      const fieldOverrides = { ...prev.categoryColorOverrides[field] };
+      delete fieldOverrides[category];
+      const next = { ...prev.categoryColorOverrides };
+      if (Object.keys(fieldOverrides).length === 0) {
+        delete next[field];
+      } else {
+        next[field] = fieldOverrides;
+      }
+      return { categoryColorOverrides: next };
+    }),
+    clearCategoryColorOverrides: (field) => set((prev) => {
+      if (!field) return { categoryColorOverrides: {} };
+      const next = { ...prev.categoryColorOverrides };
+      delete next[field];
+      return { categoryColorOverrides: next };
+    }),
+
     setSearchQuery: (query) => set({ searchQuery: query }),
     setTextSearchConfig: (config) => set({ textSearchConfig: config }),
     setDistanceMetric: (metric) => set({ distanceMetric: metric }),
@@ -155,6 +188,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
 
     setMutedCategories: (categories) => set({ mutedCategories: categories }),
     setMutedPointOpacity: (opacity) => set({ mutedPointOpacity: opacity }),
+    setPointOpacity: (opacity) => set({ pointOpacity: opacity }),
     setTemporalRange: (range) => set({ temporalRange: range }),
 
     setTooltipFields: (fields) => set({ tooltipFields: fields }),
@@ -167,6 +201,7 @@ export const useVisualizationStore = create<VisualizationStore>()(
       colorScale: DEFAULT_COLOR_SCALE,
       customNumericRange: null,
       mutedCategories: [],
+      categoryColorOverrides: {},
       tooltipFields: undefined,
       temporalRange: null,
       hideFilteredPoints: false,
