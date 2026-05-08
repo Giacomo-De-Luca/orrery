@@ -577,3 +577,27 @@ export const UNLOAD_MODEL = gql`
     }
   }
 `;
+
+// ========== SAE Prompt Highlight ==========
+
+export interface PromptHighlightFeature {
+  featureIndex: number;
+  activation: number;
+}
+
+export interface PromptHighlightResult {
+  features: PromptHighlightFeature[];
+  error: string | null;
+}
+
+export const RUN_PROMPT_HIGHLIGHT = gql`
+  mutation RunPromptHighlight($input: RunPromptHighlightInput!) {
+    runPromptHighlight(input: $input) {
+      features {
+        featureIndex
+        activation
+      }
+      error
+    }
+  }
+`;

@@ -62,6 +62,12 @@ interface DashboardPanelProps {
   itemMetadata?: Record<string, unknown>[];
   // SAE cross-link (when collection is an SAE embedding collection)
   saeInfo?: { modelId: string; saeId: string } | null;
+  // SAE prompt highlight
+  promptHighlightStatus?: 'idle' | 'loading_model' | 'running' | 'error';
+  promptHighlightError?: string | null;
+  promptHighlightActivePrompt?: string | null;
+  onPromptHighlightSubmit?: (prompt: string) => void;
+  onPromptHighlightClear?: () => void;
   // Topic search props (threaded to SearchSidebar)
   topics?: TopicInfo[];
   topicSearchMode?: TopicSearchMode;
@@ -104,6 +110,12 @@ export function DashboardPanel({
   itemMetadata,
   // SAE cross-link
   saeInfo,
+  // SAE prompt highlight
+  promptHighlightStatus,
+  promptHighlightError,
+  promptHighlightActivePrompt,
+  onPromptHighlightSubmit,
+  onPromptHighlightClear,
   // Topic search props
   topics,
   topicSearchMode,
@@ -717,6 +729,12 @@ export function DashboardPanel({
           textSearchLoading={textSearchLoading}
           availableFields={availableFields}
           itemMetadata={itemMetadata}
+          saeInfo={saeInfo}
+          promptHighlightStatus={promptHighlightStatus}
+          promptHighlightError={promptHighlightError}
+          promptHighlightActivePrompt={promptHighlightActivePrompt}
+          onPromptHighlightSubmit={onPromptHighlightSubmit}
+          onPromptHighlightClear={onPromptHighlightClear}
           variant="floating"
           className={cn(
             "pointer-events-auto absolute top-20 bottom-2 z-40 w-80 shadow-2xl transition-all duration-300 ease-in-out",

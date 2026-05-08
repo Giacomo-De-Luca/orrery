@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ChevronDown, Settings2, Loader2 } from 'lucide-react';
+import { ChevronDown, Settings2, Loader2, X } from 'lucide-react';
 import {
   Sidebar,
   SidebarContentPlain,
@@ -11,6 +11,7 @@ import {
 import { Label } from '@/lib/ui-primitives/label';
 import { Checkbox } from '@/lib/ui-primitives/checkbox';
 import { Button } from '@/lib/ui-primitives/button';
+import { Input } from '@/lib/ui-primitives/input';
 import {
   Collapsible,
   CollapsibleContent,
@@ -37,6 +38,7 @@ import type { Point2D, Point3D, TopicInfo, TextSearchConfig } from '../../lib/ty
 import type { TopicSearchMode, TopicSearchResult } from '../../lib/hooks/useTopicSearch';
 import { cn } from '@/lib/utils/utils';
 import { fieldToDisplayName } from '../../lib/utils/fieldAnalysis';
+import { MAX_HIGHLIGHTED_FEATURES } from '../../lib/hooks/usePromptHighlight';
 import { useVisualizationStore } from '../../lib/stores/useVisualizationStore';
 
 // Must match ChromaDBClient.DOCUMENT_SENTINEL in the backend
@@ -78,6 +80,13 @@ interface SearchSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onSelectAllTopics?: () => void;
   onClearAllTopics?: () => void;
   categoricalPalette?: string;
+  // SAE prompt highlight
+  saeInfo?: { modelId: string; saeId: string } | null;
+  promptHighlightStatus?: 'idle' | 'loading_model' | 'running' | 'error';
+  promptHighlightError?: string | null;
+  promptHighlightActivePrompt?: string | null;
+  onPromptHighlightSubmit?: (prompt: string) => void;
+  onPromptHighlightClear?: () => void;
 }
 
 export function SearchSidebar({
@@ -114,11 +123,32 @@ export function SearchSidebar({
   onSelectAllTopics,
   onClearAllTopics,
   categoricalPalette,
+  // SAE prompt highlight
+  saeInfo,
+  promptHighlightStatus,
+  promptHighlightError,
+  promptHighlightActivePrompt,
+  onPromptHighlightSubmit,
+  onPromptHighlightClear,
   className,
   ...props
 }: SearchSidebarProps) {
   const hasSearch = Boolean(searchQuery && searchQuery.trim().length > 0);
   const showResults = hasSearch && textSearchResults && textSearchResults.length > 0;
+
+  // SAE prompt activation state
+  const [promptText, setPromptText] = React.useState('');
+  const promptBusy = promptHighlightStatus === 'loading_model' || promptHighlightStatus === 'running';
+  const handlePromptSubmit = React.useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (promptText.trim() && onPromptHighlightSubmit) {
+      onPromptHighlightSubmit(promptText.trim());
+    }
+  }, [promptText, onPromptHighlightSubmit]);
+  const handlePromptClear = React.useCallback(() => {
+    setPromptText('');
+    onPromptHighlightClear?.();
+  }, [onPromptHighlightClear]);
 
   // Read search config from store
   const textSearchConfig = useVisualizationStore((s) => s.textSearchConfig);
@@ -168,6 +198,59 @@ export function SearchSidebar({
               Search will highlight matching words in the visualization
             </p>
           </div>
+
+          {/* SAE Prompt Activation */}
+          {saeInfo && onPromptHighlightSubmit && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-base">Prompt Activation</Label>
+                {promptBusy && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
+              </div>
+              <form onSubmit={handlePromptSubmit} className="flex gap-2">
+                <Input
+                  placeholder="Enter a prompt..."
+                  value={promptText}
+                  onChange={(e) => setPromptText(e.target.value)}
+                  className="flex-1"
+                  disabled={promptBusy}
+                />
+                <Button type="submit" size="sm" disabled={!promptText.trim() || promptBusy}>
+                  Run
+                </Button>
+              </form>
+              {promptHighlightStatus === 'loading_model' && (
+                <p className="text-xs text-muted-foreground">Loading model...</p>
+              )}
+              {promptHighlightStatus === 'running' && (
+                <p className="text-xs text-muted-foreground">Running SAE inference...</p>
+              )}
+              {promptHighlightError && (
+                <p className="text-xs text-destructive">{promptHighlightError}</p>
+              )}
+              {promptHighlightActivePrompt && !promptBusy && (
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-muted-foreground truncate flex-1">
+                    Top {MAX_HIGHLIGHTED_FEATURES} features for: &ldquo;{promptHighlightActivePrompt}&rdquo;
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 shrink-0"
+                    onClick={handlePromptClear}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
+              {!promptHighlightActivePrompt && !promptBusy && (
+                <p className="text-xs text-muted-foreground">
+                  Run a prompt through the SAE to highlight the top activated features
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Show Only Highlighted */}
           <div className="flex items-center space-x-2">

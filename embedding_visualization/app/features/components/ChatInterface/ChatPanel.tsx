@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { motion } from 'motion/react';
 import { ChevronDown, PanelRightIcon, RotateCcw } from 'lucide-react';
 import { Button } from '@/lib/ui-primitives/button';
+import { Slider } from '@/lib/ui-primitives/slider';
 import { useScrollToBottom } from '@/lib/hooks/useScrollToBottom';
 import { useSteeringChat } from '@/lib/hooks/useSteeringChat';
 import { cn } from '@/lib/utils/utils';
@@ -35,7 +36,8 @@ export function ChatPanel({
   onUpdateStrength,
   onClose,
 }: ChatPanelProps) {
-  const { messages, status, error, send, stop, reset, regenerate } = useSteeringChat(steeringConfig);
+  const [maxTokens, setMaxTokens] = useState(256);
+  const { messages, status, error, send, stop, reset, regenerate } = useSteeringChat(steeringConfig, maxTokens);
   const { containerRef, endRef, isAtBottom, scrollToBottom } = useScrollToBottom();
   const [votes, setVotes] = useState<Map<string, MessageVote>>(new Map());
 
@@ -108,6 +110,22 @@ export function ChatPanel({
         currentModelId={modelId}
         currentSaeId={saeId}
       />
+
+      {/* Max tokens control */}
+      <div className="flex items-center gap-3 border-b border-border/30 px-4 py-2">
+        <span className="shrink-0 text-[11px] text-muted-foreground">Max tokens</span>
+        <Slider
+          value={[maxTokens]}
+          min={32}
+          max={2048}
+          step={32}
+          onValueChange={([v]) => setMaxTokens(v)}
+          className="flex-1"
+        />
+        <span className="w-10 shrink-0 text-right font-mono text-[10px] text-muted-foreground tabular-nums">
+          {maxTokens}
+        </span>
+      </div>
 
       {/* Messages area */}
       <div className="relative flex-1 overflow-hidden">

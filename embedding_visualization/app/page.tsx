@@ -13,10 +13,13 @@ import { useHighlightedIndices } from '../lib/hooks/useHighlightedIndices';
 import { useAppSearch } from '../lib/hooks/useAppSearch';
 import { useTopicSearch } from '../lib/hooks/useTopicSearch';
 import { useTextSearch } from '../lib/hooks/useTextSearch';
+import { usePromptHighlight } from '../lib/hooks/usePromptHighlight';
 import { isInTemporalRange } from '../lib/utils/temporalFilters';
 import { useVisualizationStore } from '../lib/stores/useVisualizationStore';
 import type { HighlightMap } from '../lib/types/types';
 import { getSaeInfo } from '../lib/utils/saeCollections';
+
+const EMPTY_METADATA: Record<string, unknown>[] = [];
 
 export default function Home() {
   const { collections, loading: collectionsLoading, error: collectionsError } = useCollections();
@@ -168,6 +171,10 @@ export default function Home() {
     loading: textSearchLoading,
   } = useTextSearch(selectedCollection, searchQuery, textSearchConfig, data?.ids);
 
+  // SAE prompt activation highlight
+  const saeInfo = getSaeInfo(selectedCollection);
+  const promptHighlight = usePromptHighlight(saeInfo, data?.itemMetadata ?? EMPTY_METADATA);
+
   // Compute text search results from highlighted indices, filtered by temporal range
   const textSearchResults = useMemo(() => {
     if (!textSearchHighlightedIndices || textSearchHighlightedIndices.size === 0) return [];
@@ -183,11 +190,13 @@ export default function Home() {
   // Text search glow only activates when no semantic search is active — clicking a
   // text result triggers semantic search which naturally takes over the glow.
   // Selected point is excluded — it has its own overlay traces in ScatterPlot3D.
-  const combinedHighlightedIndices: HighlightMap | undefined = useHighlightedIndices(
+  const baseHighlightedIndices: HighlightMap | undefined = useHighlightedIndices(
     semanticSearchResults,
     data,
     semanticSearchResults && semanticSearchResults.length > 0 ? null : textSearchHighlightedIndices,
   );
+  // Prompt highlight replaces semantic + text highlights when active
+  const combinedHighlightedIndices = promptHighlight.highlightMap ?? baseHighlightedIndices;
 
   // Initialize tooltipFields with smart defaults when data loads
   useEffect(() => {
@@ -200,9 +209,10 @@ export default function Home() {
   useEffect(() => {
     if (isInitialLoad.current) return;
     resetSearch();
+    promptHighlight.clear();
     setQueryPromptName(null);
     store.getState().resetForCollectionChange();
-  }, [selectedCollection, resetSearch]);
+  }, [selectedCollection, resetSearch, promptHighlight.clear]);
 
   // Apply colorBy from URL once data loads, then mark initial load complete
   useEffect(() => {
@@ -273,7 +283,12 @@ export default function Home() {
                   semanticSearchResults={semanticSearchResults}
                   searchQueryLabel={searchQueryLabel}
                   embeddingDim={data.metadata.embedding_dim}
-                  saeInfo={getSaeInfo(selectedCollection)}
+                  saeInfo={saeInfo}
+                  promptHighlightStatus={promptHighlight.status}
+                  promptHighlightError={promptHighlight.error}
+                  promptHighlightActivePrompt={promptHighlight.activePrompt}
+                  onPromptHighlightSubmit={promptHighlight.submit}
+                  onPromptHighlightClear={promptHighlight.clear}
                   metadata={{
                     pca_2d_variance: data.metadata.pca_2d_variance,
                     pca_3d_variance: data.metadata.pca_3d_variance,

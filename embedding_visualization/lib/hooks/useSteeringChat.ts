@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { apolloClient } from '@/lib/utils/apollo-client';
-import { GENERATE_STREAM, MODEL_STATUS } from '@/lib/graphql/queries';
-import { LOAD_MODEL } from '@/lib/graphql/mutations';
+import { GENERATE_STREAM } from '@/lib/graphql/queries';
+import { ensureModelLoaded } from '@/lib/utils/modelLoader';
 import type { ChatMessage, ChatStatus, SteeringConfig } from '@/lib/types/types';
 
 export interface UseSteeringChatReturn {
@@ -50,25 +50,8 @@ function buildSteeringInputs(config: SteeringConfig) {
   }));
 }
 
-/** Ensure the Gemma model is loaded, loading it if necessary. */
-async function ensureModelLoaded(): Promise<string | null> {
-  const { data: statusData } = await apolloClient.query<{
-    modelStatus: { loaded: boolean; modelName: string | null; device: string | null };
-  }>({ query: MODEL_STATUS, fetchPolicy: 'network-only' });
 
-  if (statusData?.modelStatus?.loaded) return null;
-
-  const { data: loadData } = await apolloClient.mutate<{
-    loadModel: { loaded: boolean; modelName: string | null; device: string | null };
-  }>({ mutation: LOAD_MODEL });
-
-  if (!loadData?.loadModel?.loaded) {
-    return loadData?.loadModel?.modelName ?? 'Failed to load model';
-  }
-  return null;
-}
-
-export function useSteeringChat(config: SteeringConfig): UseSteeringChatReturn {
+export function useSteeringChat(config: SteeringConfig, maxTokens: number = DEFAULT_OUTPUT_LEN): UseSteeringChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +174,7 @@ export function useSteeringChat(config: SteeringConfig): UseSteeringChatReturn {
             input: {
               turns,
               steering,
-              outputLen: DEFAULT_OUTPUT_LEN,
+              outputLen: maxTokens,
               topP: DEFAULT_TOP_P,
               topK: DEFAULT_TOP_K,
             },
