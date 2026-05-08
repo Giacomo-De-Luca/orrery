@@ -718,12 +718,14 @@ class PrepareSaeInput:
 
 @strawberry.type
 class PrepareSaeResult:
-    """Result of the SAE pipeline — output file paths."""
+    """Result of the SAE pipeline — file paths + DuckDB ingestion counts."""
 
     model_id: str
     sae_id: str
     features_parquet: str | None = None
     activations_jsonl: str | None = None
+    features_inserted: int = 0
+    activations_inserted: int = 0
     duration_seconds: float = 0.0
     status: str = ""  # "completed", "already_downloaded", "failed"
     error: str | None = None

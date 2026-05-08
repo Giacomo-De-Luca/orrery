@@ -1,8 +1,10 @@
 """Bridge between the interpret/ SAE pipeline and the backend GraphQL API.
 
-Runs the standalone pipeline (download → merge → extract decoder vectors)
-and returns output file paths. Does NOT auto-ingest into DuckDB — the user
-imports the parquet via the Local Files flow to get projections and topics.
+Runs the standalone pipeline (download → merge → extract decoder vectors),
+ingests features + activations into DuckDB (sae_features / sae_activations
+tables), and returns output file paths. Does NOT store vectors in ChromaDB
+(no projections/topics) — the user can import the parquet via the Local
+Files flow for visualization.
 """
 
 import logging
@@ -23,11 +25,13 @@ logger = logging.getLogger("star_map." + __name__)
 # Total progress split across stages (100 units).
 # Download sub-stages are reported as "download:download_features" etc.
 _STAGE_WEIGHTS = {
-    "download:download_features": 20,
-    "download:download_explanations": 20,
-    "download:download_activations": 20,
+    "download:download_features": 15,
+    "download:download_explanations": 15,
+    "download:download_activations": 15,
     "merge_activations": 5,
-    "extract_vectors": 35,
+    "extract_vectors": 25,
+    "ingest_features": 15,
+    "ingest_activations": 10,
 }
 _STAGE_OFFSETS: dict[str, int] = {}
 _offset = 0
@@ -44,12 +48,14 @@ def prepare_sae_data(
     include_activations: bool = False,
     job_id: str | None = None,
 ) -> dict:
-    """Run the SAE download + extraction pipeline.
+    """Run the SAE pipeline: download, extract, and ingest into DuckDB.
 
     This is a **synchronous** function intended to be called via
     ``asyncio.to_thread()`` from the GraphQL mutation layer.
 
-    Returns output file paths — does NOT ingest into DuckDB.
+    Ingests features + activations into DuckDB sae_features/sae_activations
+    tables (without storing vectors in ChromaDB). Returns output file paths
+    so the user can import the parquet for visualization separately.
     """
     start = time.time()
 
@@ -80,6 +86,8 @@ def prepare_sae_data(
         "sae_id": sae_id,
         "features_parquet": None,
         "activations_jsonl": None,
+        "features_inserted": 0,
+        "activations_inserted": 0,
         "duration_seconds": 0.0,
         "status": "completed",
         "error": None,
@@ -139,6 +147,57 @@ def prepare_sae_data(
         result["status"] = "failed"
         logger.exception("SAE pipeline failed for %s/%s", model_id, sae_id)
         return result
+
+    # ── Ingest features into DuckDB (without ChromaDB vectors) ────────
+    if pipeline_result.features_parquet and pipeline_result.features_parquet.exists():
+        try:
+            from ..embedding_functions.ingest_sae import ingest_sae_features
+
+            _progress("ingest_features", 0, 1)
+            feat_result = ingest_sae_features(
+                parquet_path=str(pipeline_result.features_parquet),
+                model_id=model_id,
+                sae_id=sae_id,
+                store_vectors=False,  # no ChromaDB — user imports parquet for viz
+            )
+            result["features_inserted"] = feat_result.get("records_inserted", 0)
+            if feat_result.get("error"):
+                result["error"] = feat_result["error"]
+                result["status"] = "failed"
+                return result
+            _progress("ingest_features", 1, 1)
+        except Exception as e:
+            result["error"] = f"Feature ingestion failed: {e}"
+            result["status"] = "failed"
+            logger.exception("Feature ingestion failed for %s/%s", model_id, sae_id)
+            return result
+
+    # ── Ingest activations into DuckDB ────────────────────────────────
+    if (
+        include_activations
+        and pipeline_result.activations_jsonl
+        and pipeline_result.activations_jsonl.exists()
+    ):
+        try:
+            from ..embedding_functions.ingest_sae import ingest_sae_activations
+
+            _progress("ingest_activations", 0, 1)
+            act_result = ingest_sae_activations(
+                jsonl_path=str(pipeline_result.activations_jsonl),
+                model_id=model_id,
+                sae_id=sae_id,
+            )
+            result["activations_inserted"] = act_result.get("records_inserted", 0)
+            if act_result.get("error"):
+                result["error"] = act_result["error"]
+                result["status"] = "failed"
+                return result
+            _progress("ingest_activations", 1, 1)
+        except Exception as e:
+            result["error"] = f"Activation ingestion failed: {e}"
+            result["status"] = "failed"
+            logger.exception("Activation ingestion failed for %s/%s", model_id, sae_id)
+            return result
 
     result["duration_seconds"] = round(time.time() - start, 2)
 

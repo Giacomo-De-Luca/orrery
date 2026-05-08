@@ -231,6 +231,13 @@ function ResultDisplay({ result }: { result: PrepareSaeResult }) {
           {result.modelId} / {result.saeId}
         </span>
       </div>
+      {(result.featuresInserted > 0 || result.activationsInserted > 0) && (
+        <p className="text-xs text-muted-foreground">
+          Ingested: {result.featuresInserted.toLocaleString()} features
+          {result.activationsInserted > 0 && `, ${result.activationsInserted.toLocaleString()} activations`}
+          {' '}into DuckDB
+        </p>
+      )}
       {result.featuresParquet && (
         <p className="text-xs font-mono text-muted-foreground truncate">
           Parquet: {result.featuresParquet}

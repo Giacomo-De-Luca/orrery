@@ -452,6 +452,8 @@ class Mutation:
             sae_id=result["sae_id"],
             features_parquet=result.get("features_parquet"),
             activations_jsonl=result.get("activations_jsonl"),
+            features_inserted=result.get("features_inserted", 0),
+            activations_inserted=result.get("activations_inserted", 0),
             duration_seconds=result["duration_seconds"],
             status=result["status"],
             error=result.get("error"),

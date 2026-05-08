@@ -521,6 +521,8 @@ export const PREPARE_SAE_DATA = gql`
       saeId
       featuresParquet
       activationsJsonl
+      featuresInserted
+      activationsInserted
       durationSeconds
       status
       error
@@ -541,6 +543,8 @@ export interface PrepareSaeResult {
   saeId: string;
   featuresParquet: string | null;
   activationsJsonl: string | null;
+  featuresInserted: number;
+  activationsInserted: number;
   durationSeconds: number;
   status: string; // "completed" | "already_downloaded" | "failed"
   error: string | null;
