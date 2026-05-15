@@ -85,7 +85,22 @@ export default function FeaturesPage() {
   const [searchMode, setSearchMode] = useState<'text' | 'semantic'>('text');
   const [hoveredActivationValue, setHoveredActivationValue] = useState<number | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
-  const [steeringConfig, setSteeringConfig] = useState<SteeringConfig>({ features: [] });
+  const [steeringConfig, setSteeringConfig] = useState<SteeringConfig>(() => {
+    const defaultModelId = 'gemma-3-4b-it';
+    const defaultSaeId = '9-gemmascope-2-res-16k';
+    const parsed = parseSaeId(defaultSaeId);
+    return {
+      features: [3289, 197, 437].map((featureIndex) => ({
+        modelId: defaultModelId,
+        saeId: defaultSaeId,
+        layerIndex: parsed.layerIndex,
+        featureIndex,
+        strength: 0,
+        hookType: parsed.hookType,
+        width: parsed.width,
+      })),
+    };
+  });
   const [chatWidth, setChatWidth] = useState(448); // 28rem
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
