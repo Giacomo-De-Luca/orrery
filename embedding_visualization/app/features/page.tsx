@@ -646,8 +646,8 @@ export default function FeaturesPage() {
         </div>
       </div>
 
-      {/* Floating chat button — only when single SAE */}
-      {!chatOpen && isSingleSae && (
+      {/* Floating chat button */}
+      {!chatOpen && (
         <Button
           variant="circular"
           size="icon-lg"
