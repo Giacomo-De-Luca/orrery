@@ -738,7 +738,7 @@ export function CollectionManagerTab({
           collectionName={selectedCollectionInfo.name}
           currentModelId={(metadata.sae_model_id as string) ?? null}
           currentSaeId={(metadata.sae_id as string) ?? null}
-          onUpdate={(meta) => updateCollectionMetadata(selectedCollectionInfo.name, meta)}
+          onUpdate={async (meta) => { await updateCollectionMetadata(selectedCollectionInfo.name, meta); await refreshCollections(); }}
         />
       )}
 
