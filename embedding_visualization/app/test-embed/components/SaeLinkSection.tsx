@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@apollo/client/react';
 import Link from 'next/link';
 import { ExternalLink } from 'lucide-react';
 import { Badge } from '@/lib/ui-primitives/badge';
+import { Button } from '@/lib/ui-primitives/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/lib/ui-primitives/card';
 import {
   Select,
@@ -34,23 +35,38 @@ export function SaeLinkSection({
   const { data: modelsData } = useQuery<{ saeModels: SaeModelInfo[] }>(GET_SAE_MODELS);
   const models = useMemo(() => modelsData?.saeModels ?? [], [modelsData]);
 
-  const currentValue = currentModelId && currentSaeId
+  // Local state for the selector — only persisted on Save
+  const savedValue = currentModelId && currentSaeId
     ? `${currentModelId}::${currentSaeId}`
     : NONE_VALUE;
 
-  const handleChange = useCallback(
-    async (value: string) => {
-      if (value === NONE_VALUE) {
+  const [selectedValue, setSelectedValue] = useState(savedValue);
+  const [saving, setSaving] = useState(false);
+
+  // Sync local state when props change (e.g. after external refresh)
+  useEffect(() => {
+    setSelectedValue(savedValue);
+  }, [savedValue]);
+
+  const isDirty = selectedValue !== savedValue;
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (selectedValue === NONE_VALUE) {
         await onUpdate({ sae_model_id: null, sae_id: null });
       } else {
-        const [modelId, saeId] = value.split('::');
+        const [modelId, saeId] = selectedValue.split('::');
         await onUpdate({ sae_model_id: modelId, sae_id: saeId });
       }
-    },
-    [onUpdate],
-  );
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const isLinked = currentModelId && currentSaeId;
+  const isLinked = selectedValue !== NONE_VALUE;
+  const linkedModelId = isLinked ? selectedValue.split('::')[0] : null;
+  const linkedSaeId = isLinked ? selectedValue.split('::')[1] : null;
 
   return (
     <Card>
@@ -63,35 +79,44 @@ export function SaeLinkSection({
       <CardContent className="space-y-3">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Linked SAE Model</label>
-          <Select value={currentValue} onValueChange={handleChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select an SAE model..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE_VALUE}>
-                <span className="text-muted-foreground">None (not an SAE collection)</span>
-              </SelectItem>
-              {models.map((m) => (
-                <SelectItem key={`${m.modelId}::${m.saeId}`} value={`${m.modelId}::${m.saeId}`}>
-                  <span className="flex items-center gap-2">
-                    {m.modelId} / {m.saeId}
-                    <Badge variant="secondary" className="text-[10px] px-1 py-0">
-                      {m.featureCount.toLocaleString()} features
-                    </Badge>
-                  </span>
+          <div className="flex gap-2">
+            <Select value={selectedValue} onValueChange={setSelectedValue}>
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder="Select an SAE model..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE_VALUE}>
+                  <span className="text-muted-foreground">None (not an SAE collection)</span>
                 </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+                {models.map((m) => (
+                  <SelectItem key={`${m.modelId}::${m.saeId}`} value={`${m.modelId}::${m.saeId}`}>
+                    <span className="flex items-center gap-2">
+                      {m.modelId} / {m.saeId}
+                      <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                        {m.featureCount.toLocaleString()} features
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              onClick={handleSave}
+              disabled={!isDirty || saving}
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
         </div>
 
-        {isLinked && (
+        {isLinked && !isDirty && linkedModelId && linkedSaeId && (
           <div className="flex items-center gap-2">
             <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
               Linked
             </Badge>
             <Link
-              href={`/features?modelId=${encodeURIComponent(currentModelId)}&saeId=${encodeURIComponent(currentSaeId)}`}
+              href={`/features?modelId=${encodeURIComponent(linkedModelId)}&saeId=${encodeURIComponent(linkedSaeId)}`}
               className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
             >
               Open in Feature Explorer
