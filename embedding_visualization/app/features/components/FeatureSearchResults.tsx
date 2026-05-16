@@ -26,7 +26,7 @@ interface FeatureSearchResultsProps {
   results: SaeFeatureSearchResult[];
   onSelect: (featureIndex: number, modelId?: string, saeId?: string) => void;
   selectedIndex: number | null;
-  mode?: 'text' | 'semantic';
+  mode?: 'text' | 'semantic' | 'prompt';
   semanticResults?: SemanticFeatureResult[];
   /** Show an SAE badge per row (for cross-SAE search). */
   showSaeBadge?: boolean;
@@ -51,7 +51,7 @@ export function FeatureSearchResults({
   semanticResults,
   showSaeBadge = false,
 }: FeatureSearchResultsProps) {
-  const isSemanticMode = mode === 'semantic' && semanticResults;
+  const isSemanticMode = (mode === 'semantic' || mode === 'prompt') && semanticResults;
 
   // Normalize rows to a common shape
   const rows: NormalizedRow[] = isSemanticMode
@@ -76,7 +76,7 @@ export function FeatureSearchResults({
     return <p className="text-sm text-muted-foreground py-4 text-center">No features found.</p>;
   }
 
-  const valueLabel = isSemanticMode ? 'Similarity' : 'Density';
+  const valueLabel = mode === 'prompt' ? 'Activation' : isSemanticMode ? 'Similarity' : 'Density';
 
   return (
     <div className="border rounded-md overflow-hidden">

@@ -152,20 +152,18 @@ export function ChatPanel({
               <History className="size-3.5" />
               <span className="sr-only">Toggle history</span>
             </Button>
-            {!isEmpty && (
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => {
-                  reset();
-                  onNewChat?.();
-                }}
-                className="size-7 text-muted-foreground"
-              >
-                <RotateCcw className="size-3.5" />
-                <span className="sr-only">New chat</span>
-              </Button>
-            )}
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => {
+                reset();
+                onNewChat?.();
+              }}
+              className="size-7 text-muted-foreground"
+            >
+              <RotateCcw className="size-3.5" />
+              <span className="sr-only">New chat</span>
+            </Button>
             {onClose && (
               <Button
                 size="icon"

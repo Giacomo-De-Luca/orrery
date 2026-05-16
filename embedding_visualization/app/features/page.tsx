@@ -30,8 +30,15 @@ import { SimilarFeatures } from './components/SimilarFeatures';
 import { Button } from '@/lib/ui-primitives/button';
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { Separator } from '@/lib/ui-primitives/separator';
+import { RUN_PROMPT_HIGHLIGHT, RUN_PROMPT_ACTIVATIONS } from '@/lib/graphql/mutations';
+import type {
+  PromptHighlightFeature, PromptHighlightResult,
+  PromptActivationsResult,
+} from '@/lib/graphql/mutations';
 import { SAE_TO_COLLECTION, getSemanticCollectionName, getSemanticCollections, parseSaeId } from '@/lib/utils/saeCollections';
+import { ensureModelLoaded } from '@/lib/utils/modelLoader';
 import { ChatPanel, steeringFeatureKey } from './components/ChatInterface';
+import { PromptTokenActivations } from './components/PromptTokenActivations';
 import { useChatSessions } from '@/lib/hooks/useChatSessions';
 import { useSaeSelectors } from './hooks/useSaeSelectors';
 import type { ChatMessage } from '@/lib/types/types';
@@ -85,7 +92,16 @@ export default function FeaturesPage() {
     featureParam != null ? parseInt(featureParam, 10) : null,
   );
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<'text' | 'semantic'>('text');
+  const [searchMode, setSearchMode] = useState<'text' | 'semantic' | 'prompt'>('text');
+
+  // Prompt search state (Approach A: max-pooled)
+  const [promptSearchResults, setPromptSearchResults] = useState<PromptHighlightFeature[]>([]);
+  const [promptSearchLoading, setPromptSearchLoading] = useState(false);
+  const [promptSearchError, setPromptSearchError] = useState<string | null>(null);
+
+  // Per-token activations state (Approach B: token-level)
+  const [tokenActivations, setTokenActivations] = useState<PromptActivationsResult | null>(null);
+  const [tokenActivationsLoading, setTokenActivationsLoading] = useState(false);
   const [hoveredActivationValue, setHoveredActivationValue] = useState<number | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [steeringConfig, setSteeringConfig] = useState<SteeringConfig>(() => {
@@ -315,9 +331,25 @@ export default function FeaturesPage() {
     ? mergedSemanticResults
     : singleSemanticResults;
 
-  // Clear stale fan-out results when selectors change
+  // Prompt search results mapped to the same display format as semantic results
+  const promptSearchAsSemanticResults: SemanticFeatureResult[] = useMemo(() => {
+    if (promptSearchResults.length === 0) return [];
+    const sorted = [...promptSearchResults].sort((a, b) => b.activation - a.activation).slice(0, 50);
+    const maxAct = sorted[0]?.activation ?? 1;
+    return sorted.map((f) => ({
+      featureIndex: f.featureIndex,
+      label: null,
+      density: null,
+      similarity: maxAct > 0 ? f.activation / maxAct : 1,
+    }));
+  }, [promptSearchResults]);
+
+  // Clear stale fan-out / prompt results when selectors change
   useEffect(() => {
     setMergedSemanticResults([]);
+    setPromptSearchResults([]);
+    setPromptSearchError(null);
+    setTokenActivations(null);
   }, [resolvedSaePairs]);
 
   // ---------- Effects ----------
@@ -367,7 +399,40 @@ export default function FeaturesPage() {
     const q = searchQuery.trim();
     if (!q) return;
 
-    if (searchMode === 'semantic') {
+    if (searchMode === 'prompt') {
+      // Prompt activation search (single SAE only)
+      if (!isSingleSae || !modelId || !saeId) return;
+      if (promptSearchLoading) return;
+      setPromptSearchLoading(true);
+      setPromptSearchError(null);
+      setTokenActivations(null);
+      try {
+        const loadErr = await ensureModelLoaded();
+        if (loadErr) {
+          setPromptSearchError(loadErr);
+          setPromptSearchLoading(false);
+          return;
+        }
+        const parsed = parseSaeId(saeId);
+        const { data } = await apolloClient.mutate<{ runPromptHighlight: PromptHighlightResult }>({
+          mutation: RUN_PROMPT_HIGHLIGHT,
+          variables: {
+            input: { prompt: q, layer: parsed.layerIndex, width: parsed.width, hookType: parsed.hookType },
+          },
+        });
+        const result = data?.runPromptHighlight;
+        if (result?.error) {
+          setPromptSearchError(result.error);
+          setPromptSearchLoading(false);
+          return;
+        }
+        setPromptSearchResults(result?.features ?? []);
+      } catch (err) {
+        setPromptSearchError(err instanceof Error ? err.message : 'Prompt inference failed');
+      } finally {
+        setPromptSearchLoading(false);
+      }
+    } else if (searchMode === 'semantic') {
       if (isSingleSae && semanticCollectionName) {
         // Single SAE semantic search
         fetchSemanticSearch({
@@ -437,6 +502,34 @@ export default function FeaturesPage() {
     fetchSearch, fetchSemanticSearch, apolloClient,
   ]);
 
+  // Fetch per-token activations (Approach B) on demand
+  const handleFetchTokenActivations = useCallback(async () => {
+    if (!isSingleSae || !saeId || tokenActivationsLoading) return;
+    const prompt = searchQuery.trim();
+    if (!prompt) return;
+
+    setTokenActivationsLoading(true);
+    try {
+      const parsed = parseSaeId(saeId);
+      const { data } = await apolloClient.mutate<{ runPromptActivations: PromptActivationsResult }>({
+        mutation: RUN_PROMPT_ACTIVATIONS,
+        variables: {
+          input: { prompt, layers: [parsed.layerIndex], width: parsed.width, topK: 10 },
+        },
+      });
+      const result = data?.runPromptActivations;
+      if (result?.error) {
+        toast.error(result.error);
+      } else if (result) {
+        setTokenActivations(result);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fetch token activations');
+    } finally {
+      setTokenActivationsLoading(false);
+    }
+  }, [isSingleSae, saeId, searchQuery, tokenActivationsLoading, apolloClient]);
+
   const handleSearchSelect = useCallback((index: number, resultModelId?: string, resultSaeId?: string) => {
     if (resultModelId && resultSaeId && !isSingleSae) {
       // Cross-SAE result: drill into that specific SAE
@@ -490,15 +583,22 @@ export default function FeaturesPage() {
 
   // Active search results depend on mode
   const isSemanticSearch = searchMode === 'semantic';
-  const activeSearchLoading = isSemanticSearch
-    ? (isSingleSae ? semanticSearchLoading : semanticFanoutLoading)
-    : searchLoading;
-  const hasActiveResults = isSemanticSearch
-    ? semanticSearchResults.length > 0
-    : searchResults.length > 0;
-  const activeResultCount = isSemanticSearch
-    ? semanticSearchResults.length
-    : searchResults.length;
+  const isPromptSearch = searchMode === 'prompt';
+  const activeSearchLoading = isPromptSearch
+    ? promptSearchLoading
+    : isSemanticSearch
+      ? (isSingleSae ? semanticSearchLoading : semanticFanoutLoading)
+      : searchLoading;
+  const hasActiveResults = isPromptSearch
+    ? promptSearchAsSemanticResults.length > 0
+    : isSemanticSearch
+      ? semanticSearchResults.length > 0
+      : searchResults.length > 0;
+  const activeResultCount = isPromptSearch
+    ? promptSearchAsSemanticResults.length
+    : isSemanticSearch
+      ? semanticSearchResults.length
+      : searchResults.length;
 
   // Show SAE badge in results when multi-SAE
   const showSaeBadge = !isSingleSae;
@@ -561,6 +661,7 @@ export default function FeaturesPage() {
                   searchMode={searchMode}
                   onSearchModeChange={setSearchMode}
                   hasSemanticSearch={hasAnySemanticCollection}
+                  hasPromptSearch={isSingleSae}
                 />
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -568,12 +669,18 @@ export default function FeaturesPage() {
                   <div className="lg:col-span-1 space-y-2">
                     <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       {hasActiveResults
-                        ? `${isSemanticSearch ? 'Semantic' : 'Search'} Results (${activeResultCount})`
+                        ? `${isPromptSearch ? 'Prompt' : isSemanticSearch ? 'Semantic' : 'Search'} Results (${activeResultCount})`
                         : 'Search Features'}
                     </h3>
+                    {isPromptSearch && promptSearchError && (
+                      <p className="text-xs text-destructive">{promptSearchError}</p>
+                    )}
                     {activeSearchLoading ? (
-                      <div className="flex justify-center py-4">
+                      <div className="flex items-center justify-center gap-2 py-4">
                         <Spinner className="h-4 w-4" />
+                        {isPromptSearch && (
+                          <span className="text-xs text-muted-foreground">Running inference...</span>
+                        )}
                       </div>
                     ) : hasActiveResults ? (
                       <FeatureSearchResults
@@ -581,7 +688,11 @@ export default function FeaturesPage() {
                         onSelect={handleSearchSelect}
                         selectedIndex={featureIndex}
                         mode={searchMode}
-                        semanticResults={isSemanticSearch ? semanticSearchResults : undefined}
+                        semanticResults={
+                          isPromptSearch ? promptSearchAsSemanticResults
+                            : isSemanticSearch ? semanticSearchResults
+                              : undefined
+                        }
                         showSaeBadge={showSaeBadge}
                       />
                     ) : (
@@ -590,6 +701,38 @@ export default function FeaturesPage() {
                           ? `Search across ${resolvedSaePairs.length} SAEs, or select a single SAE to browse features.`
                           : 'Search by label or browse with the arrow buttons.'}
                       </p>
+                    )}
+
+                    {/* Token-level activations (Approach B) */}
+                    {isPromptSearch && hasActiveResults && (
+                      <div className="mt-3 space-y-2">
+                        {!tokenActivations ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full text-xs"
+                            onClick={handleFetchTokenActivations}
+                            disabled={tokenActivationsLoading}
+                          >
+                            {tokenActivationsLoading ? (
+                              <><Spinner className="h-3 w-3 mr-1.5" /> Loading token details...</>
+                            ) : (
+                              'Show token-level activations'
+                            )}
+                          </Button>
+                        ) : (
+                          <>
+                            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                              Token Activations
+                            </h3>
+                            <PromptTokenActivations
+                              layers={tokenActivations.layers}
+                              tokenStrings={tokenActivations.tokenStrings}
+                              onFeatureSelect={handleSearchSelect}
+                            />
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
 

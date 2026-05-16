@@ -31,9 +31,10 @@ interface FeatureHeaderProps {
   searchQuery: string;
   onSearchQueryChange: (query: string) => void;
   onSearch: () => void;
-  searchMode?: 'text' | 'semantic';
-  onSearchModeChange?: (mode: 'text' | 'semantic') => void;
+  searchMode?: 'text' | 'semantic' | 'prompt';
+  onSearchModeChange?: (mode: 'text' | 'semantic' | 'prompt') => void;
   hasSemanticSearch?: boolean;
+  hasPromptSearch?: boolean;
 
   // Links
   collectionLink?: string | null;
@@ -63,6 +64,7 @@ export function FeatureHeader({
   searchMode = 'text',
   onSearchModeChange,
   hasSemanticSearch = false,
+  hasPromptSearch = false,
   collectionLink,
 }: FeatureHeaderProps) {
   const [indexInput, setIndexInput] = useState(featureIndex?.toString() ?? '');
@@ -155,16 +157,21 @@ export function FeatureHeader({
         </div>
 
         {/* Search mode toggle + search input */}
-        {hasSemanticSearch && onSearchModeChange && (
+        {(hasSemanticSearch || hasPromptSearch) && onSearchModeChange && (
           <ToggleGroup
             type="single"
             value={searchMode}
-            onValueChange={(v) => v && onSearchModeChange(v as 'text' | 'semantic')}
+            onValueChange={(v) => v && onSearchModeChange(v as 'text' | 'semantic' | 'prompt')}
             variant="outline"
             className="shrink-0"
           >
             <ToggleGroupItem value="text" className="text-xs h-8 px-2">Text</ToggleGroupItem>
-            <ToggleGroupItem value="semantic" className="text-xs h-8 px-2">Semantic</ToggleGroupItem>
+            {hasSemanticSearch && (
+              <ToggleGroupItem value="semantic" className="text-xs h-8 px-2">Semantic</ToggleGroupItem>
+            )}
+            {hasPromptSearch && (
+              <ToggleGroupItem value="prompt" className="text-xs h-8 px-2">Prompt</ToggleGroupItem>
+            )}
           </ToggleGroup>
         )}
         <div className="flex items-center gap-1 flex-1 min-w-48">
@@ -172,7 +179,13 @@ export function FeatureHeader({
             value={searchQuery}
             onChange={(e) => onSearchQueryChange(e.target.value)}
             onKeyDown={handleSearchKeyDown}
-            placeholder={searchMode === 'semantic' ? 'Search by meaning...' : 'Search features by label...'}
+            placeholder={
+              searchMode === 'prompt'
+                ? 'Run a prompt to find activated features...'
+                : searchMode === 'semantic'
+                  ? 'Search by meaning...'
+                  : 'Search features by label...'
+            }
             className="h-8 text-sm"
           />
           <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={onSearch}>

@@ -1,7 +1,6 @@
 'use client';
 
 import { memo, useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
 import { MoreHorizontal, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/lib/ui-primitives/button';
 import {
@@ -90,8 +89,8 @@ function SessionGroup({
 }) {
   if (sessions.length === 0) return null;
   return (
-    <div className="mb-3">
-      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="mb-2">
+      <div className="px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
       {sessions.map((session) => (

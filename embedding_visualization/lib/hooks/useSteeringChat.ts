@@ -14,7 +14,7 @@ export interface UseSteeringChatReturn {
   reset: () => void;
   regenerate: (assistantIndex: number) => void;
   editAndResend: (messageIndex: number, newContent: string) => void;
-  loadMessages: (msgs: ChatMessage[]) => void;
+  loadMessages: (msgs: ChatMessage[], newConfig?: SteeringConfig) => void;
 }
 
 export interface SteeringChatOptions {

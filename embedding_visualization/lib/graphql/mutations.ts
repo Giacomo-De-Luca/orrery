@@ -699,6 +699,58 @@ export const RUN_PROMPT_HIGHLIGHT = gql`
   }
 `;
 
+// ========== SAE Prompt Activations (per-token) ==========
+
+export interface ActiveFeatureResult {
+  index: number;
+  activation: number;
+  label: string;
+  density: number | null;
+}
+
+export interface TokenFeaturesResult {
+  token: string;
+  position: number;
+  features: ActiveFeatureResult[];
+}
+
+export interface LayerActivationsResult {
+  layer: number;
+  width: string;
+  tokens: TokenFeaturesResult[];
+}
+
+export interface PromptActivationsResult {
+  prompt: string;
+  tokenStrings: string[];
+  layers: LayerActivationsResult[];
+  error: string | null;
+}
+
+export const RUN_PROMPT_ACTIVATIONS = gql`
+  mutation RunPromptActivations($input: RunPromptActivationsInput!) {
+    runPromptActivations(input: $input) {
+      prompt
+      tokenStrings
+      layers {
+        layer
+        width
+        tokens {
+          token
+          position
+          features {
+            index
+            activation
+            label
+            density
+          }
+        }
+      }
+      error
+    }
+  }
+`;
+
 // ========== Chat History ==========
 
 export const CREATE_CHAT_SESSION = gql`
