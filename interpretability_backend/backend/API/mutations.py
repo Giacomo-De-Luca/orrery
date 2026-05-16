@@ -772,8 +772,8 @@ class Mutation:
         layer = int(parts[0]) if parts else 9
         hook_abbrev = parts[3] if len(parts) > 3 else "res"
         width = parts[4] if len(parts) > 4 else "16k"
-        hook_map = {"res": "RESID_POST", "mlp": "MLP_OUT", "att": "ATTN_OUT"}
-        hook_type = hook_map.get(hook_abbrev, "RESID_POST")
+        hook_map = {"res": "resid_post", "mlp": "mlp_out", "att": "attn_out"}
+        hook_type = hook_map.get(hook_abbrev, "resid_post")
 
         # --- Load all items ---
         all_items = db.get_filtered_items(dataset_name, filters=[], limit=100_000)
@@ -1005,8 +1005,8 @@ class Mutation:
         layer = int(parts[0]) if parts else 9
         hook_abbrev = parts[3] if len(parts) > 3 else "res"
         width = parts[4] if len(parts) > 4 else "16k"
-        hook_map = {"res": "RESID_POST", "mlp": "MLP_OUT", "att": "ATTN_OUT"}
-        hook_type = hook_map.get(hook_abbrev, "RESID_POST")
+        hook_map = {"res": "resid_post", "mlp": "mlp_out", "att": "attn_out"}
+        hook_type = hook_map.get(hook_abbrev, "resid_post")
 
         # Check model loaded
         if not service.get_status().loaded:
