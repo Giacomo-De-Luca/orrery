@@ -30,6 +30,8 @@ import { SimilarFeatures } from './components/SimilarFeatures';
 import { Button } from '@/lib/ui-primitives/button';
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { Separator } from '@/lib/ui-primitives/separator';
+import { ToggleGroup, ToggleGroupItem } from '@/lib/ui-primitives/toggle-group';
+import { Slider } from '@/lib/ui-primitives/slider';
 import { RUN_PROMPT_ACTIVATIONS } from '@/lib/graphql/mutations';
 import type { PromptActivationsResult } from '@/lib/graphql/mutations';
 import { SAE_TO_COLLECTION, getSemanticCollectionName, getSemanticCollections, parseSaeId } from '@/lib/utils/saeCollections';
@@ -95,6 +97,8 @@ export default function FeaturesPage() {
   const [promptActivations, setPromptActivations] = useState<PromptActivationsResult | null>(null);
   const [promptSearchLoading, setPromptSearchLoading] = useState(false);
   const [promptSearchError, setPromptSearchError] = useState<string | null>(null);
+  const [promptPooling, setPromptPooling] = useState<'max' | 'mean' | 'last'>('max');
+  const [promptMaxDensity, setPromptMaxDensity] = useState<number>(0.01);
   const [hoveredActivationValue, setHoveredActivationValue] = useState<number | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [steeringConfig, setSteeringConfig] = useState<SteeringConfig>(() => {
@@ -324,23 +328,55 @@ export default function FeaturesPage() {
     ? mergedSemanticResults
     : singleSemanticResults;
 
-  // Derive ranked feature list from per-token activations (max-pool with labels)
+  // Derive ranked feature list from per-token activations using selected pooling strategy
   const promptSearchAsSemanticResults: SemanticFeatureResult[] = useMemo(() => {
     if (!promptActivations || promptActivations.layers.length === 0) return [];
-    // Max-pool: for each feature, take the max activation across all tokens
+
     const featureMap = new Map<number, { activation: number; label: string; density: number | null }>();
+
     for (const layer of promptActivations.layers) {
-      for (const token of layer.tokens) {
-        for (const feat of token.features) {
-          const existing = featureMap.get(feat.index);
-          if (!existing || feat.activation > existing.activation) {
-            featureMap.set(feat.index, { activation: feat.activation, label: feat.label, density: feat.density });
+      const tokens = layer.tokens;
+      if (tokens.length === 0) continue;
+
+      if (promptPooling === 'last') {
+        // Last token only
+        const lastToken = tokens[tokens.length - 1];
+        for (const feat of lastToken.features) {
+          featureMap.set(feat.index, { activation: feat.activation, label: feat.label, density: feat.density });
+        }
+      } else {
+        // Accumulate per-feature across all tokens
+        const accumulator = new Map<number, { sum: number; count: number; max: number; label: string; density: number | null }>();
+        for (const token of tokens) {
+          for (const feat of token.features) {
+            const existing = accumulator.get(feat.index);
+            if (existing) {
+              existing.sum += feat.activation;
+              existing.count += 1;
+              if (feat.activation > existing.max) existing.max = feat.activation;
+            } else {
+              accumulator.set(feat.index, {
+                sum: feat.activation, count: 1, max: feat.activation,
+                label: feat.label, density: feat.density,
+              });
+            }
           }
+        }
+        for (const [idx, { sum, count, max, label, density }] of accumulator) {
+          const activation = promptPooling === 'mean' ? sum / count : max;
+          featureMap.set(idx, { activation, label, density });
         }
       }
     }
+
+    // Filter by density threshold (exclude ultra-common features)
+    const filtered = [...featureMap.entries()].filter(([, { density }]) => {
+      if (density === null) return true;
+      return density <= promptMaxDensity;
+    });
+
     // Sort by activation descending, take top 50
-    const sorted = [...featureMap.entries()]
+    const sorted = filtered
       .sort(([, a], [, b]) => b.activation - a.activation)
       .slice(0, 50);
     if (sorted.length === 0) return [];
@@ -351,7 +387,7 @@ export default function FeaturesPage() {
       density,
       similarity: maxAct > 0 ? activation / maxAct : 1,
     }));
-  }, [promptActivations]);
+  }, [promptActivations, promptPooling, promptMaxDensity]);
 
   // Clear stale fan-out / prompt results when selectors change
   useEffect(() => {
@@ -662,6 +698,39 @@ export default function FeaturesPage() {
                     </h3>
                     {isPromptSearch && promptSearchError && (
                       <p className="text-xs text-destructive">{promptSearchError}</p>
+                    )}
+                    {/* Prompt search controls: pooling strategy + density filter */}
+                    {isPromptSearch && hasActiveResults && (
+                      <div className="space-y-2 border rounded-md p-2 bg-muted/30">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground shrink-0">Pool:</span>
+                          <ToggleGroup
+                            type="single"
+                            value={promptPooling}
+                            onValueChange={(v) => v && setPromptPooling(v as 'max' | 'mean' | 'last')}
+                            variant="outline"
+                            className="flex-1"
+                          >
+                            <ToggleGroupItem value="max" className="text-[10px] h-6 px-2 flex-1">Max</ToggleGroupItem>
+                            <ToggleGroupItem value="mean" className="text-[10px] h-6 px-2 flex-1">Mean</ToggleGroupItem>
+                            <ToggleGroupItem value="last" className="text-[10px] h-6 px-2 flex-1">Last</ToggleGroupItem>
+                          </ToggleGroup>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground shrink-0">Density ≤</span>
+                          <Slider
+                            value={[promptMaxDensity]}
+                            onValueChange={([v]) => setPromptMaxDensity(v)}
+                            min={0.0001}
+                            max={0.1}
+                            step={0.0001}
+                            className="flex-1"
+                          />
+                          <span className="text-[10px] font-mono text-muted-foreground w-12 text-right">
+                            {promptMaxDensity < 0.001 ? promptMaxDensity.toExponential(0) : promptMaxDensity.toFixed(3)}
+                          </span>
+                        </div>
+                      </div>
                     )}
                     {activeSearchLoading ? (
                       <div className="flex items-center justify-center gap-2 py-4">

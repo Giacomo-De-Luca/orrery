@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from pathlib import Path
 
 import pandas as pd
 import strawberry
@@ -543,9 +544,7 @@ class Mutation:
         vectors into parquet. Optionally creates a visualization collection
         with projections and topic extraction.
         """
-        from pathlib import Path
-
-        from ..embedding_functions.config import (
+        from ..embedding_functions.config import (  # noqa: E402 - avoid circular
             DataType,
             LocalFileEmbeddingConfig,
         )
@@ -567,6 +566,7 @@ class Mutation:
         collection_items = 0
 
         # Phase 2: Create visualization collection (if requested and phase 1 succeeded)
+        collection_error = None
         if (
             input.create_collection
             and result["status"] == "completed"
@@ -579,55 +579,62 @@ class Mutation:
             mode_suffix = "vectors" if mode == SaeCollectionMode.DECODER_VECTORS else "labels"
             collection_name = f"sae_{input.layer}_{hook_abbrev}_{input.width}_{mode_suffix}"
 
-            if mode == SaeCollectionMode.DECODER_VECTORS:
-                config = LocalFileEmbeddingConfig(
-                    file_path=result["features_parquet"],
-                    collection_name=collection_name,
-                    data_type=DataType.VECTOR,
-                    vector_column="vector",
-                    metadata_columns=["density", "label", "index"],
+            try:
+                if mode == SaeCollectionMode.DECODER_VECTORS:
+                    config = LocalFileEmbeddingConfig(
+                        file_path=result["features_parquet"],
+                        collection_name=collection_name,
+                        data_type=DataType.VECTOR,
+                        vector_column="vector",
+                        metadata_columns=["density", "label", "index"],
+                    )
+                else:
+                    config = LocalFileEmbeddingConfig(
+                        file_path=result["features_parquet"],
+                        collection_name=collection_name,
+                        data_type=DataType.TEXT,
+                        columns=["label"],
+                        metadata_columns=["density", "index"],
+                    )
+
+                topic_config = (
+                    build_topic_extraction_config(collection_name, None)
+                    if input.extract_topics
+                    else None
                 )
-            else:
-                config = LocalFileEmbeddingConfig(
-                    file_path=result["features_parquet"],
-                    collection_name=collection_name,
-                    data_type=DataType.TEXT,
-                    columns=["label"],
-                    metadata_columns=["density", "index"],
+
+                pipeline = LocalFileEmbeddingPipeline(
+                    config=config,
+                    compute_projections=True,
+                    extract_topics=input.extract_topics,
+                    topic_config=topic_config,
+                )
+                pipeline_result = await pipeline.run()
+                collection_items = pipeline_result.embedding_result.total_embedded
+
+                # Set SAE metadata for cross-linking with feature explorer
+                db = get_duckdb_client()
+                db.update_dataset(
+                    collection_name,
+                    extra_metadata={
+                        "sae_model_id": result["model_id"],
+                        "sae_id": result["sae_id"],
+                    },
                 )
 
-            topic_config = (
-                build_topic_extraction_config(collection_name, None)
-                if input.extract_topics
-                else None
-            )
+                # Cleanup source files if requested
+                if input.delete_source_files:
+                    def _cleanup():
+                        Path(result["features_parquet"]).unlink(missing_ok=True)
+                        if result.get("activations_jsonl"):
+                            Path(result["activations_jsonl"]).unlink(missing_ok=True)
+                    await asyncio.to_thread(_cleanup)
 
-            pipeline = LocalFileEmbeddingPipeline(
-                config=config,
-                compute_projections=True,
-                extract_topics=input.extract_topics,
-                topic_config=topic_config,
-            )
-            pipeline_result = await pipeline.run()
-            collection_items = pipeline_result.embedding_result.total_embedded
-
-            # Set SAE metadata for cross-linking with feature explorer
-            db = get_duckdb_client()
-            db.update_dataset(
-                collection_name,
-                extra_metadata={
-                    "sae_model_id": result["model_id"],
-                    "sae_id": result["sae_id"],
-                },
-            )
-
-            # Cleanup source files if requested
-            if input.delete_source_files:
-                def _cleanup():
-                    Path(result["features_parquet"]).unlink(missing_ok=True)
-                    if result.get("activations_jsonl"):
-                        Path(result["activations_jsonl"]).unlink(missing_ok=True)
-                await asyncio.to_thread(_cleanup)
+            except Exception as e:
+                logger = logging.getLogger("star_map.mutations")
+                logger.exception("SAE collection creation failed for %s", collection_name)
+                collection_error = f"Collection creation failed: {e}"
+                collection_name = None
 
         return PrepareSaeResult(
             model_id=result["model_id"],
@@ -638,7 +645,7 @@ class Mutation:
             activations_inserted=result.get("activations_inserted", 0),
             duration_seconds=result["duration_seconds"],
             status=result["status"],
-            error=result.get("error"),
+            error=collection_error or result.get("error"),
             collection_name=collection_name,
             collection_items=collection_items,
         )
