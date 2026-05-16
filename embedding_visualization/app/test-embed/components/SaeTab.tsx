@@ -21,6 +21,7 @@ import {
   PREPARE_SAE_DATA,
   DELETE_SAE_DATA,
   type PrepareSaeResult,
+  type SaeCollectionMode,
 } from '@/lib/graphql/mutations';
 import type { SaeModelInfo } from '@/lib/types/types';
 
@@ -61,6 +62,11 @@ export function SaeTab() {
   const [width, setWidth] = useState('16k');
   const [hookType, setHookType] = useState('resid_post');
   const [includeActivations, setIncludeActivations] = useState(false);
+  // Collection creation state
+  const [createCollection, setCreateCollection] = useState(false);
+  const [collectionMode, setCollectionMode] = useState<SaeCollectionMode>('DECODER_VECTORS');
+  const [extractTopics, setExtractTopics] = useState(false);
+  const [deleteSourceFiles, setDeleteSourceFiles] = useState(false);
 
   // Job state
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -97,6 +103,8 @@ export function SaeTab() {
         durationSeconds: 0,
         status: 'failed',
         error: err.message,
+        collectionName: null,
+        collectionItems: 0,
       });
       setActiveJobId(null);
     },
@@ -118,7 +126,17 @@ export function SaeTab() {
     setLastResult(null);
     prepareSae({
       variables: {
-        input: { layer, width, hookType, includeActivations, skipDownload: false },
+        input: {
+          layer,
+          width,
+          hookType,
+          includeActivations,
+          skipDownload: false,
+          createCollection,
+          collectionMode: createCollection ? collectionMode : undefined,
+          extractTopics: createCollection ? extractTopics : undefined,
+          deleteSourceFiles: createCollection ? deleteSourceFiles : undefined,
+        },
       },
     });
   };
@@ -208,6 +226,63 @@ export function SaeTab() {
             />
             Include activation examples ({ACTIVATION_SIZE[width] ?? '~336 MB'})
           </label>
+
+          <Separator className="my-2" />
+
+          {/* Collection creation options */}
+          <label className="flex items-center gap-2 text-xs font-medium">
+            <Checkbox
+              checked={createCollection}
+              onCheckedChange={(c) => setCreateCollection(c === true)}
+            />
+            Create visualization collection
+          </label>
+
+          {createCollection && (
+            <div className="ml-6 space-y-2.5">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Vector mode</label>
+                <Select
+                  value={collectionMode}
+                  onValueChange={(v) => setCollectionMode(v as SaeCollectionMode)}
+                >
+                  <SelectTrigger className="w-64">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DECODER_VECTORS">
+                      Decoder vectors (geometric)
+                    </SelectItem>
+                    <SelectItem
+                      value="LABEL_EMBEDDINGS"
+                      disabled={!LABELLED_LAYERS.has(layer)}
+                    >
+                      Label embeddings (semantic)
+                      {!LABELLED_LAYERS.has(layer) && (
+                        <span className="ml-1 text-muted-foreground">— no labels</span>
+                      )}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox
+                  checked={extractTopics}
+                  onCheckedChange={(c) => setExtractTopics(c === true)}
+                />
+                Extract topics (HDBSCAN + c-TF-IDF)
+              </label>
+
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox
+                  checked={deleteSourceFiles}
+                  onCheckedChange={(c) => setDeleteSourceFiles(c === true)}
+                />
+                Delete source files after creation
+              </label>
+            </div>
+          )}
 
           {/* Action */}
           <div className="flex items-center gap-3">
@@ -315,8 +390,12 @@ export function SaeTab() {
       {activeJobId && (
         <ProgressModal
           jobId={activeJobId}
-          title="Downloading SAE Data"
-          subtitle="Downloading from Neuronpedia and extracting decoder vectors. This may take several minutes."
+          title={createCollection ? "Preparing SAE Collection" : "Downloading SAE Data"}
+          subtitle={
+            createCollection
+              ? "Downloading, extracting, embedding, and computing projections. This may take several minutes."
+              : "Downloading from Neuronpedia and extracting decoder vectors. This may take several minutes."
+          }
           itemsLabel="batches"
         />
       )}
@@ -363,11 +442,17 @@ function ResultDisplay({ result }: { result: PrepareSaeResult }) {
           Activations: {result.activationsJsonl}
         </p>
       )}
-      {result.featuresParquet && (
+      {result.collectionName ? (
+        <p className="text-xs text-muted-foreground mt-2">
+          Collection <strong>{result.collectionName}</strong> created with{' '}
+          {result.collectionItems.toLocaleString()} items. View it on the{' '}
+          <a href="/" className="underline text-primary">visualization page</a>.
+        </p>
+      ) : result.featuresParquet ? (
         <p className="text-xs text-muted-foreground mt-2">
           Import the parquet via the <strong>Local Files</strong> tab as a vector collection to visualize.
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

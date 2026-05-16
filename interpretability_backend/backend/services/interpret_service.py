@@ -263,30 +263,50 @@ class InterpretService:
     ) -> PromptActivationsResult:
         """Run a prompt through the model with SAE hooks.
 
-        Returns per-token top-k feature activations with Neuronpedia labels
+        Returns per-token top-k feature activations with labels from DuckDB
         for every requested layer.
         """
+        from backend.API.duckdb_instance import get_duckdb_client
+
         self._require_model()
         effective_layers = layers if layers else _DEFAULT_LAYERS
 
         explorer = self._get_prompt_explorer(effective_layers, width, top_k)
         prompt_result = explorer.run_prompt(prompt, output_len=1, top_k=top_k)
 
-        # Convert the toolkit's PromptResult → service dataclasses.
+        # Collect all feature indices per layer for batch DuckDB lookup
+        db = get_duckdb_client()
+        model_id = "gemma-3-4b-it"  # Only model currently supported
+
+        # Convert the toolkit's PromptResult → service dataclasses,
+        # enriching labels/density from DuckDB (authoritative source).
         layer_results: list[LayerActivationsResult] = []
         for layer_idx in sorted(prompt_result.layers.keys()):
             lr = prompt_result.layers[layer_idx]
+
+            # Gather all unique feature indices for this layer
+            all_indices: set[int] = set()
+            for tf in lr.tokens:
+                for f in tf.features:
+                    all_indices.add(f.index)
+
+            # Batch fetch labels + densities from DuckDB
+            sae_id = f"{layer_idx}-gemmascope-2-res-{width}"
+            label_map = db.get_sae_feature_labels_batch(model_id, sae_id, list(all_indices))
+
             token_results: list[TokenFeaturesResult] = []
             for tf in lr.tokens:
-                features = [
-                    ActiveFeatureResult(
-                        index=f.index,
-                        activation=f.activation,
-                        label=f.label,
-                        density=f.density,
+                features = []
+                for f in tf.features:
+                    db_label, db_density = label_map.get(f.index, ("", None))
+                    features.append(
+                        ActiveFeatureResult(
+                            index=f.index,
+                            activation=f.activation,
+                            label=db_label or f.label,
+                            density=db_density if db_density is not None else f.density,
+                        )
                     )
-                    for f in tf.features
-                ]
                 token_results.append(
                     TokenFeaturesResult(
                         token=tf.token,

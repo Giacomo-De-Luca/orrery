@@ -1349,6 +1349,23 @@ class DuckDBClient:
             "bottom_logits": json.loads(row[4]) if isinstance(row[4], str) else row[4],
         }
 
+    def get_sae_feature_labels_batch(
+        self, model_id: str, sae_id: str, feature_indices: list[int]
+    ) -> dict[int, tuple[str, float | None]]:
+        """Return labels and densities for a batch of feature indices.
+
+        Returns a dict mapping feature_index -> (label, density).
+        """
+        if not feature_indices:
+            return {}
+        placeholders = ",".join("?" * len(feature_indices))
+        rows = self._conn.execute(
+            f"SELECT feature_index, label, density FROM sae_features "
+            f"WHERE model_id = ? AND sae_id = ? AND feature_index IN ({placeholders})",
+            [model_id, sae_id, *feature_indices],
+        ).fetchall()
+        return {r[0]: (r[1] or "", r[2]) for r in rows}
+
     def get_sae_activations(
         self, model_id: str, sae_id: str, feature_index: int, limit: int = 20
     ) -> list[dict[str, Any]]:

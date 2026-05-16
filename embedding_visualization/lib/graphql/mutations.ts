@@ -576,9 +576,13 @@ export const PREPARE_SAE_DATA = gql`
       durationSeconds
       status
       error
+      collectionName
+      collectionItems
     }
   }
 `;
+
+export type SaeCollectionMode = 'DECODER_VECTORS' | 'LABEL_EMBEDDINGS';
 
 export interface PrepareSaeInput {
   layer: number;
@@ -586,6 +590,10 @@ export interface PrepareSaeInput {
   hookType?: string;
   skipDownload?: boolean;
   includeActivations?: boolean;
+  createCollection?: boolean;
+  collectionMode?: SaeCollectionMode;
+  extractTopics?: boolean;
+  deleteSourceFiles?: boolean;
 }
 
 export interface PrepareSaeResult {
@@ -598,6 +606,8 @@ export interface PrepareSaeResult {
   durationSeconds: number;
   status: string; // "completed" | "already_downloaded" | "failed"
   error: string | null;
+  collectionName: string | null;
+  collectionItems: number;
 }
 
 export const DELETE_SAE_DATA = gql`

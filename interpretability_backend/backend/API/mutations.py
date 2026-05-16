@@ -60,6 +60,7 @@ from .types import (
     ModelStatus,
     PrepareSaeInput,
     PrepareSaeResult,
+    SaeCollectionMode,
     PromptActivationsResponse,
     PromptDocumentSearchResponse,
     PromptDocumentSearchResult,
@@ -539,10 +540,18 @@ class Mutation:
         """Download and extract SAE data for a specific layer/hook/width.
 
         Runs the pipeline: S3 download -> merge activations -> extract decoder
-        vectors into parquet. Returns file paths for manual import.
+        vectors into parquet. Optionally creates a visualization collection
+        with projections and topic extraction.
         """
+        from pathlib import Path
+
+        from ..embedding_functions.config import (
+            DataType,
+            LocalFileEmbeddingConfig,
+        )
         from ..services.sae_pipeline_service import prepare_sae_data as run_pipeline
 
+        # Phase 1: SAE download + ingest into DuckDB
         job_id = f"sae_prepare_{input.layer}_{input.hook_type}_{input.width}"
         result = await asyncio.to_thread(
             run_pipeline,
@@ -553,6 +562,71 @@ class Mutation:
             include_activations=input.include_activations,
             job_id=job_id,
         )
+
+        collection_name = None
+        collection_items = 0
+
+        # Phase 2: Create visualization collection (if requested and phase 1 succeeded)
+        if (
+            input.create_collection
+            and result["status"] == "completed"
+            and result.get("features_parquet")
+        ):
+            hook_abbrev = {"resid_post": "res", "mlp_out": "mlp", "attn_out": "att"}.get(
+                input.hook_type, "res"
+            )
+            mode = input.collection_mode or SaeCollectionMode.DECODER_VECTORS
+            mode_suffix = "vectors" if mode == SaeCollectionMode.DECODER_VECTORS else "labels"
+            collection_name = f"sae_{input.layer}_{hook_abbrev}_{input.width}_{mode_suffix}"
+
+            if mode == SaeCollectionMode.DECODER_VECTORS:
+                config = LocalFileEmbeddingConfig(
+                    file_path=result["features_parquet"],
+                    collection_name=collection_name,
+                    data_type=DataType.VECTOR,
+                    vector_column="vector",
+                    metadata_columns=["density", "label", "index"],
+                )
+            else:
+                config = LocalFileEmbeddingConfig(
+                    file_path=result["features_parquet"],
+                    collection_name=collection_name,
+                    data_type=DataType.TEXT,
+                    columns=["label"],
+                    metadata_columns=["density", "index"],
+                )
+
+            topic_config = (
+                build_topic_extraction_config(collection_name, None)
+                if input.extract_topics
+                else None
+            )
+
+            pipeline = LocalFileEmbeddingPipeline(
+                config=config,
+                compute_projections=True,
+                extract_topics=input.extract_topics,
+                topic_config=topic_config,
+            )
+            pipeline_result = await pipeline.run()
+            collection_items = pipeline_result.embedding_result.total_embedded
+
+            # Set SAE metadata for cross-linking with feature explorer
+            db = get_duckdb_client()
+            db.update_dataset(
+                collection_name,
+                extra_metadata={
+                    "sae_model_id": result["model_id"],
+                    "sae_id": result["sae_id"],
+                },
+            )
+
+            # Cleanup source files if requested
+            if input.delete_source_files:
+                Path(result["features_parquet"]).unlink(missing_ok=True)
+                if result.get("activations_jsonl"):
+                    Path(result["activations_jsonl"]).unlink(missing_ok=True)
+
         return PrepareSaeResult(
             model_id=result["model_id"],
             sae_id=result["sae_id"],
@@ -563,6 +637,8 @@ class Mutation:
             duration_seconds=result["duration_seconds"],
             status=result["status"],
             error=result.get("error"),
+            collection_name=collection_name,
+            collection_items=collection_items,
         )
 
     @strawberry.mutation

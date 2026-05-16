@@ -800,6 +800,14 @@ class SaeActivationQuantileGroup:
     activations: list[SaeActivation]
 
 
+@strawberry.enum
+class SaeCollectionMode(Enum):
+    """Vector mode for SAE visualization collection creation."""
+
+    DECODER_VECTORS = "decoder_vectors"
+    LABEL_EMBEDDINGS = "label_embeddings"
+
+
 @strawberry.input
 class PrepareSaeInput:
     """Input for the SAE download + extraction pipeline."""
@@ -809,6 +817,11 @@ class PrepareSaeInput:
     hook_type: str = "resid_post"
     skip_download: bool = False
     include_activations: bool = False
+    # Collection creation options
+    create_collection: bool = False
+    collection_mode: SaeCollectionMode | None = None
+    extract_topics: bool = False
+    delete_source_files: bool = False
 
 
 @strawberry.type
@@ -824,6 +837,9 @@ class PrepareSaeResult:
     duration_seconds: float = 0.0
     status: str = ""  # "completed", "already_downloaded", "failed"
     error: str | None = None
+    # Collection creation results
+    collection_name: str | None = None
+    collection_items: int = 0
 
 
 # ========== Interpret / SAE Inference Types ==========
