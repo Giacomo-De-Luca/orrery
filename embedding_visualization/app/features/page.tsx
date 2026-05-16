@@ -30,11 +30,8 @@ import { SimilarFeatures } from './components/SimilarFeatures';
 import { Button } from '@/lib/ui-primitives/button';
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { Separator } from '@/lib/ui-primitives/separator';
-import { RUN_PROMPT_HIGHLIGHT, RUN_PROMPT_ACTIVATIONS } from '@/lib/graphql/mutations';
-import type {
-  PromptHighlightFeature, PromptHighlightResult,
-  PromptActivationsResult,
-} from '@/lib/graphql/mutations';
+import { RUN_PROMPT_ACTIVATIONS } from '@/lib/graphql/mutations';
+import type { PromptActivationsResult } from '@/lib/graphql/mutations';
 import { SAE_TO_COLLECTION, getSemanticCollectionName, getSemanticCollections, parseSaeId } from '@/lib/utils/saeCollections';
 import { ensureModelLoaded } from '@/lib/utils/modelLoader';
 import { ChatPanel, steeringFeatureKey } from './components/ChatInterface';
@@ -94,14 +91,10 @@ export default function FeaturesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMode, setSearchMode] = useState<'text' | 'semantic' | 'prompt'>('text');
 
-  // Prompt search state (Approach A: max-pooled)
-  const [promptSearchResults, setPromptSearchResults] = useState<PromptHighlightFeature[]>([]);
+  // Prompt search state — single call to runPromptActivations gives both ranked list and token strip
+  const [promptActivations, setPromptActivations] = useState<PromptActivationsResult | null>(null);
   const [promptSearchLoading, setPromptSearchLoading] = useState(false);
   const [promptSearchError, setPromptSearchError] = useState<string | null>(null);
-
-  // Per-token activations state (Approach B: token-level)
-  const [tokenActivations, setTokenActivations] = useState<PromptActivationsResult | null>(null);
-  const [tokenActivationsLoading, setTokenActivationsLoading] = useState(false);
   const [hoveredActivationValue, setHoveredActivationValue] = useState<number | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [steeringConfig, setSteeringConfig] = useState<SteeringConfig>(() => {
@@ -331,25 +324,40 @@ export default function FeaturesPage() {
     ? mergedSemanticResults
     : singleSemanticResults;
 
-  // Prompt search results mapped to the same display format as semantic results
+  // Derive ranked feature list from per-token activations (max-pool with labels)
   const promptSearchAsSemanticResults: SemanticFeatureResult[] = useMemo(() => {
-    if (promptSearchResults.length === 0) return [];
-    const sorted = [...promptSearchResults].sort((a, b) => b.activation - a.activation).slice(0, 50);
-    const maxAct = sorted[0]?.activation ?? 1;
-    return sorted.map((f) => ({
-      featureIndex: f.featureIndex,
-      label: null,
-      density: null,
-      similarity: maxAct > 0 ? f.activation / maxAct : 1,
+    if (!promptActivations || promptActivations.layers.length === 0) return [];
+    // Max-pool: for each feature, take the max activation across all tokens
+    const featureMap = new Map<number, { activation: number; label: string; density: number | null }>();
+    for (const layer of promptActivations.layers) {
+      for (const token of layer.tokens) {
+        for (const feat of token.features) {
+          const existing = featureMap.get(feat.index);
+          if (!existing || feat.activation > existing.activation) {
+            featureMap.set(feat.index, { activation: feat.activation, label: feat.label, density: feat.density });
+          }
+        }
+      }
+    }
+    // Sort by activation descending, take top 50
+    const sorted = [...featureMap.entries()]
+      .sort(([, a], [, b]) => b.activation - a.activation)
+      .slice(0, 50);
+    if (sorted.length === 0) return [];
+    const maxAct = sorted[0][1].activation;
+    return sorted.map(([featureIndex, { activation, label, density }]) => ({
+      featureIndex,
+      label: label || null,
+      density,
+      similarity: maxAct > 0 ? activation / maxAct : 1,
     }));
-  }, [promptSearchResults]);
+  }, [promptActivations]);
 
   // Clear stale fan-out / prompt results when selectors change
   useEffect(() => {
     setMergedSemanticResults([]);
-    setPromptSearchResults([]);
+    setPromptActivations(null);
     setPromptSearchError(null);
-    setTokenActivations(null);
   }, [resolvedSaePairs]);
 
   // ---------- Effects ----------
@@ -400,12 +408,11 @@ export default function FeaturesPage() {
     if (!q) return;
 
     if (searchMode === 'prompt') {
-      // Prompt activation search (single SAE only)
+      // Prompt activation search via runPromptActivations (gives both ranked list + token strip)
       if (!isSingleSae || !modelId || !saeId) return;
       if (promptSearchLoading) return;
       setPromptSearchLoading(true);
       setPromptSearchError(null);
-      setTokenActivations(null);
       try {
         const loadErr = await ensureModelLoaded();
         if (loadErr) {
@@ -414,19 +421,19 @@ export default function FeaturesPage() {
           return;
         }
         const parsed = parseSaeId(saeId);
-        const { data } = await apolloClient.mutate<{ runPromptHighlight: PromptHighlightResult }>({
-          mutation: RUN_PROMPT_HIGHLIGHT,
+        const { data } = await apolloClient.mutate<{ runPromptActivations: PromptActivationsResult }>({
+          mutation: RUN_PROMPT_ACTIVATIONS,
           variables: {
-            input: { prompt: q, layer: parsed.layerIndex, width: parsed.width, hookType: parsed.hookType },
+            input: { prompt: q, layers: [parsed.layerIndex], width: parsed.width, topK: 10 },
           },
         });
-        const result = data?.runPromptHighlight;
+        const result = data?.runPromptActivations;
         if (result?.error) {
           setPromptSearchError(result.error);
           setPromptSearchLoading(false);
           return;
         }
-        setPromptSearchResults(result?.features ?? []);
+        setPromptActivations(result ?? null);
       } catch (err) {
         setPromptSearchError(err instanceof Error ? err.message : 'Prompt inference failed');
       } finally {
@@ -499,36 +506,8 @@ export default function FeaturesPage() {
   }, [
     searchQuery, searchMode, isSingleSae, modelId, saeId,
     semanticCollectionName, resolvedSaePairs, selectors.model,
-    fetchSearch, fetchSemanticSearch, apolloClient,
+    fetchSearch, fetchSemanticSearch, apolloClient, promptSearchLoading,
   ]);
-
-  // Fetch per-token activations (Approach B) on demand
-  const handleFetchTokenActivations = useCallback(async () => {
-    if (!isSingleSae || !saeId || tokenActivationsLoading) return;
-    const prompt = searchQuery.trim();
-    if (!prompt) return;
-
-    setTokenActivationsLoading(true);
-    try {
-      const parsed = parseSaeId(saeId);
-      const { data } = await apolloClient.mutate<{ runPromptActivations: PromptActivationsResult }>({
-        mutation: RUN_PROMPT_ACTIVATIONS,
-        variables: {
-          input: { prompt, layers: [parsed.layerIndex], width: parsed.width, topK: 10 },
-        },
-      });
-      const result = data?.runPromptActivations;
-      if (result?.error) {
-        toast.error(result.error);
-      } else if (result) {
-        setTokenActivations(result);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to fetch token activations');
-    } finally {
-      setTokenActivationsLoading(false);
-    }
-  }, [isSingleSae, saeId, searchQuery, tokenActivationsLoading, apolloClient]);
 
   const handleSearchSelect = useCallback((index: number, resultModelId?: string, resultSaeId?: string) => {
     if (resultModelId && resultSaeId && !isSingleSae) {
@@ -664,6 +643,15 @@ export default function FeaturesPage() {
                   hasPromptSearch={isSingleSae}
                 />
 
+                {/* Token-level activations strip (full width, under search bar) */}
+                {isPromptSearch && promptActivations && (
+                  <PromptTokenActivations
+                    layers={promptActivations.layers}
+                    tokenStrings={promptActivations.tokenStrings}
+                    onFeatureSelect={handleSearchSelect}
+                  />
+                )}
+
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   {/* Left: Search results */}
                   <div className="lg:col-span-1 space-y-2">
@@ -701,38 +689,6 @@ export default function FeaturesPage() {
                           ? `Search across ${resolvedSaePairs.length} SAEs, or select a single SAE to browse features.`
                           : 'Search by label or browse with the arrow buttons.'}
                       </p>
-                    )}
-
-                    {/* Token-level activations (Approach B) */}
-                    {isPromptSearch && hasActiveResults && (
-                      <div className="mt-3 space-y-2">
-                        {!tokenActivations ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full text-xs"
-                            onClick={handleFetchTokenActivations}
-                            disabled={tokenActivationsLoading}
-                          >
-                            {tokenActivationsLoading ? (
-                              <><Spinner className="h-3 w-3 mr-1.5" /> Loading token details...</>
-                            ) : (
-                              'Show token-level activations'
-                            )}
-                          </Button>
-                        ) : (
-                          <>
-                            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                              Token Activations
-                            </h3>
-                            <PromptTokenActivations
-                              layers={tokenActivations.layers}
-                              tokenStrings={tokenActivations.tokenStrings}
-                              onFeatureSelect={handleSearchSelect}
-                            />
-                          </>
-                        )}
-                      </div>
                     )}
                   </div>
 
