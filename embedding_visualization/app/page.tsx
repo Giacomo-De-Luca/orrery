@@ -14,6 +14,7 @@ import { useAppSearch } from '../lib/hooks/useAppSearch';
 import { useTopicSearch } from '../lib/hooks/useTopicSearch';
 import { useTextSearch } from '../lib/hooks/useTextSearch';
 import { usePromptHighlight, buildPromptHighlightResults } from '../lib/hooks/usePromptHighlight';
+import { useDocumentFeatureSearch } from '../lib/hooks/useDocumentFeatureSearch';
 import { isInTemporalRange } from '../lib/utils/temporalFilters';
 import { useVisualizationStore } from '../lib/stores/useVisualizationStore';
 import type { HighlightMap } from '../lib/types/types';
@@ -176,20 +177,42 @@ export default function Home() {
   const [promptMaxDensity, setPromptMaxDensity] = useState<number | null>(null);
   const promptHighlight = usePromptHighlight(saeInfo, data?.itemMetadata ?? EMPTY_METADATA, promptMaxDensity);
 
-  // Wrap search handlers to clear prompt highlight when user initiates semantic search
+  // Document feature search (two-hop: label → features → documents)
+  const featureSearch = useDocumentFeatureSearch(selectedCollection, saeInfo);
+
+  // Wrap search handlers to clear other highlights on new search actions
   const wrappedHandlePointClick = useCallback(
     (point: Parameters<typeof handlePointClick>[0]) => {
       promptHighlight.clear();
+      featureSearch.clear();
       handlePointClick(point);
     },
-    [handlePointClick, promptHighlight.clear],
+    [handlePointClick, promptHighlight.clear, featureSearch.clear],
   );
   const wrappedHandleSemanticSearch = useCallback(
     (query: string) => {
       promptHighlight.clear();
+      featureSearch.clear();
       handleSemanticSearch(query);
     },
-    [handleSemanticSearch, promptHighlight.clear],
+    [handleSemanticSearch, promptHighlight.clear, featureSearch.clear],
+  );
+  const wrappedFeatureSearchSubmit = useCallback(
+    (query: string) => {
+      promptHighlight.clear();
+      featureSearch.search(query);
+    },
+    [promptHighlight.clear, featureSearch.search],
+  );
+  const handleFeatureSearchResultClick = useCallback(
+    (rowIndex: number) => {
+      const pts = mode === '3d' ? points3d : points2d;
+      const point = pts.find(p => p.index === rowIndex);
+      if (point) {
+        setSelectedPoint(point);
+      }
+    },
+    [mode, points2d, points3d, setSelectedPoint],
   );
 
   // Build table-ready results from prompt highlight features
@@ -224,8 +247,8 @@ export default function Home() {
     data,
     semanticSearchResults && semanticSearchResults.length > 0 ? null : textSearchHighlightedIndices,
   );
-  // Prompt highlight replaces semantic + text highlights when active
-  const combinedHighlightedIndices = promptHighlight.highlightMap ?? baseHighlightedIndices;
+  // Prompt highlight > feature search > semantic + text highlights
+  const combinedHighlightedIndices = promptHighlight.highlightMap ?? featureSearch.highlightMap ?? baseHighlightedIndices;
 
   // Initialize tooltipFields with smart defaults when data loads
   useEffect(() => {
@@ -239,9 +262,10 @@ export default function Home() {
     if (isInitialLoad.current) return;
     resetSearch();
     promptHighlight.clear();
+    featureSearch.clear();
     setQueryPromptName(null);
     store.getState().resetForCollectionChange();
-  }, [selectedCollection, resetSearch, promptHighlight.clear]);
+  }, [selectedCollection, resetSearch, promptHighlight.clear, featureSearch.clear]);
 
   // Apply colorBy from URL once data loads, then mark initial load complete
   useEffect(() => {
@@ -322,6 +346,17 @@ export default function Home() {
                   promptHighlightResults={promptHighlightResults}
                   promptMaxDensity={promptMaxDensity}
                   onPromptMaxDensityChange={setPromptMaxDensity}
+                  featureSearchStatus={featureSearch.status}
+                  featureSearchError={featureSearch.error}
+                  featureSearchActiveQuery={featureSearch.activeQuery}
+                  featureSearchResults={featureSearch.results}
+                  featureSearchMatchedFeatures={featureSearch.matchedFeatures}
+                  featureSearchTotalResults={featureSearch.totalResults}
+                  featureSearchMatchedFeatureCount={featureSearch.matchedFeatureCount}
+                  onFeatureSearchSubmit={wrappedFeatureSearchSubmit}
+                  onFeatureSearchClear={featureSearch.clear}
+                  onFeatureSearchResultClick={handleFeatureSearchResultClick}
+                  hasDocumentActivations={featureSearch.hasActivations}
                   metadata={{
                     pca_2d_variance: data.metadata.pca_2d_variance,
                     pca_3d_variance: data.metadata.pca_3d_variance,

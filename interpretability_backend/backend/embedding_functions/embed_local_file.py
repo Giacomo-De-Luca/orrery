@@ -7,6 +7,7 @@ Supports resume capability for interrupted jobs.
 """
 
 import json
+import threading
 import time
 from collections.abc import Callable
 
@@ -68,7 +69,9 @@ def _config_to_dict(config: LocalFileEmbeddingConfig) -> dict:
 
 
 def embed_local_file(
-    config: LocalFileEmbeddingConfig, progress_callback: Callable[[int, int], None] | None = None
+    config: LocalFileEmbeddingConfig,
+    progress_callback: Callable[[int, int], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> EmbeddingResult:
     """
     Embed a local file (parquet/json/csv/tsv) into ChromaDB.
@@ -140,7 +143,8 @@ def embed_local_file(
             return embed_images(client, config, rows, total, device, start_time, progress_callback)
         else:  # TEXT
             return embed_text_from_local(
-                client, config, rows, total, device, start_time, progress_callback
+                client, config, rows, total, device, start_time, progress_callback,
+                cancel_event=cancel_event,
             )
 
     except Exception as e:
@@ -176,6 +180,7 @@ def embed_text_from_local(
     device: str,
     start_time: float,
     progress_callback: Callable | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> EmbeddingResult:
     """
     Embed text data from local file.
@@ -347,6 +352,29 @@ def embed_text_from_local(
     for batch_start in tqdm(
         range(0, len(rows), config.batch_size), desc="Embedding batches", unit="batch"
     ):
+        # Cooperative cancellation check between batches
+        if cancel_event is not None and cancel_event.is_set():
+            job_state.fail_job(config.collection_name, "Cancelled by user")
+            emit_progress_sync(
+                job_id=config.collection_name,
+                status="failed",
+                items_processed=total_embedded,
+                total_items=len(rows),
+                current_batch=batches_completed,
+                total_batches=total_batches,
+                error="Cancelled by user",
+            )
+            duration = time.time() - start_time
+            return EmbeddingResult(
+                collection_name=config.collection_name,
+                total_embedded=total_embedded,
+                embedding_dim=embedding_dim,
+                device=device,
+                duration_seconds=duration,
+                embedding_provider=model_config.provider.value,
+                embedding_model=model_config.model_name,
+            )
+
         batch = rows[batch_start : batch_start + config.batch_size]
 
         ids = []

@@ -337,9 +337,7 @@ class InterpretService:
             if d_sae is None:
                 raise ValueError(f"Unknown SAE width '{spec.width}'")
             if not 0 <= spec.feature_index < d_sae:
-                raise ValueError(
-                    f"feature_index {spec.feature_index} out of range [0, {d_sae})"
-                )
+                raise ValueError(f"feature_index {spec.feature_index} out of range [0, {d_sae})")
             self._parse_hook_type(spec.hook_type)  # validate early
 
         # --- Baseline (no steering) ---
@@ -358,21 +356,25 @@ class InterpretService:
             sae_key = (spec.layer, spec.hook_type, spec.width)
             if sae_key not in seen_sae_keys:
                 seen_sae_keys.add(sae_key)
-                manager.add_sae(GemmaScopeSAEConfig(
+                manager.add_sae(
+                    GemmaScopeSAEConfig(
+                        layer_index=spec.layer,
+                        hook_type=ht,
+                        width=spec.width,
+                        device=device,
+                        read_only=True,
+                    )
+                )
+            manager.add_steering(
+                SteeringOp(
                     layer_index=spec.layer,
+                    mode=SteeringMode.ADDITIVE,
+                    feature_index=spec.feature_index,
+                    strength=spec.strength,
+                    normalise=False,
                     hook_type=ht,
-                    width=spec.width,
-                    device=device,
-                    read_only=True,
-                ))
-            manager.add_steering(SteeringOp(
-                layer_index=spec.layer,
-                mode=SteeringMode.ADDITIVE,
-                feature_index=spec.feature_index,
-                strength=spec.strength,
-                normalise=False,
-                hook_type=ht,
-            ))
+                )
+            )
 
         with manager.session(wrapper.model.model.layers):
             steered_text = wrapper.generate(
@@ -386,6 +388,35 @@ class InterpretService:
             steered_text=steered_text,
             steering=steering_specs,
         )
+
+    # ------------------------------------------------------------------
+    # Shared activation helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _max_pool_activations(record) -> list[FeatureActivation]:
+        """Max-pool activation record across tokens, return nonzero features sorted desc."""
+        feature_acts = record.feature_acts[0]  # (seq_len, d_sae)
+        max_pooled = feature_acts.max(dim=0).values  # (d_sae,)
+
+        nonzero_mask = max_pooled > 0
+        nonzero_indices = torch.nonzero(nonzero_mask, as_tuple=True)[0]
+
+        if len(nonzero_indices) == 0:
+            return []
+
+        values = max_pooled[nonzero_indices]
+        order = values.argsort(descending=True)
+        sorted_indices = nonzero_indices[order]
+        sorted_values = values[order]
+
+        return [
+            FeatureActivation(
+                feature_index=int(idx),
+                activation=float(val),
+            )
+            for idx, val in zip(sorted_indices, sorted_values, strict=True)
+        ]
 
     # ------------------------------------------------------------------
     # UC3: Prompt highlight (max-pooled activations for scatter plot)
@@ -429,29 +460,7 @@ class InterpretService:
             logger.warning("No prefill activations captured for layer %d", layer)
             return []
 
-        # feature_acts shape: (batch=1, seq_len, d_sae) → max-pool → (d_sae,)
-        feature_acts = record.feature_acts[0]  # (seq_len, d_sae)
-        max_pooled = feature_acts.max(dim=0).values  # (d_sae,)
-
-        # Return nonzero features, sorted by activation descending.
-        nonzero_mask = max_pooled > 0
-        nonzero_indices = torch.nonzero(nonzero_mask, as_tuple=True)[0]
-
-        if len(nonzero_indices) == 0:
-            return []
-
-        values = max_pooled[nonzero_indices]
-        order = values.argsort(descending=True)
-        sorted_indices = nonzero_indices[order]
-        sorted_values = values[order]
-
-        return [
-            FeatureActivation(
-                feature_index=int(idx),
-                activation=float(val),
-            )
-            for idx, val in zip(sorted_indices, sorted_values, strict=True)
-        ]
+        return self._max_pool_activations(record)
 
     # ------------------------------------------------------------------
     # UC3b: Batch prompt highlight (max-pooled activations for many docs)
@@ -515,9 +524,7 @@ class InterpretService:
                     wrapper.generate(text, output_len=1)
                     record = store.prefill(layer=layer, hook_type=ht)
                 except Exception:
-                    logger.exception(
-                        "Failed inference for item %s (%d/%d)", item_id, i + 1, total
-                    )
+                    logger.exception("Failed inference for item %s (%d/%d)", item_id, i + 1, total)
                     results.append((item_id, []))
                     if progress_callback:
                         progress_callback(i + 1, total)
@@ -526,29 +533,7 @@ class InterpretService:
                 if record is None:
                     results.append((item_id, []))
                 else:
-                    feature_acts = record.feature_acts[0]  # (seq_len, d_sae)
-                    max_pooled = feature_acts.max(dim=0).values  # (d_sae,)
-
-                    nonzero_mask = max_pooled > 0
-                    nonzero_indices = torch.nonzero(nonzero_mask, as_tuple=True)[0]
-
-                    if len(nonzero_indices) == 0:
-                        activations: list[FeatureActivation] = []
-                    else:
-                        values = max_pooled[nonzero_indices]
-                        order = values.argsort(descending=True)
-                        sorted_indices = nonzero_indices[order]
-                        sorted_values = values[order]
-                        activations = [
-                            FeatureActivation(
-                                feature_index=int(idx),
-                                activation=float(val),
-                            )
-                            for idx, val in zip(
-                                sorted_indices, sorted_values, strict=True
-                            )
-                        ]
-                    results.append((item_id, activations))
+                    results.append((item_id, self._max_pool_activations(record)))
 
                 if progress_callback:
                     progress_callback(i + 1, total)
@@ -604,13 +589,15 @@ class InterpretService:
                     sae_key = (spec.layer, spec.hook_type, width)
                     if sae_key not in seen_sae_keys:
                         seen_sae_keys.add(sae_key)
-                        manager.add_sae(GemmaScopeSAEConfig(
-                            layer_index=spec.layer,
-                            hook_type=ht,
-                            width=width,
-                            device=device,
-                            read_only=True,
-                        ))
+                        manager.add_sae(
+                            GemmaScopeSAEConfig(
+                                layer_index=spec.layer,
+                                hook_type=ht,
+                                width=width,
+                                device=device,
+                                read_only=True,
+                            )
+                        )
 
                     manager.add_steering(
                         SteeringOp(

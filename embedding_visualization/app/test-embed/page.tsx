@@ -48,6 +48,7 @@ export default function TestEmbedPage() {
     fetchLocalFilePreview,
     embedHFDataset,
     embedLocalFile,
+    reEmbedDataset,
     deleteCollection,
     updateCollectionMetadata,
     refreshCollections,
@@ -74,6 +75,12 @@ export default function TestEmbedPage() {
     renameTopicLabel,
     regenerateTopicLabel,
     fetchCollectionTopics,
+    computeDocumentActivations,
+    docActivationsLoading,
+    lastDocActivationsResult,
+    cancelEmbeddingJob,
+    cancelJobLoading,
+    removeEmbeddingJob,
   } = useEmbedDataset();
 
   // Transform collections data for the manager tab
@@ -134,6 +141,9 @@ export default function TestEmbedPage() {
           lastEmbedResult={lastEmbedResult}
           activeJobCollectionName={activeJobCollectionName}
           generateLlmLabels={generateLlmLabels}
+          cancelEmbeddingJob={cancelEmbeddingJob}
+          cancelJobLoading={cancelJobLoading}
+          removeEmbeddingJob={removeEmbeddingJob}
         />
       )}
 
@@ -142,6 +152,8 @@ export default function TestEmbedPage() {
           fetchLocalFileInfo={fetchLocalFileInfo}
           fetchLocalFilePreview={fetchLocalFilePreview}
           embedLocalFile={embedLocalFile}
+          reEmbedDataset={reEmbedDataset}
+          collections={collections}
           refreshCollections={handleRefreshCollections}
           localFileInfo={localFileInfo}
           localFilePreview={localFilePreview}
@@ -153,6 +165,9 @@ export default function TestEmbedPage() {
           lastEmbedResult={lastEmbedResult}
           activeJobCollectionName={activeJobCollectionName}
           generateLlmLabels={generateLlmLabels}
+          cancelEmbeddingJob={cancelEmbeddingJob}
+          cancelJobLoading={cancelJobLoading}
+          removeEmbeddingJob={removeEmbeddingJob}
         />
       )}
 
@@ -177,6 +192,9 @@ export default function TestEmbedPage() {
           renameTopicLabel={renameTopicLabel}
           regenerateTopicLabel={regenerateTopicLabel}
           fetchCollectionTopics={fetchCollectionTopics}
+          computeDocumentActivations={computeDocumentActivations}
+          docActivationsLoading={docActivationsLoading}
+          lastDocActivationsResult={lastDocActivationsResult}
         />
       )}
 

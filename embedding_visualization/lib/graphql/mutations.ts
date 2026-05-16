@@ -135,6 +135,43 @@ export const EMBED_LOCAL_FILE = gql`
 `;
 
 /**
+ * Re-embed an existing dataset with a different embedding model
+ */
+export const RE_EMBED_DATASET = gql`
+  mutation ReEmbedDataset($input: ReEmbedDatasetInput!) {
+    reEmbedDataset(input: $input) {
+      collectionName
+      totalEmbedded
+      embeddingDim
+      device
+      durationSeconds
+      projectionsComputed
+      error
+      embeddingProvider
+      embeddingModel
+    }
+  }
+`;
+
+/**
+ * Cancel a running embedding job
+ */
+export const CANCEL_EMBEDDING_JOB = gql`
+  mutation CancelEmbeddingJob($collectionName: String!) {
+    cancelEmbeddingJob(collectionName: $collectionName)
+  }
+`;
+
+/**
+ * Remove an interrupted job record from the job state
+ */
+export const REMOVE_EMBEDDING_JOB = gql`
+  mutation RemoveEmbeddingJob($collectionName: String!) {
+    removeEmbeddingJob(collectionName: $collectionName)
+  }
+`;
+
+/**
  * Delete a collection from ChromaDB
  */
 export const DELETE_COLLECTION = gql`
@@ -312,6 +349,19 @@ export interface EmbedLocalFileInput {
   batchSize?: number;
   embeddingModel?: EmbeddingModelInput;
   resume?: boolean; // Resume an interrupted job instead of starting fresh
+  extractTopics?: boolean;
+  topicConfig?: TopicConfigInput;
+}
+
+export interface ReEmbedDatasetInput {
+  sourceDatasetName: string;
+  collectionName: string;
+  embeddingModel: EmbeddingModelInput;
+  columns?: string[];       // Metadata fields to compose text from (omit = use existing document)
+  textTemplate?: string;    // Template e.g. "{title}: {text}" (omit = concatenate columns)
+  batchSize?: number;
+  resume?: boolean;
+  computeProjections?: boolean;
   extractTopics?: boolean;
   topicConfig?: TopicConfigInput;
 }
@@ -578,6 +628,53 @@ export const UNLOAD_MODEL = gql`
   }
 `;
 
+// ========== SAE Document Activations ==========
+
+export const COMPUTE_DOCUMENT_ACTIVATIONS = gql`
+  mutation ComputeDocumentActivations($input: ComputeDocumentActivationsInput!) {
+    computeDocumentActivations(input: $input) {
+      collectionName
+      itemsProcessed
+      totalItems
+      durationSeconds
+      error
+    }
+  }
+`;
+
+export interface ComputeDocumentActivationsResult {
+  collectionName: string;
+  itemsProcessed: number;
+  totalItems: number;
+  durationSeconds: number;
+  error: string | null;
+}
+
+export interface DocumentActivationResult {
+  itemId: string;
+  document: string | null;
+  metadata: Record<string, unknown> | null;
+  score: number;
+  matchingFeatures: number;
+  rowIndex: number | null;
+}
+
+export interface MatchedFeatureInfo {
+  featureIndex: number;
+  label: string | null;
+  density: number | null;
+  modelId: string;
+  saeId: string;
+}
+
+export interface DocumentActivationSearchResponse {
+  results: DocumentActivationResult[];
+  totalResults: number;
+  matchedFeatureCount: number;
+  matchedFeatures: MatchedFeatureInfo[] | null;
+  error: string | null;
+}
+
 // ========== SAE Prompt Highlight ==========
 
 export interface PromptHighlightFeature {
@@ -599,5 +696,38 @@ export const RUN_PROMPT_HIGHLIGHT = gql`
       }
       error
     }
+  }
+`;
+
+// ========== Chat History ==========
+
+export const CREATE_CHAT_SESSION = gql`
+  mutation CreateChatSession($input: CreateChatSessionInput!) {
+    createChatSession(input: $input) {
+      id
+      title
+      config
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const SAVE_CHAT_MESSAGE = gql`
+  mutation SaveChatMessage($input: SaveChatMessageInput!) {
+    saveChatMessage(input: $input) {
+      id
+      sessionId
+      role
+      content
+      parts
+      createdAt
+    }
+  }
+`;
+
+export const DELETE_CHAT_SESSION = gql`
+  mutation DeleteChatSession($id: String!) {
+    deleteChatSession(id: $id)
   }
 `;

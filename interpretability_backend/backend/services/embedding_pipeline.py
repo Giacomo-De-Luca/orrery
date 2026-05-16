@@ -6,6 +6,7 @@ Subclasses only override _do_embed() to provide HuggingFace or local file embedd
 
 import asyncio
 import logging
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -17,6 +18,8 @@ from ..embed_dataset import (
     embed_huggingface_dataset as do_hf_embed,
     embed_local_file as do_local_embed,
 )
+from ..embedding_functions.config import ReEmbedConfig
+from ..embedding_functions.embed_existing_dataset import embed_existing_dataset as do_reembed
 from .job_state import get_job_state_service
 from .progress_emitter import emit_progress_sync
 from .topic_extraction_service import (
@@ -48,11 +51,13 @@ class EmbeddingPipeline(ABC):
         compute_projections: bool = True,
         extract_topics: bool = False,
         topic_config: TopicExtractionConfig | None = None,
+        cancel_event: threading.Event | None = None,
     ):
         self.collection_name = collection_name
         self.compute_projections = compute_projections
         self.extract_topics = extract_topics
         self.topic_config = topic_config
+        self.cancel_event = cancel_event
 
     @abstractmethod
     def _do_embed(self) -> EmbeddingResult:
@@ -68,6 +73,13 @@ class EmbeddingPipeline(ABC):
 
         # Step 1: Embed
         result = await asyncio.to_thread(self._do_embed)
+
+        # Check if job was cancelled during embedding
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            return PipelineResult(
+                embedding_result=result,
+                projections_computed=False,
+            )
 
         # Step 2: Compute projections
         projections_computed = False
@@ -130,7 +142,7 @@ class HuggingFaceEmbeddingPipeline(EmbeddingPipeline):
         self.config = config
 
     def _do_embed(self) -> EmbeddingResult:
-        return do_hf_embed(self.config)
+        return do_hf_embed(self.config, cancel_event=self.cancel_event)
 
 
 class LocalFileEmbeddingPipeline(EmbeddingPipeline):
@@ -141,4 +153,15 @@ class LocalFileEmbeddingPipeline(EmbeddingPipeline):
         self.config = config
 
     def _do_embed(self) -> EmbeddingResult:
-        return do_local_embed(self.config)
+        return do_local_embed(self.config, cancel_event=self.cancel_event)
+
+
+class ReEmbeddingPipeline(EmbeddingPipeline):
+    """Pipeline for re-embedding an existing dataset with a new model."""
+
+    def __init__(self, config: ReEmbedConfig, **kwargs):
+        super().__init__(collection_name=config.collection_name, **kwargs)
+        self.config = config
+
+    def _do_embed(self) -> EmbeddingResult:
+        return do_reembed(self.config)

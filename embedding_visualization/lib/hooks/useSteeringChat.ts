@@ -14,6 +14,12 @@ export interface UseSteeringChatReturn {
   reset: () => void;
   regenerate: (assistantIndex: number) => void;
   editAndResend: (messageIndex: number, newContent: string) => void;
+  loadMessages: (msgs: ChatMessage[]) => void;
+}
+
+export interface SteeringChatOptions {
+  onUserMessageSent?: (message: ChatMessage) => void;
+  onAssistantMessageComplete?: (message: ChatMessage) => void;
 }
 
 /** Serialise config into a stable key for change detection. */
@@ -52,7 +58,11 @@ function buildSteeringInputs(config: SteeringConfig) {
 }
 
 
-export function useSteeringChat(config: SteeringConfig, maxTokens: number = DEFAULT_OUTPUT_LEN): UseSteeringChatReturn {
+export function useSteeringChat(
+  config: SteeringConfig,
+  maxTokens: number = DEFAULT_OUTPUT_LEN,
+  options?: SteeringChatOptions,
+): UseSteeringChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +71,8 @@ export function useSteeringChat(config: SteeringConfig, maxTokens: number = DEFA
   const prevKeyRef = useRef<string>(configKey(config));
   const assistantIdRef = useRef<string | null>(null);
   const cancelledRef = useRef(false);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -139,6 +151,9 @@ export function useSteeringChat(config: SteeringConfig, maxTokens: number = DEFA
       setError(null);
       cancelledRef.current = false;
 
+      // Notify parent of the user message for persistence
+      optionsRef.current?.onUserMessageSent?.(userMsg);
+
       const steering = buildSteeringInputs(config);
 
       /** Remove the empty assistant placeholder on failure. */
@@ -197,6 +212,13 @@ export function useSteeringChat(config: SteeringConfig, maxTokens: number = DEFA
             if (chunk.done) {
               setStatus('idle');
               subscriptionRef.current = null;
+              // Notify parent of completed assistant message
+              const completedMsg = messagesRef.current.find(
+                (m) => m.id === assistantIdRef.current
+              );
+              if (completedMsg) {
+                optionsRef.current?.onAssistantMessageComplete?.(completedMsg);
+              }
               return;
             }
 
@@ -271,5 +293,16 @@ export function useSteeringChat(config: SteeringConfig, maxTokens: number = DEFA
     [status, send],
   );
 
-  return { messages, status, error, send, stop, reset, regenerate, editAndResend };
+  const loadMessages = useCallback((msgs: ChatMessage[], newConfig?: SteeringConfig) => {
+    subscriptionRef.current?.unsubscribe();
+    subscriptionRef.current = null;
+    // Update the config key to prevent the auto-reset effect from firing
+    if (newConfig) prevKeyRef.current = configKey(newConfig);
+    setMessages(msgs);
+    messagesRef.current = msgs;
+    setStatus('idle');
+    setError(null);
+  }, []);
+
+  return { messages, status, error, send, stop, reset, regenerate, editAndResend, loadMessages };
 }

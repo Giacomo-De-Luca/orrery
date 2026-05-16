@@ -89,6 +89,27 @@ interface SearchSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onPromptHighlightClear?: () => void;
   promptMaxDensity?: number | null;
   onPromptMaxDensityChange?: (value: number | null) => void;
+  // Feature search (document activations)
+  featureSearchStatus?: 'idle' | 'searching' | 'error';
+  featureSearchError?: string | null;
+  featureSearchActiveQuery?: string | null;
+  featureSearchResults?: Array<{
+    itemId: string;
+    document: string | null;
+    score: number;
+    matchingFeatures: number;
+    rowIndex: number | null;
+  }>;
+  featureSearchMatchedFeatures?: Array<{
+    featureIndex: number;
+    label: string | null;
+  }>;
+  featureSearchTotalResults?: number;
+  featureSearchMatchedFeatureCount?: number;
+  onFeatureSearchSubmit?: (query: string) => void;
+  onFeatureSearchClear?: () => void;
+  onFeatureSearchResultClick?: (rowIndex: number) => void;
+  hasDocumentActivations?: boolean | null;
 }
 
 export function SearchSidebar({
@@ -134,6 +155,18 @@ export function SearchSidebar({
   onPromptHighlightClear,
   promptMaxDensity,
   onPromptMaxDensityChange,
+  // Feature search (document activations)
+  featureSearchStatus,
+  featureSearchError,
+  featureSearchActiveQuery,
+  featureSearchResults,
+  featureSearchMatchedFeatures,
+  featureSearchTotalResults,
+  featureSearchMatchedFeatureCount,
+  onFeatureSearchSubmit,
+  onFeatureSearchClear,
+  onFeatureSearchResultClick,
+  hasDocumentActivations,
   className,
   ...props
 }: SearchSidebarProps) {
@@ -153,6 +186,20 @@ export function SearchSidebar({
     setPromptText('');
     onPromptHighlightClear?.();
   }, [onPromptHighlightClear]);
+
+  // Feature search state
+  const [featureQueryText, setFeatureQueryText] = React.useState('');
+  const featureSearchBusy = featureSearchStatus === 'searching';
+  const handleFeatureSearchSubmit = React.useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (featureQueryText.trim() && onFeatureSearchSubmit) {
+      onFeatureSearchSubmit(featureQueryText.trim());
+    }
+  }, [featureQueryText, onFeatureSearchSubmit]);
+  const handleFeatureSearchClear = React.useCallback(() => {
+    setFeatureQueryText('');
+    onFeatureSearchClear?.();
+  }, [onFeatureSearchClear]);
 
   // Read search config from store
   const textSearchConfig = useVisualizationStore((s) => s.textSearchConfig);
@@ -301,6 +348,87 @@ export function SearchSidebar({
                   className="h-7 w-28 text-xs"
                 />
               </div>
+            </div>
+          )}
+
+          {/* Feature Search (Document Activations) */}
+          {saeInfo && hasDocumentActivations === true && onFeatureSearchSubmit && (
+            <div className="space-y-3">
+              <Label className="text-base">Feature Search</Label>
+              <form onSubmit={handleFeatureSearchSubmit} className="flex gap-2">
+                <Input
+                  placeholder="Search by feature label..."
+                  value={featureQueryText}
+                  onChange={(e) => setFeatureQueryText(e.target.value)}
+                  className="h-8 text-sm"
+                  disabled={featureSearchBusy}
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={featureSearchBusy || !featureQueryText.trim()}
+                  className="h-8 px-3"
+                >
+                  {featureSearchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Search'}
+                </Button>
+              </form>
+              {featureSearchError && (
+                <p className="text-xs text-destructive">{featureSearchError}</p>
+              )}
+              {featureSearchActiveQuery && !featureSearchBusy && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted-foreground truncate flex-1">
+                      {featureSearchMatchedFeatureCount} feature{featureSearchMatchedFeatureCount !== 1 ? 's' : ''} matched
+                      {' \u2022 '}{featureSearchTotalResults} document{featureSearchTotalResults !== 1 ? 's' : ''} found
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0"
+                      onClick={handleFeatureSearchClear}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  {featureSearchResults && featureSearchResults.length > 0 && (
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {featureSearchResults.slice(0, 10).map((r, i) => (
+                        <button
+                          key={r.itemId ?? i}
+                          className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors border border-transparent hover:border-border"
+                          onClick={() => {
+                            if (r.rowIndex != null && onFeatureSearchResultClick) {
+                              onFeatureSearchResultClick(r.rowIndex);
+                            }
+                          }}
+                        >
+                          <div className="truncate text-foreground">
+                            {r.document?.slice(0, 80) ?? r.itemId}
+                          </div>
+                          <div className="flex gap-2 mt-0.5 text-muted-foreground">
+                            <span>score: {r.score.toFixed(3)}</span>
+                            <span>{r.matchingFeatures} feature{r.matchingFeatures !== 1 ? 's' : ''}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {!featureSearchActiveQuery && !featureSearchBusy && (
+                <p className="text-xs text-muted-foreground">
+                  Search documents by SAE feature labels (e.g. &ldquo;poetry&rdquo;, &ldquo;religion&rdquo;)
+                </p>
+              )}
+            </div>
+          )}
+          {saeInfo && hasDocumentActivations === false && (
+            <div className="space-y-2">
+              <Label className="text-base text-muted-foreground">Feature Search</Label>
+              <p className="text-xs text-muted-foreground">
+                Document activations not computed. Use Collection Manager to compute them.
+              </p>
             </div>
           )}
 

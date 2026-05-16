@@ -254,6 +254,34 @@ class DuckDBClient:
             ON sae_document_activations (collection_name, feature_index)
         """)
 
+        # -- Chat history tables --
+
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id          VARCHAR PRIMARY KEY,
+                title       VARCHAR NOT NULL,
+                config      JSON NOT NULL,
+                created_at  TIMESTAMP DEFAULT current_timestamp,
+                updated_at  TIMESTAMP DEFAULT current_timestamp
+            )
+        """)
+
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id          VARCHAR PRIMARY KEY,
+                session_id  VARCHAR NOT NULL REFERENCES chat_sessions(id),
+                role        VARCHAR NOT NULL,
+                content     VARCHAR NOT NULL,
+                parts       JSON,
+                created_at  TIMESTAMP DEFAULT current_timestamp
+            )
+        """)
+
+        self._conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_session
+            ON chat_messages (session_id, created_at)
+        """)
+
         # FTS extension
         self._conn.execute("INSTALL fts")
         self._conn.execute("LOAD fts")
@@ -318,26 +346,25 @@ class DuckDBClient:
         return name
 
     def list_datasets(self) -> list[dict[str, Any]]:
-        """List all datasets with cached item counts. Returns [{name, metadata, count}].
+        """List all collections (one entry per vector_collection). Returns [{name, metadata, count}].
 
-        Enriches each dataset with vector_collection fields (embedding_provider,
-        embedding_model, embedding_dim, has_projections, has_topics) from the
-        first matching vector_collection row.
+        Each vector_collection is returned as a separate entry, enriched with its
+        parent dataset's item count and metadata. Datasets without any vector_collections
+        are also included (for re-embedding as a data source).
         """
         rows = self._conn.execute("SELECT * FROM datasets ORDER BY created_at DESC").fetchall()
         columns = [desc[0] for desc in self._conn.description]
+        datasets_by_name: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            d = _sanitize_for_json(dict(zip(columns, row)))
+            datasets_by_name[d["name"]] = d
 
-        # Build lookup of vector_collections keyed by dataset_name
+        # Get all vector_collections
         vc_rows = self._conn.execute(
-            "SELECT * FROM vector_collections ORDER BY created_at"
+            "SELECT * FROM vector_collections ORDER BY created_at DESC"
         ).fetchall()
         vc_columns = [desc[0] for desc in self._conn.description]
-        vc_by_dataset: dict[str, dict[str, Any]] = {}
-        for vr in vc_rows:
-            vc = dict(zip(vc_columns, vr))
-            ds_name = vc["dataset_name"]
-            if ds_name not in vc_by_dataset:
-                vc_by_dataset[ds_name] = vc
+        all_vcs = [dict(zip(vc_columns, vr)) for vr in vc_rows]
 
         # Build lookup of active topic extractions keyed by collection_name
         te_rows = self._conn.execute(
@@ -347,24 +374,36 @@ class DuckDBClient:
         for tr in te_rows:
             te_by_collection[tr[0]] = {"topic_count": tr[1], "topic_hierarchy": tr[2]}
 
+        # Track which datasets have at least one vector_collection
+        datasets_with_vc: set[str] = set()
         result = []
-        for row in rows:
-            d = _sanitize_for_json(dict(zip(columns, row)))
+
+        # One entry per vector_collection
+        for vc in all_vcs:
+            ds_name = vc["dataset_name"]
+            datasets_with_vc.add(ds_name)
+            ds = datasets_by_name.get(ds_name)
+            if not ds:
+                continue
+
+            d = dict(ds)  # Copy dataset fields
             count = d.pop("item_count", 0)
-            # Enrich with vector collection data
-            vc = vc_by_dataset.get(d["name"])
-            if vc:
-                d["embedding_provider"] = vc.get("embedding_provider")
-                d["embedding_model"] = vc.get("embedding_model")
-                d["embedding_dim"] = vc.get("embedding_dim")
-                d["has_projections"] = vc.get("has_projections", False)
-                d["has_topics"] = vc.get("has_topics", False)
-                # Enrich with topic extraction data
-                te = te_by_collection.get(vc["collection_name"])
-                if te:
-                    d["topic_count"] = te["topic_count"]
-                    if te["topic_hierarchy"]:
-                        d["topic_hierarchy"] = te["topic_hierarchy"]
+
+            # Override with vector_collection-specific fields
+            d["embedding_provider"] = vc.get("embedding_provider")
+            d["embedding_model"] = vc.get("embedding_model")
+            d["embedding_dim"] = vc.get("embedding_dim")
+            d["has_projections"] = vc.get("has_projections", False)
+            d["has_topics"] = vc.get("has_topics", False)
+            d["dataset_name"] = ds_name  # Track parent dataset
+
+            # Enrich with topic extraction data
+            te = te_by_collection.get(vc["collection_name"])
+            if te:
+                d["topic_count"] = te["topic_count"]
+                if te["topic_hierarchy"]:
+                    d["topic_hierarchy"] = te["topic_hierarchy"]
+
             # Parse extra_metadata JSON into top-level keys
             extra = d.pop("extra_metadata", None)
             if extra:
@@ -375,7 +414,27 @@ class DuckDBClient:
                         extra = None
                 if isinstance(extra, dict):
                     d.update(extra)
-            result.append({"name": d["name"], "metadata": d, "count": count})
+
+            # Use collection_name as the entry name (not dataset name)
+            d["name"] = vc["collection_name"]
+            result.append({"name": vc["collection_name"], "metadata": d, "count": count})
+
+        # Include datasets without any vector_collections (bare datasets)
+        for ds_name, ds in datasets_by_name.items():
+            if ds_name not in datasets_with_vc:
+                d = dict(ds)
+                count = d.pop("item_count", 0)
+                extra = d.pop("extra_metadata", None)
+                if extra:
+                    if isinstance(extra, str):
+                        try:
+                            extra = json.loads(extra)
+                        except (json.JSONDecodeError, TypeError):
+                            extra = None
+                    if isinstance(extra, dict):
+                        d.update(extra)
+                result.append({"name": d["name"], "metadata": d, "count": count})
+
         return result
 
     def get_dataset(self, name: str) -> dict[str, Any] | None:
@@ -512,7 +571,7 @@ class DuckDBClient:
         )
 
         table = self._items_table(dataset_name)
-        self._conn.execute(f"INSERT INTO {table} SELECT * FROM df")
+        self._conn.execute(f"INSERT OR REPLACE INTO {table} SELECT * FROM df")
 
         # Update cached item count
         count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -1524,9 +1583,7 @@ class DuckDBClient:
                 "activation": [a[1] for a in activations],
             }
         )
-        self._conn.execute(
-            "INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df"
-        )
+        self._conn.execute("INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df")
         return len(activations)
 
     def insert_document_activations_bulk(
@@ -1539,16 +1596,13 @@ class DuckDBClient:
         """
         if df.empty:
             return 0
-        self._conn.execute(
-            "INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df"
-        )
+        self._conn.execute("INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df")
         return len(df)
 
     def get_document_activation_item_ids(self, collection_name: str) -> set[str]:
         """Return item IDs that already have activations stored (for resume)."""
         rows = self._conn.execute(
-            "SELECT DISTINCT item_id FROM sae_document_activations "
-            "WHERE collection_name = ?",
+            "SELECT DISTINCT item_id FROM sae_document_activations WHERE collection_name = ?",
             [collection_name],
         ).fetchall()
         return {r[0] for r in rows}
@@ -1556,8 +1610,7 @@ class DuckDBClient:
     def has_document_activations(self, collection_name: str) -> bool:
         """Check if any document activations exist for a collection."""
         row = self._conn.execute(
-            "SELECT 1 FROM sae_document_activations "
-            "WHERE collection_name = ? LIMIT 1",
+            "SELECT 1 FROM sae_document_activations WHERE collection_name = ? LIMIT 1",
             [collection_name],
         ).fetchone()
         return row is not None
@@ -1572,9 +1625,7 @@ class DuckDBClient:
             "DELETE FROM sae_document_activations WHERE collection_name = ?",
             [collection_name],
         )
-        logger.info(
-            "Deleted %d document activation rows for %s", count, collection_name
-        )
+        logger.info("Deleted %d document activation rows for %s", count, collection_name)
         return int(count)
 
     def search_documents_by_feature_labels(
@@ -1665,3 +1716,185 @@ class DuckDBClient:
             "matched_feature_count": len(matched_features),
             "matched_features": matched_features,
         }
+
+    def search_documents_by_activations(
+        self,
+        collection_name: str,
+        activations: list[tuple[int, float]],
+        limit: int = 50,
+        top_k: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Find documents whose SAE activation pattern is most similar to a query vector.
+
+        Computes sparse dot product between *activations* (e.g. from a prompt)
+        and each document's stored activations.  Only shared nonzero features
+        contribute to the score.
+
+        Parameters
+        ----------
+        collection_name:
+            Vector collection with precomputed document activations.
+        activations:
+            Query vector as ``(feature_index, activation)`` pairs (nonzero only).
+        limit:
+            Maximum number of documents to return.
+        top_k:
+            If set, use only the top-K strongest features from *activations*.
+
+        Returns
+        -------
+        List of dicts with keys: item_id, document, metadata, score, shared_features, row_index.
+        """
+        if not activations:
+            return []
+
+        # Optionally trim to top_k features
+        if top_k is not None and len(activations) > top_k:
+            activations = sorted(activations, key=lambda x: x[1], reverse=True)[:top_k]
+
+        query_weights = {a[0]: a[1] for a in activations}
+
+        # Sparse dot product via CTE: SUM(doc_activation * query_weight) for shared features
+        values_rows = ", ".join([f"({idx}, {weight})" for idx, weight in query_weights.items()])
+        rows = self._conn.execute(
+            f"""
+            WITH query_vec(feature_index, weight) AS (
+                VALUES {values_rows}
+            )
+            SELECT d.item_id,
+                   SUM(d.activation * q.weight) AS score,
+                   COUNT(*) AS shared_features
+            FROM sae_document_activations d
+            JOIN query_vec q ON d.feature_index = q.feature_index
+            WHERE d.collection_name = ?
+            GROUP BY d.item_id
+            ORDER BY score DESC
+            LIMIT ?
+            """,
+            [collection_name, limit],
+        ).fetchall()
+
+        if not rows:
+            return []
+
+        # Enrich with documents + metadata
+        item_ids = [r[0] for r in rows]
+        scores = {r[0]: (r[1], r[2]) for r in rows}
+
+        vc_row = self._conn.execute(
+            "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
+            [collection_name],
+        ).fetchone()
+
+        enriched: dict[str, dict[str, Any]] = {}
+        if vc_row:
+            items = self.get_items_by_ids(vc_row[0], item_ids)
+            for item in items:
+                enriched[item["id"]] = item
+
+        return [
+            {
+                "item_id": item_id,
+                "document": enriched.get(item_id, {}).get("document"),
+                "metadata": enriched.get(item_id, {}).get("metadata"),
+                "score": scores[item_id][0],
+                "shared_features": scores[item_id][1],
+                "row_index": enriched.get(item_id, {}).get("row_index"),
+            }
+            for item_id in item_ids
+        ]
+
+    # ------------------------------------------------------------------
+    # Chat history
+    # ------------------------------------------------------------------
+
+    def create_chat_session(self, session_id: str, title: str, config_json: str) -> dict:
+        """Create a new chat session. Returns the created session dict."""
+        self._conn.execute(
+            """
+            INSERT INTO chat_sessions (id, title, config)
+            VALUES (?, ?, ?::JSON)
+            """,
+            [session_id, title, config_json],
+        )
+        row = self._conn.execute(
+            "SELECT * FROM chat_sessions WHERE id = ?", [session_id]
+        ).fetchone()
+        cols = [d[0] for d in self._conn.description]
+        return _sanitize_for_json(dict(zip(cols, row)))
+
+    def list_chat_sessions(self, limit: int = 50) -> list[dict]:
+        """List chat sessions ordered by most recently updated."""
+        rows = self._conn.execute(
+            """
+            SELECT id, title, config, created_at, updated_at
+            FROM chat_sessions
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            [limit],
+        ).fetchall()
+        cols = [d[0] for d in self._conn.description]
+        return [_sanitize_for_json(dict(zip(cols, r))) for r in rows]
+
+    def get_chat_session_with_messages(self, session_id: str) -> dict | None:
+        """Get a session with all its messages."""
+        row = self._conn.execute(
+            "SELECT * FROM chat_sessions WHERE id = ?", [session_id]
+        ).fetchone()
+        if not row:
+            return None
+        cols = [d[0] for d in self._conn.description]
+        session = _sanitize_for_json(dict(zip(cols, row)))
+
+        msg_rows = self._conn.execute(
+            """
+            SELECT id, session_id, role, content, parts, created_at
+            FROM chat_messages
+            WHERE session_id = ?
+            ORDER BY created_at ASC
+            """,
+            [session_id],
+        ).fetchall()
+        msg_cols = [d[0] for d in self._conn.description]
+        session["messages"] = [_sanitize_for_json(dict(zip(msg_cols, m))) for m in msg_rows]
+        return session
+
+    def save_chat_message(
+        self,
+        message_id: str,
+        session_id: str,
+        role: str,
+        content: str,
+        parts_json: str | None = None,
+    ) -> dict:
+        """Save a single chat message and bump session updated_at."""
+        self._conn.execute(
+            """
+            INSERT INTO chat_messages (id, session_id, role, content, parts)
+            VALUES (?, ?, ?, ?, ?::JSON)
+            """,
+            [message_id, session_id, role, content, parts_json],
+        )
+        self._conn.execute(
+            "UPDATE chat_sessions SET updated_at = current_timestamp WHERE id = ?",
+            [session_id],
+        )
+        row = self._conn.execute(
+            "SELECT * FROM chat_messages WHERE id = ?", [message_id]
+        ).fetchone()
+        cols = [d[0] for d in self._conn.description]
+        return _sanitize_for_json(dict(zip(cols, row)))
+
+    def delete_chat_session(self, session_id: str) -> bool:
+        """Delete a chat session and all its messages."""
+        self._conn.execute("DELETE FROM chat_messages WHERE session_id = ?", [session_id])
+        self._conn.execute("DELETE FROM chat_sessions WHERE id = ?", [session_id])
+        return True
+
+    def update_chat_session_title(self, session_id: str, title: str) -> None:
+        """Update the title of a chat session."""
+        self._conn.execute(
+            "UPDATE chat_sessions SET title = ? WHERE id = ?",
+            [title, session_id],
+        )

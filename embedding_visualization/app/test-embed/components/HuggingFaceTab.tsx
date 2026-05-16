@@ -40,6 +40,9 @@ interface HuggingFaceTabProps {
   lastEmbedResult: EmbedDatasetResult | null;
   activeJobCollectionName?: string | null;
   generateLlmLabels?: (input: GenerateLlmLabelsInput) => Promise<GenerateLlmLabelsResult | null>;
+  cancelEmbeddingJob?: (collectionName: string) => Promise<boolean>;
+  cancelJobLoading?: boolean;
+  removeEmbeddingJob?: (collectionName: string) => Promise<boolean>;
 }
 
 export function HuggingFaceTab({
@@ -57,6 +60,9 @@ export function HuggingFaceTab({
   lastEmbedResult,
   activeJobCollectionName,
   generateLlmLabels,
+  cancelEmbeddingJob,
+  cancelJobLoading,
+  removeEmbeddingJob,
 }: HuggingFaceTabProps) {
   const model = useEmbeddingModelState();
   const [llmResumeJobId, setLlmResumeJobId] = useState<string | null>(null);
@@ -393,6 +399,13 @@ export function HuggingFaceTab({
         activeJobCollectionName={activeJobCollectionName}
         llmResumeJobId={llmResumeJobId}
         onResumeJob={handleResumeJob}
+        onCancelActiveJob={activeJobCollectionName && cancelEmbeddingJob
+          ? () => cancelEmbeddingJob(activeJobCollectionName)
+          : undefined}
+        cancelLoading={cancelJobLoading}
+        onRemoveJob={removeEmbeddingJob
+          ? (job) => removeEmbeddingJob(job.collectionName)
+          : undefined}
       />
     </div>
   );

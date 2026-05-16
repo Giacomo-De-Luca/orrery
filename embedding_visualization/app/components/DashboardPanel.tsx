@@ -19,6 +19,7 @@ import { Button } from '@/lib/ui-primitives/button';
 import type { Point2D, Point3D, SemanticSearchResult, HighlightMap, TopicInfo, TemporalRange } from '../../lib/types/types';
 import type { TopicSearchMode, TopicSearchResult } from '../../lib/hooks/useTopicSearch';
 import type { ColorFieldOption } from '../../lib/utils/fieldAnalysis';
+import type { DocumentActivationResult, MatchedFeatureInfo } from '../../lib/graphql/mutations';
 import { cn } from '@/lib/utils/utils';
 import { SAE_FEATURE_INDEX_FIELD } from '../../lib/utils/saeCollections';
 import { useCategoryData } from '../../lib/hooks/useCategoryData';
@@ -71,6 +72,18 @@ interface DashboardPanelProps {
   promptHighlightResults?: SemanticSearchResult[] | null;
   promptMaxDensity?: number | null;
   onPromptMaxDensityChange?: (value: number | null) => void;
+  // Feature search (document activations)
+  featureSearchStatus?: 'idle' | 'searching' | 'error';
+  featureSearchError?: string | null;
+  featureSearchActiveQuery?: string | null;
+  featureSearchResults?: DocumentActivationResult[];
+  featureSearchMatchedFeatures?: MatchedFeatureInfo[];
+  featureSearchTotalResults?: number;
+  featureSearchMatchedFeatureCount?: number;
+  onFeatureSearchSubmit?: (query: string) => void;
+  onFeatureSearchClear?: () => void;
+  onFeatureSearchResultClick?: (rowIndex: number) => void;
+  hasDocumentActivations?: boolean | null;
   // Topic search props (threaded to SearchSidebar)
   topics?: TopicInfo[];
   topicSearchMode?: TopicSearchMode;
@@ -122,6 +135,18 @@ export function DashboardPanel({
   promptHighlightResults,
   promptMaxDensity,
   onPromptMaxDensityChange,
+  // Feature search (document activations)
+  featureSearchStatus,
+  featureSearchError,
+  featureSearchActiveQuery,
+  featureSearchResults,
+  featureSearchMatchedFeatures,
+  featureSearchTotalResults,
+  featureSearchMatchedFeatureCount,
+  onFeatureSearchSubmit,
+  onFeatureSearchClear,
+  onFeatureSearchResultClick,
+  hasDocumentActivations,
   // Topic search props
   topics,
   topicSearchMode,
@@ -779,6 +804,17 @@ export function DashboardPanel({
           onPromptHighlightClear={onPromptHighlightClear}
           promptMaxDensity={promptMaxDensity}
           onPromptMaxDensityChange={onPromptMaxDensityChange}
+          featureSearchStatus={featureSearchStatus}
+          featureSearchError={featureSearchError}
+          featureSearchActiveQuery={featureSearchActiveQuery}
+          featureSearchResults={featureSearchResults}
+          featureSearchMatchedFeatures={featureSearchMatchedFeatures}
+          featureSearchTotalResults={featureSearchTotalResults}
+          featureSearchMatchedFeatureCount={featureSearchMatchedFeatureCount}
+          onFeatureSearchSubmit={onFeatureSearchSubmit}
+          onFeatureSearchClear={onFeatureSearchClear}
+          onFeatureSearchResultClick={onFeatureSearchResultClick}
+          hasDocumentActivations={hasDocumentActivations}
           variant="floating"
           className={cn(
             "pointer-events-auto absolute top-20 bottom-2 z-40 w-80 shadow-2xl transition-all duration-300 ease-in-out",
@@ -800,6 +836,7 @@ export function DashboardPanel({
           sharedFilteredCounts={filteredCategoryCounts}
           combinedMutedIndices={combinedMutedIndices}
           colorFieldOptions={colorFieldOptions}
+          onCategoryToggle={handleCategoryToggle}
           variant="floating"
           className={cn(
             "pointer-events-auto absolute top-20 bottom-2 z-40 w-80 shadow-2xl transition-all duration-300 ease-in-out",

@@ -8,7 +8,7 @@ import { Badge } from '@/lib/ui-primitives/badge';
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { GET_EMBEDDING_JOBS } from '@/lib/graphql/queries';
 import type { EmbeddingJob } from '@/lib/graphql/mutations';
-import { RefreshCw, Play, AlertCircle } from 'lucide-react';
+import { RefreshCw, Play, Square, X, AlertCircle } from 'lucide-react';
 
 interface JobsQueryData {
   embeddingJobs: EmbeddingJob[];
@@ -17,15 +17,19 @@ interface JobsQueryData {
 interface JobsPanelProps {
   /** Called when user clicks resume on an interrupted job */
   onResumeJob?: (job: EmbeddingJob) => void;
+  /** Called when user clicks cancel on a running job */
+  onCancelJob?: (job: EmbeddingJob) => void;
+  /** Called when user clicks remove on an interrupted job */
+  onRemoveJob?: (job: EmbeddingJob) => void;
   /** Filter jobs by status */
   statusFilter?: 'running' | 'interrupted' | 'completed' | null;
 }
 
 /**
  * Displays a list of embedding jobs with their progress.
- * Shows interrupted jobs with a resume button.
+ * Shows interrupted jobs with resume/remove buttons and running jobs with cancel button.
  */
-export function JobsPanel({ onResumeJob, statusFilter = 'interrupted' }: JobsPanelProps) {
+export function JobsPanel({ onResumeJob, onCancelJob, onRemoveJob, statusFilter = 'interrupted' }: JobsPanelProps) {
   const { data, loading, error, refetch } = useQuery<JobsQueryData>(GET_EMBEDDING_JOBS, {
     variables: statusFilter ? { status: statusFilter } : {},
     fetchPolicy: 'network-only',
@@ -83,7 +87,13 @@ export function JobsPanel({ onResumeJob, statusFilter = 'interrupted' }: JobsPan
       </CardHeader>
       <CardContent className="space-y-4">
         {jobs.map((job) => (
-          <JobCard key={job.collectionName} job={job} onResume={onResumeJob} />
+          <JobCard
+            key={job.collectionName}
+            job={job}
+            onResume={onResumeJob}
+            onCancel={onCancelJob}
+            onRemove={onRemoveJob}
+          />
         ))}
       </CardContent>
     </Card>
@@ -93,9 +103,11 @@ export function JobsPanel({ onResumeJob, statusFilter = 'interrupted' }: JobsPan
 interface JobCardProps {
   job: EmbeddingJob;
   onResume?: (job: EmbeddingJob) => void;
+  onCancel?: (job: EmbeddingJob) => void;
+  onRemove?: (job: EmbeddingJob) => void;
 }
 
-function JobCard({ job, onResume }: JobCardProps) {
+function JobCard({ job, onResume, onCancel, onRemove }: JobCardProps) {
   const statusColor = {
     running: 'bg-blue-500',
     interrupted: 'bg-yellow-500',
@@ -126,16 +138,42 @@ function JobCard({ job, onResume }: JobCardProps) {
             )}
           </p>
         </div>
-        {job.status === 'interrupted' && onResume && (
+        {job.status === 'running' && onCancel && (
           <Button
             size="sm"
-            variant="outline"
-            onClick={() => onResume(job)}
+            variant="destructive"
+            onClick={() => onCancel(job)}
             className="gap-1"
           >
-            <Play className="h-3 w-3" />
-            Resume
+            <Square className="h-3 w-3" />
+            Cancel
           </Button>
+        )}
+        {job.status === 'interrupted' && (
+          <div className="flex gap-2">
+            {onResume && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onResume(job)}
+                className="gap-1"
+              >
+                <Play className="h-3 w-3" />
+                Resume
+              </Button>
+            )}
+            {onRemove && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onRemove(job)}
+                className="gap-1 text-muted-foreground"
+              >
+                <X className="h-3 w-3" />
+                Remove
+              </Button>
+            )}
+          </div>
         )}
       </div>
 

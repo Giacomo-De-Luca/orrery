@@ -6,6 +6,7 @@ Supports resume capability for interrupted jobs.
 """
 
 import json
+import threading
 import time
 from collections.abc import Callable
 
@@ -72,7 +73,9 @@ def _config_to_dict(config: EmbeddingConfig) -> dict:
 
 
 def embed_huggingface_dataset(
-    config: EmbeddingConfig, progress_callback: Callable[[int, int], None] | None = None
+    config: EmbeddingConfig,
+    progress_callback: Callable[[int, int], None] | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> EmbeddingResult:
     """
     Embed a HuggingFace dataset into ChromaDB.
@@ -288,6 +291,29 @@ def embed_huggingface_dataset(
         for batch_start in tqdm(
             range(0, len(rows), config.batch_size), desc="Embedding batches", unit="batch"
         ):
+            # Cooperative cancellation check between batches
+            if cancel_event is not None and cancel_event.is_set():
+                job_state.fail_job(config.collection_name, "Cancelled by user")
+                emit_progress_sync(
+                    job_id=config.collection_name,
+                    status="failed",
+                    items_processed=total_embedded,
+                    total_items=len(rows),
+                    current_batch=batches_completed,
+                    total_batches=total_batches,
+                    error="Cancelled by user",
+                )
+                duration = time.time() - start_time
+                return EmbeddingResult(
+                    collection_name=config.collection_name,
+                    total_embedded=total_embedded,
+                    embedding_dim=embedding_dim,
+                    device=device,
+                    duration_seconds=duration,
+                    embedding_provider=model_config.provider.value,
+                    embedding_model=model_config.model_name,
+                )
+
             batch = rows[batch_start : batch_start + config.batch_size]
 
             ids = []

@@ -16,6 +16,10 @@ from .chromadb_instance import get_chromadb_client
 from .duckdb_instance import get_duckdb_client
 from .interpret_instance import get_interpret_service
 from .types import (
+    # Chat history types
+    ChatSessionDetail,
+    ChatSessionInfo,
+    ChatSessionMessage,
     Collection,
     CollectionMetadata,
     DocumentActivationResult,
@@ -49,6 +53,19 @@ from .types import (
     TopicInfo,
     TopicKeyword,
 )
+
+
+def _resolve_dataset_name(db, collection_name: str) -> str:
+    """Resolve a collection_name to its parent dataset_name.
+
+    For decoupled collections (where collection_name != dataset_name),
+    looks up the vector_collections table. Falls back to collection_name
+    if no vector_collection record exists (backward compatible).
+    """
+    vc = db.get_vector_collection(collection_name)
+    if vc:
+        return vc["dataset_name"]
+    return collection_name
 
 
 def _dicts_to_topic_infos(topic_dicts: list) -> list:
@@ -287,11 +304,12 @@ class Query:
 
         # If no projections found, try loading items without projections
         if items_data is None:
-            ds = db.get_dataset(name)
+            dataset_name = _resolve_dataset_name(db, name)
+            ds = db.get_dataset(dataset_name)
             if ds is None:
                 return None
             # Load items directly
-            items_table = db._items_table(name)
+            items_table = db._items_table(dataset_name)
             rows = db._conn.execute(
                 f"SELECT id, document, metadata FROM {items_table} ORDER BY row_index",
             ).fetchall()
@@ -425,7 +443,8 @@ class Query:
             List of embedding items
         """
         db = get_duckdb_client()
-        ds = db.get_dataset(collection_name)
+        dataset_name = _resolve_dataset_name(db, collection_name)
+        ds = db.get_dataset(dataset_name)
         if not ds:
             return []
 
@@ -435,10 +454,10 @@ class Query:
                 {"field": f.field, "operator": f.operator.value, "value": f.value} for f in filters
             ]
             rows_data = db.get_filtered_items(
-                collection_name, filter_dicts, limit=limit, offset=offset
+                dataset_name, filter_dicts, limit=limit, offset=offset
             )
         else:
-            rows_data = db.get_filtered_items(collection_name, [], limit=limit, offset=offset)
+            rows_data = db.get_filtered_items(dataset_name, [], limit=limit, offset=offset)
 
         if not rows_data:
             return []
@@ -503,6 +522,7 @@ class Query:
         """
         client = get_chromadb_client()
         db = get_duckdb_client()
+        dataset_name = _resolve_dataset_name(db, collection_name)
 
         # Pre-filter via DuckDB if filters provided (ChromaDB has no metadata)
         allowed_ids = None
@@ -510,7 +530,7 @@ class Query:
             filter_dicts = [
                 {"field": f.field, "operator": f.operator.value, "value": f.value} for f in filters
             ]
-            filtered = db.get_filtered_items(collection_name, filter_dicts, limit=100000)
+            filtered = db.get_filtered_items(dataset_name, filter_dicts, limit=100000)
             allowed_ids = {item["id"] for item in filtered}
             if not allowed_ids:
                 return []
@@ -534,7 +554,7 @@ class Query:
 
         # DuckDB: enrich with documents + metadata
         items_by_id = {}
-        enriched = db.get_items_by_ids(collection_name, result_ids)
+        enriched = db.get_items_by_ids(dataset_name, result_ids)
         for item in enriched:
             items_by_id[item["id"]] = item
 
@@ -592,6 +612,7 @@ class Query:
         """
         client = get_chromadb_client()
         db = get_duckdb_client()
+        dataset_name = _resolve_dataset_name(db, collection_name)
 
         # ChromaDB: get the embedding for the item
         collection = client.get_collection(collection_name, load_embedding_function=False)
@@ -608,7 +629,7 @@ class Query:
             filter_dicts = [
                 {"field": f.field, "operator": f.operator.value, "value": f.value} for f in filters
             ]
-            filtered = db.get_filtered_items(collection_name, filter_dicts, limit=100000)
+            filtered = db.get_filtered_items(dataset_name, filter_dicts, limit=100000)
             allowed_ids = {item["id"] for item in filtered}
             if not allowed_ids:
                 return []
@@ -630,7 +651,7 @@ class Query:
 
         # DuckDB: enrich with documents + metadata
         items_by_id = {}
-        enriched = db.get_items_by_ids(collection_name, result_ids)
+        enriched = db.get_items_by_ids(dataset_name, result_ids)
         for item in enriched:
             items_by_id[item["id"]] = item
 
@@ -679,13 +700,14 @@ class Query:
             TextSearchResponse with matching items.
         """
         db = get_duckdb_client()
+        dataset_name = _resolve_dataset_name(db, collection_name)
         filter_dicts = None
         if filters:
             filter_dicts = [
                 {"field": f.field, "operator": f.operator.value, "value": f.value} for f in filters
             ]
         result = db.text_search(
-            dataset_name=collection_name,
+            dataset_name=dataset_name,
             query=query,
             fields=fields,
             mode=mode.value,
@@ -881,8 +903,7 @@ class Query:
             if ds is None:
                 # Try via vector_collections → dataset_name
                 vc_row = db._conn.execute(
-                    "SELECT dataset_name FROM vector_collections "
-                    "WHERE collection_name = ?",
+                    "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
                     [collection_name],
                 ).fetchone()
                 if vc_row:
@@ -922,9 +943,7 @@ class Query:
             ],
             total_results=len(result["results"]),
             matched_feature_count=result["matched_feature_count"],
-            matched_features=[
-                _dict_to_sae_feature(f) for f in result.get("matched_features", [])
-            ]
+            matched_features=[_dict_to_sae_feature(f) for f in result.get("matched_features", [])]
             or None,
         )
 
@@ -937,6 +956,52 @@ class Query:
         """Check if a collection has precomputed SAE document activations."""
         db = get_duckdb_client()
         return db.has_document_activations(collection_name)
+
+    # ------------------------------------------------------------------
+    # Chat history
+    # ------------------------------------------------------------------
+
+    @strawberry.field
+    def chat_sessions(self, limit: int = 50, info=None) -> list[ChatSessionInfo]:
+        """List chat sessions ordered by most recently updated."""
+        db = get_duckdb_client()
+        sessions = db.list_chat_sessions(limit)
+        return [
+            ChatSessionInfo(
+                id=s["id"],
+                title=s["title"],
+                config=s["config"],
+                created_at=s["created_at"],
+                updated_at=s["updated_at"],
+            )
+            for s in sessions
+        ]
+
+    @strawberry.field
+    def chat_session(self, id: str, info=None) -> ChatSessionDetail | None:
+        """Get a chat session with all its messages."""
+        db = get_duckdb_client()
+        data = db.get_chat_session_with_messages(id)
+        if not data:
+            return None
+        return ChatSessionDetail(
+            id=data["id"],
+            title=data["title"],
+            config=data["config"],
+            created_at=data["created_at"],
+            updated_at=data["updated_at"],
+            messages=[
+                ChatSessionMessage(
+                    id=m["id"],
+                    session_id=m["session_id"],
+                    role=m["role"],
+                    content=m["content"],
+                    parts=m.get("parts"),
+                    created_at=m["created_at"],
+                )
+                for m in data["messages"]
+            ],
+        )
 
 
 def _dict_to_sae_feature(d: dict) -> SaeFeature:

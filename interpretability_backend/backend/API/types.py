@@ -377,6 +377,26 @@ class EmbedLocalFileInput:
     topic_config: TopicConfigInput | None = None
 
 
+@strawberry.input
+class ReEmbedDatasetInput:
+    """Input for re-embedding an existing dataset with a different model.
+
+    Reads documents from an existing DuckDB dataset and embeds them with a new
+    embedding model into a new ChromaDB vector collection.
+    """
+
+    source_dataset_name: str  # Existing dataset to read from
+    collection_name: str  # New collection name for the re-embedded vectors
+    embedding_model: EmbeddingModelInput  # Required: the new model to use
+    columns: list[str] | None = None  # Metadata fields to compose text from (None = use existing document)
+    text_template: str | None = None  # Template e.g. "{title}: {text}" (None = concatenate columns)
+    batch_size: int | None = 100
+    resume: bool = False
+    compute_projections: bool = True
+    extract_topics: bool = False
+    topic_config: TopicConfigInput | None = None
+
+
 # ========== Text Search Types ==========
 
 
@@ -691,6 +711,37 @@ class DocumentActivationSearchResponse:
     error: str | None = None
 
 
+@strawberry.type
+class PromptDocumentSearchResult:
+    """A document found by sparse dot-product similarity to a prompt's SAE activations."""
+
+    item_id: str
+    document: str | None = None
+    metadata: JSON | None = None
+    score: float
+    shared_features: int
+    row_index: int | None = None
+
+
+@strawberry.type
+class PromptDocumentSearchResponse:
+    """Response from prompt → SAE → document similarity search."""
+
+    results: list[PromptDocumentSearchResult]
+    prompt_feature_count: int
+    error: str | None = None
+
+
+@strawberry.input
+class SearchDocumentsByPromptInput:
+    """Input for prompt-based document similarity search via SAE activations."""
+
+    collection_name: str
+    prompt: str
+    limit: int = 50
+    top_k_features: int | None = None
+
+
 @strawberry.input
 class ComputeDocumentActivationsInput:
     """Input for batch SAE inference on all documents in a collection."""
@@ -957,3 +1008,61 @@ class TokenChunk:
     text: str
     done: bool
     error: str | None = None
+
+
+# ========== Chat History Types ==========
+
+
+@strawberry.type
+class ChatSessionInfo:
+    """Summary of a chat session for listing."""
+
+    id: str
+    title: str
+    config: JSON
+    created_at: str
+    updated_at: str
+
+
+@strawberry.type
+class ChatSessionMessage:
+    """A single message within a chat session."""
+
+    id: str
+    session_id: str
+    role: str
+    content: str
+    parts: JSON | None = None
+    created_at: str
+
+
+@strawberry.type
+class ChatSessionDetail:
+    """A chat session with all its messages."""
+
+    id: str
+    title: str
+    config: JSON
+    created_at: str
+    updated_at: str
+    messages: list[ChatSessionMessage]
+
+
+@strawberry.input
+class CreateChatSessionInput:
+    """Input for creating a new chat session."""
+
+    id: str
+    title: str
+    config: JSON
+
+
+@strawberry.input
+class SaveChatMessageInput:
+    """Input for saving a chat message."""
+
+    id: str
+    session_id: str
+    role: str
+    content: str
+    parts: JSON | None = None

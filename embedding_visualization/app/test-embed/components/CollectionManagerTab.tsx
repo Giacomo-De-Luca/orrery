@@ -22,12 +22,13 @@ import {
 } from '@/lib/ui-primitives/collapsible';
 import { ScrollArea, ScrollBar } from '@/lib/ui-primitives/scroll-area';
 import { Trash2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
-import type { UpdateCollectionMetadataResult, TopicConfigInput, ExtractTopicsResult, ReduceTopicsInput, ReduceTopicsResult, GenerateLlmLabelsInput, GenerateLlmLabelsResult } from '@/lib/graphql/mutations';
+import type { UpdateCollectionMetadataResult, TopicConfigInput, ExtractTopicsResult, ReduceTopicsInput, ReduceTopicsResult, GenerateLlmLabelsInput, GenerateLlmLabelsResult, ComputeDocumentActivationsResult } from '@/lib/graphql/mutations';
 import { GET_COLLECTION_PREVIEW } from '@/lib/graphql/queries';
 import { InlineEditableField, SelectOption } from './InlineEditableField';
 import { AddFieldForm } from './AddFieldForm';
 import { TopicExtractionCard } from './TopicExtractionCard';
 import { SaeLinkSection } from './SaeLinkSection';
+import { ProgressModal } from './EmbeddingProgressModal';
 
 export interface CollectionInfo {
   name: string;
@@ -75,6 +76,10 @@ interface CollectionManagerTabProps {
   regenerateTopicLabel: (collectionName: string, topicId: number, llmConfig?: string) => Promise<{ error?: string | null; newLabel?: string } | null>;
   // Load previously-extracted topics
   fetchCollectionTopics: (collectionName: string) => Promise<ExtractTopicsResult | null>;
+  // Document activations (batch SAE inference)
+  computeDocumentActivations?: (collectionName: string) => Promise<ComputeDocumentActivationsResult | null>;
+  docActivationsLoading?: boolean;
+  lastDocActivationsResult?: ComputeDocumentActivationsResult | null;
 }
 
 // Read-only fields that cannot be edited (computed/system)
@@ -232,6 +237,9 @@ export function CollectionManagerTab({
   renameTopicLabel,
   regenerateTopicLabel,
   fetchCollectionTopics,
+  computeDocumentActivations,
+  docActivationsLoading,
+  lastDocActivationsResult,
 }: CollectionManagerTabProps) {
   const [selectedCollection, setSelectedCollection] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -731,6 +739,44 @@ export function CollectionManagerTab({
           currentModelId={(metadata.sae_model_id as string) ?? null}
           currentSaeId={(metadata.sae_id as string) ?? null}
           onUpdate={(meta) => updateCollectionMetadata(selectedCollectionInfo.name, meta)}
+        />
+      )}
+
+      {/* SAE Document Activations */}
+      {selectedCollectionInfo && metadata.sae_model_id && metadata.sae_id && computeDocumentActivations && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">SAE Document Activations</CardTitle>
+            <CardDescription>
+              Run SAE inference on all documents to enable feature-based search
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Button
+              onClick={() => computeDocumentActivations(selectedCollectionInfo.name)}
+              disabled={docActivationsLoading}
+            >
+              {docActivationsLoading && <Spinner className="mr-2 h-4 w-4" />}
+              Compute Document Activations
+            </Button>
+            {lastDocActivationsResult && !lastDocActivationsResult.error && (
+              <p className="text-sm text-green-600 dark:text-green-400">
+                Processed {lastDocActivationsResult.itemsProcessed} / {lastDocActivationsResult.totalItems} items
+                in {lastDocActivationsResult.durationSeconds.toFixed(1)}s
+              </p>
+            )}
+            {lastDocActivationsResult?.error && (
+              <p className="text-sm text-destructive">{lastDocActivationsResult.error}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {docActivationsLoading && selectedCollectionInfo && (
+        <ProgressModal
+          jobId={`${selectedCollectionInfo.name}_sae_activations`}
+          title="Computing SAE Document Activations"
+          subtitle="Running SAE inference on each document."
+          itemsLabel="documents"
         />
       )}
 

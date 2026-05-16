@@ -6,6 +6,7 @@ import { useQuery, useLazyQuery, useApolloClient } from '@apollo/client/react';
 import Link from 'next/link';
 import { ArrowLeft, Sparkles, Sun, Moon } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { toast } from 'sonner';
 import {
   GET_SAE_MODELS,
   GET_SAE_FEATURE,
@@ -31,7 +32,9 @@ import { Spinner } from '@/lib/ui-primitives/spinner';
 import { Separator } from '@/lib/ui-primitives/separator';
 import { SAE_TO_COLLECTION, getSemanticCollectionName, getSemanticCollections, parseSaeId } from '@/lib/utils/saeCollections';
 import { ChatPanel, steeringFeatureKey } from './components/ChatInterface';
+import { useChatSessions } from '@/lib/hooks/useChatSessions';
 import { useSaeSelectors } from './hooks/useSaeSelectors';
+import type { ChatMessage } from '@/lib/types/types';
 
 /** Shape of a single collection's fan-out semantic search result. */
 interface FanoutResult {
@@ -131,6 +134,62 @@ export default function FeaturesPage() {
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   }, []);
+
+  // ---------- Chat sessions ----------
+
+  const {
+    sessions: chatSessions,
+    loading: chatSessionsLoading,
+    activeSessionId,
+    createSession,
+    loadSession,
+    saveMessage,
+    deleteSession,
+    setActiveSessionId,
+  } = useChatSessions();
+
+  const [loadedMessages, setLoadedMessages] = useState<ChatMessage[] | null>(null);
+  const activeSessionIdRef = useRef<string | null>(null);
+  activeSessionIdRef.current = activeSessionId;
+
+  const handleUserMessageSent = useCallback(
+    async (message: ChatMessage) => {
+      let sessionId = activeSessionIdRef.current;
+      if (!sessionId) {
+        sessionId = await createSession(steeringConfig, message.content);
+      }
+      saveMessage(sessionId, message);
+    },
+    [createSession, saveMessage, steeringConfig]
+  );
+
+  const handleAssistantMessageComplete = useCallback(
+    (message: ChatMessage) => {
+      const sessionId = activeSessionIdRef.current;
+      if (sessionId) {
+        saveMessage(sessionId, message);
+      }
+    },
+    [saveMessage]
+  );
+
+  const handleSelectSession = useCallback(
+    async (id: string) => {
+      try {
+        const { messages, config } = await loadSession(id);
+        setLoadedMessages(messages);
+        setSteeringConfig(config);
+      } catch {
+        toast.error('Failed to load session');
+      }
+    },
+    [loadSession]
+  );
+
+  const handleNewChat = useCallback(() => {
+    setActiveSessionId(null);
+    setLoadedMessages([]);
+  }, [setActiveSessionId]);
 
   // ---------- Queries ----------
 
@@ -641,6 +700,15 @@ export default function FeaturesPage() {
               onRemoveFeature={handleRemoveFeature}
               onUpdateStrength={handleUpdateStrength}
               onClose={closeChat}
+              sessions={chatSessions}
+              sessionsLoading={chatSessionsLoading}
+              activeSessionId={activeSessionId}
+              onSelectSession={handleSelectSession}
+              onDeleteSession={deleteSession}
+              onNewChat={handleNewChat}
+              onUserMessageSent={handleUserMessageSent}
+              onAssistantMessageComplete={handleAssistantMessageComplete}
+              loadedMessages={loadedMessages}
             />
           </div>
         </div>

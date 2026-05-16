@@ -96,6 +96,9 @@ Storage:
   - `insert_sae_features_batch()`, `get_sae_feature()`, `search_sae_features()`, `list_sae_models()` - SAE feature storage
   - `insert_sae_activations_batch()`, `get_sae_activations()` - SAE activation storage
   - `delete_sae_data()` - Remove SAE data for a model/sae pair
+  - `insert_document_activations_batch()`, `insert_document_activations_bulk()` - Per-document SAE activation storage
+  - `get_document_activation_item_ids()`, `has_document_activations()`, `delete_document_activations()` - Document activation management
+  - `search_documents_by_feature_labels()` - Two-hop search: label text → features → ranked documents
 - **`chromadb_client.py`** - Vector-only wrapper (~170 lines, stripped from ~610). Key methods:
   - `get_collection(name, load_embedding_function, for_query, query_prompt)` - Lazy EF loading
   - `semantic_search(...)` - Vector similarity search, returns IDs + distances (no documents/metadata)
@@ -163,6 +166,7 @@ Storage:
 - **`topic_assignments`** — per-item topic_id/label + subtopic_id/label
 - **`sae_features`** — SAE feature metadata: PK (model_id, sae_id, feature_index), density, label, top/bottom logits as JSON
 - **`sae_activations`** — SAE activation examples: indexed by (model_id, sae_id, feature_index), stores tokens[512] and activation values[512] as JSON, plus max_value for ordering
+- **`sae_document_activations`** — Per-document max-pooled SAE activations: PK (collection_name, item_id, feature_index), only nonzero entries stored (~100-150 per doc). Indexed on (collection_name, feature_index) for two-hop label search.
 - Full schema, API, data flows: `documentation/DATABASE_ARCHITECTURE.md`
 - Migration plan: `documentation/DUCKDB_MIGRATION_PLAN.md`
 - Migration script: `scripts/migrate_chromadb_to_duckdb.py`

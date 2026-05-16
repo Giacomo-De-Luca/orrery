@@ -120,3 +120,15 @@ class LocalFileEmbeddingConfig(BaseConfig):
     n_rows: int | None = None  # Limit rows
     sample_n: int | None = None  # Random sample
     sample_seed: int = 42
+
+
+@dataclass(kw_only=True)
+class ReEmbedConfig(BaseConfig):
+    """Configuration for re-embedding an existing DuckDB dataset with a new model.
+
+    Reads documents from an existing dataset in DuckDB and embeds them with a
+    different embedding model into a new ChromaDB vector collection.
+    No new items are written to DuckDB — only ChromaDB gets new vectors.
+    """
+
+    source_dataset_name: str  # Existing dataset in DuckDB to read documents from

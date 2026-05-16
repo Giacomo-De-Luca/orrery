@@ -9,6 +9,9 @@ import {
   GET_LOCAL_FILE_PREVIEW,
   EMBED_HUGGINGFACE_DATASET,
   EMBED_LOCAL_FILE,
+  RE_EMBED_DATASET,
+  CANCEL_EMBEDDING_JOB,
+  REMOVE_EMBEDDING_JOB,
   DELETE_COLLECTION,
   UPDATE_COLLECTION_METADATA,
   RENAME_TOPIC_LABEL,
@@ -19,6 +22,7 @@ import {
   type LocalFilePreview,
   type EmbedDatasetInput,
   type EmbedLocalFileInput,
+  type ReEmbedDatasetInput,
   type EmbedDatasetResult,
   type UpdateCollectionMetadataResult,
   type TopicConfigInput,
@@ -28,6 +32,8 @@ import {
   type GenerateLlmLabelsInput,
   type GenerateLlmLabelsResult,
   type RenameTopicLabelResult,
+  type ComputeDocumentActivationsResult,
+  COMPUTE_DOCUMENT_ACTIVATIONS,
 } from '../graphql/mutations';
 import { GET_COLLECTIONS, EXTRACT_TOPICS, REDUCE_TOPICS, GENERATE_LLM_LABELS, GET_COLLECTION_TOPICS } from '../graphql/queries';
 
@@ -48,6 +54,9 @@ export interface UseEmbedDatasetReturn {
   fetchLocalFileInfo: (filePath: string) => Promise<LocalFileInfo | null>;
   fetchLocalFilePreview: (filePath: string, nRows?: number) => Promise<LocalFilePreview | null>;
   embedLocalFile: (input: EmbedLocalFileInput) => Promise<EmbedDatasetResult | null>;
+
+  // Re-embed from existing dataset
+  reEmbedDataset: (input: ReEmbedDatasetInput) => Promise<EmbedDatasetResult | null>;
 
   // Collection operations
   deleteCollection: (collectionName: string) => Promise<boolean>;
@@ -96,6 +105,16 @@ export interface UseEmbedDatasetReturn {
 
   // Load previously-extracted topics
   fetchCollectionTopics: (collectionName: string) => Promise<ExtractTopicsResult | null>;
+
+  // Document activations (batch SAE inference)
+  computeDocumentActivations: (collectionName: string) => Promise<ComputeDocumentActivationsResult | null>;
+  docActivationsLoading: boolean;
+  lastDocActivationsResult: ComputeDocumentActivationsResult | null;
+
+  // Job management
+  cancelEmbeddingJob: (collectionName: string) => Promise<boolean>;
+  cancelJobLoading: boolean;
+  removeEmbeddingJob: (collectionName: string) => Promise<boolean>;
 
   // Active job tracking for progress display
   activeJobCollectionName: string | null;
@@ -153,6 +172,18 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     { embedLocalFile: EmbedDatasetResult }
   >(EMBED_LOCAL_FILE);
 
+  const [reEmbedMutation, { loading: reEmbedLoading }] = useMutation<
+    { reEmbedDataset: EmbedDatasetResult }
+  >(RE_EMBED_DATASET);
+
+  const [cancelJobMutation, { loading: cancelJobLoading }] = useMutation<
+    { cancelEmbeddingJob: boolean }
+  >(CANCEL_EMBEDDING_JOB);
+
+  const [removeJobMutation] = useMutation<
+    { removeEmbeddingJob: boolean }
+  >(REMOVE_EMBEDDING_JOB);
+
   const [deleteMutation] = useMutation<{ deleteCollection: boolean }>(DELETE_COLLECTION);
 
   const [updateMetadataMutation] = useMutation<
@@ -184,6 +215,12 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
   const [regenerateTopicLabelMutation] = useMutation<
     { regenerateTopicLabel: RenameTopicLabelResult }
   >(REGENERATE_TOPIC_LABEL);
+
+  const [computeDocActMutation, { loading: docActivationsLoading }] = useMutation<
+    { computeDocumentActivations: ComputeDocumentActivationsResult }
+  >(COMPUTE_DOCUMENT_ACTIVATIONS);
+
+  const [lastDocActivationsResult, setLastDocActivationsResult] = useState<ComputeDocumentActivationsResult | null>(null);
 
   const [getCollectionTopics] = useLazyQuery<
     { collectionTopics: ExtractTopicsResult | null }
@@ -405,6 +442,46 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
       return null;
     }
   }, [embedLocalMutation]);
+
+  // ========== Re-embed Existing Dataset ==========
+
+  const reEmbedDataset = useCallback(async (input: ReEmbedDatasetInput): Promise<EmbedDatasetResult | null> => {
+    setError(null);
+    setLastEmbedResult(null);
+    setActiveJobCollectionName(input.collectionName);
+
+    try {
+      const { data, errors } = await reEmbedMutation({
+        variables: { input },
+        context: {
+          fetchOptions: {
+            timeout: 600000 // 10 minutes
+          }
+        }
+      });
+
+      if (errors && errors.length > 0) {
+        setError(errors.map(e => e.message).join(', '));
+        setActiveJobCollectionName(null);
+        return null;
+      }
+
+      const result = data?.reEmbedDataset || null;
+
+      if (result?.error) {
+        setError(result.error);
+      }
+
+      setLastEmbedResult(result);
+      setActiveJobCollectionName(null);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to re-embed dataset';
+      setError(message);
+      setActiveJobCollectionName(null);
+      return null;
+    }
+  }, [reEmbedMutation]);
 
   // ========== Topic Extraction ==========
 
@@ -631,6 +708,26 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     }
   }, [getCollectionTopics]);
 
+  // ========== Job Management ==========
+
+  const cancelEmbeddingJob = useCallback(async (collectionName: string): Promise<boolean> => {
+    try {
+      const { data } = await cancelJobMutation({ variables: { collectionName } });
+      return data?.cancelEmbeddingJob ?? false;
+    } catch {
+      return false;
+    }
+  }, [cancelJobMutation]);
+
+  const removeEmbeddingJob = useCallback(async (collectionName: string): Promise<boolean> => {
+    try {
+      const { data } = await removeJobMutation({ variables: { collectionName } });
+      return data?.removeEmbeddingJob ?? false;
+    } catch {
+      return false;
+    }
+  }, [removeJobMutation]);
+
   // ========== Collection Operations ==========
 
   const deleteCollection = useCallback(async (collectionName: string): Promise<boolean> => {
@@ -699,6 +796,38 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     setActiveJobCollectionName(null);
   }, []);
 
+  // ========== Document Activations (batch SAE inference) ==========
+
+  const computeDocumentActivations = useCallback(async (
+    collectionName: string,
+  ): Promise<ComputeDocumentActivationsResult | null> => {
+    setError(null);
+    setLastDocActivationsResult(null);
+
+    try {
+      const { data, errors } = await computeDocActMutation({
+        variables: { input: { collectionName } },
+      });
+
+      if (errors && errors.length > 0) {
+        setError(errors.map(e => e.message).join(', '));
+        return null;
+      }
+
+      const result = data?.computeDocumentActivations || null;
+      if (result?.error) {
+        setError(result.error);
+      }
+
+      setLastDocActivationsResult(result);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to compute document activations';
+      setError(message);
+      return null;
+    }
+  }, [computeDocActMutation]);
+
   return {
     // HuggingFace operations
     fetchHFDatasetInfo,
@@ -709,6 +838,9 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     fetchLocalFileInfo,
     fetchLocalFilePreview,
     embedLocalFile,
+
+    // Re-embed from existing dataset
+    reEmbedDataset,
 
     // Topic extraction
     extractTopics,
@@ -746,7 +878,7 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
     // Loading states
     infoLoading,
     previewLoading,
-    embedLoading: embedHFLoading || embedLocalLoading,
+    embedLoading: embedHFLoading || embedLocalLoading || reEmbedLoading,
 
     // Errors
     error,
@@ -754,6 +886,16 @@ export function useEmbedDataset(): UseEmbedDatasetReturn {
 
     // Last result
     lastEmbedResult,
+
+    // Document activations
+    computeDocumentActivations,
+    docActivationsLoading,
+    lastDocActivationsResult,
+
+    // Job management
+    cancelEmbeddingJob,
+    cancelJobLoading,
+    removeEmbeddingJob,
 
     // Active job tracking
     activeJobCollectionName,

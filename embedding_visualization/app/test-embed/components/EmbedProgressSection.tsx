@@ -9,6 +9,10 @@ interface EmbedProgressSectionProps {
   activeJobCollectionName?: string | null;
   llmResumeJobId: string | null;
   onResumeJob: (job: EmbeddingJob) => Promise<void>;
+  onCancelActiveJob?: () => void;
+  cancelLoading?: boolean;
+  onCancelJob?: (job: EmbeddingJob) => void;
+  onRemoveJob?: (job: EmbeddingJob) => void;
 }
 
 export function EmbedProgressSection({
@@ -16,12 +20,20 @@ export function EmbedProgressSection({
   activeJobCollectionName,
   llmResumeJobId,
   onResumeJob,
+  onCancelActiveJob,
+  cancelLoading,
+  onCancelJob,
+  onRemoveJob,
 }: EmbedProgressSectionProps) {
   return (
     <>
       {/* Progress Modal - shown during embedding */}
       {embedLoading && activeJobCollectionName && (
-        <ProgressModal jobId={activeJobCollectionName} />
+        <ProgressModal
+          jobId={activeJobCollectionName}
+          onCancel={onCancelActiveJob}
+          cancelLoading={cancelLoading}
+        />
       )}
 
       {/* Progress Modal - shown during LLM labeling resume */}
@@ -39,6 +51,8 @@ export function EmbedProgressSection({
         <JobsPanel
           statusFilter="interrupted"
           onResumeJob={onResumeJob}
+          onCancelJob={onCancelJob}
+          onRemoveJob={onRemoveJob}
         />
       )}
     </>

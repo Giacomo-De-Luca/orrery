@@ -378,3 +378,11 @@ export interface SteeringConfig {
 
 export type ChatStatus = 'idle' | 'loading_model' | 'generating' | 'error';
 
+export interface ChatSessionSummary {
+  id: string;
+  title: string;
+  config: SteeringConfig;
+  createdAt: string;
+  updatedAt: string;
+}
+

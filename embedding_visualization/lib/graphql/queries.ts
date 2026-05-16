@@ -461,6 +461,57 @@ export const SEARCH_SAE_FEATURES = gql`
   }
 `;
 
+// ========== SAE Document Activation Search ==========
+
+/**
+ * Check if a collection has precomputed SAE document activations.
+ */
+export const HAS_DOCUMENT_ACTIVATIONS = gql`
+  query HasDocumentActivations($collectionName: String!) {
+    hasDocumentActivations(collectionName: $collectionName)
+  }
+`;
+
+/**
+ * Two-hop search: feature label text → matching features → ranked documents.
+ */
+export const SEARCH_DOCUMENTS_BY_FEATURES = gql`
+  query SearchDocumentsByFeatures(
+    $collectionName: String!
+    $query: String!
+    $modelId: String
+    $saeId: String
+    $limit: Int = 50
+  ) {
+    searchDocumentsByFeatures(
+      collectionName: $collectionName
+      query: $query
+      modelId: $modelId
+      saeId: $saeId
+      limit: $limit
+    ) {
+      results {
+        itemId
+        document
+        metadata
+        score
+        matchingFeatures
+        rowIndex
+      }
+      totalResults
+      matchedFeatureCount
+      matchedFeatures {
+        featureIndex
+        label
+        density
+        modelId
+        saeId
+      }
+      error
+    }
+  }
+`;
+
 // ========== Streaming Chat Generation ==========
 
 /**
@@ -488,6 +539,40 @@ export const MODEL_STATUS = gql`
       loaded
       modelName
       device
+    }
+  }
+`;
+
+// ========== Chat History ==========
+
+export const GET_CHAT_SESSIONS = gql`
+  query GetChatSessions($limit: Int = 50) {
+    chatSessions(limit: $limit) {
+      id
+      title
+      config
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const GET_CHAT_SESSION = gql`
+  query GetChatSession($id: String!) {
+    chatSession(id: $id) {
+      id
+      title
+      config
+      createdAt
+      updatedAt
+      messages {
+        id
+        sessionId
+        role
+        content
+        parts
+        createdAt
+      }
     }
   }
 `;

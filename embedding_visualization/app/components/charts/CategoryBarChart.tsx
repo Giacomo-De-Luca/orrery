@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { Bar, BarChart, CartesianGrid, Rectangle, XAxis } from 'recharts';
 import {
   Card,
@@ -42,6 +42,8 @@ interface CategoryBarChartProps {
   colorFieldOptions?: ColorFieldOption[];
   analysisField?: string | null;
   onAnalysisFieldChange?: (field: string | null) => void;
+  mutedCategories?: string[];
+  onCategoryToggle?: (category: string, shiftKey: boolean) => void;
 }
 
 export function CategoryBarChart({
@@ -53,6 +55,8 @@ export function CategoryBarChart({
   colorFieldOptions,
   analysisField,
   onAnalysisFieldChange,
+  mutedCategories = [],
+  onCategoryToggle,
 }: CategoryBarChartProps) {
   const [categoryFilter, setCategoryFilter] = useState('');
 
@@ -100,6 +104,8 @@ export function CategoryBarChart({
   );
   const hiddenCount = sortedCategories.length - displayCategories.length;
 
+  const mutedSet = useMemo(() => new Set(mutedCategories), [mutedCategories]);
+
   const chartData = useMemo(() => {
     return displayCategories.map(cat => ({
       category: cat,
@@ -107,8 +113,9 @@ export function CategoryBarChart({
       count: categoryCounts[cat] ?? 0,
       matches: isSearchActive ? (searchMatchCounts![cat] ?? 0) : 0,
       fill: `var(--color-${sanitizeKey(cat)})`,
+      isMuted: mutedSet.has(cat),
     }));
-  }, [displayCategories, categoryCounts, isSearchActive, searchMatchCounts]);
+  }, [displayCategories, categoryCounts, isSearchActive, searchMatchCounts, mutedSet]);
 
   const chartConfig = useMemo(() => {
     const config: ChartConfig = {
@@ -144,6 +151,11 @@ export function CategoryBarChart({
 
   const showFieldSelector = categoricalOptions.length > 0 && onAnalysisFieldChange;
   const showCategoryFilter = categoryValues.length > MAX_BARS;
+
+  const handleBarClick = useCallback((data: { category?: string }, event: React.MouseEvent) => {
+    if (!onCategoryToggle || !data.category) return;
+    onCategoryToggle(data.category, event.shiftKey);
+  }, [onCategoryToggle]);
 
   // Show field selector even with no data (so user can pick a field)
   if (displayCategories.length === 0 && !showFieldSelector) return null;
@@ -201,30 +213,47 @@ export function CategoryBarChart({
       {displayCategories.length > 0 && (
         <CardContent className="px-0 pb-0">
           <ChartContainer config={chartConfig} className="aspect-[4/3] w-full">
-            <BarChart accessibilityLayer data={chartData}>
+            <BarChart accessibilityLayer data={chartData} barGap={isSearchActive ? "-100%" : undefined}>
               <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="safeKey"
                 tickLine={false}
                 tickMargin={10}
                 axisLine={false}
-                tickFormatter={(value) => {
+                tick={({ x, y, payload }) => {
+                  const value = payload?.value;
+                  const entry = chartData.find(d => d.safeKey === value);
+                  const isMuted = entry?.isMuted ?? false;
                   const label = chartConfig[value]?.label;
-                  if (!label) return value;
-                  const str = String(label);
-                  return str.length > 10 ? str.slice(0, 9) + '\u2026' : str;
+                  const str = label ? (String(label).length > 10 ? String(label).slice(0, 9) + '\u2026' : String(label)) : value;
+                  return (
+                    <text
+                      x={x}
+                      y={y}
+                      textAnchor="middle"
+                      dy={4}
+                      className="fill-muted-foreground text-xs"
+                      opacity={isMuted ? 0.4 : 1}
+                      style={{ textDecoration: isMuted ? 'line-through' : 'none' }}
+                    >
+                      {str}
+                    </text>
+                  );
                 }}
               />
               <ChartTooltip
                 cursor={false}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
-                  const data = payload[0]?.payload;
+                  const data = payload[payload.length - 1]?.payload;
                   if (!data) return null;
                   const label = String(chartConfig[data.safeKey]?.label ?? data.category);
                   return (
                     <div className="rounded-lg border bg-background p-2 shadow-sm">
-                      <p className="text-xs font-medium mb-1">{label}</p>
+                      <p className="text-xs font-medium mb-1">
+                        {label}
+                        {data.isMuted && <span className="text-muted-foreground ml-1">(hidden)</span>}
+                      </p>
                       {isSearchActive ? (
                         <>
                           <p className="text-xs text-muted-foreground">Visible: {(data.matches ?? 0).toLocaleString()}</p>
@@ -233,10 +262,27 @@ export function CategoryBarChart({
                       ) : (
                         <p className="text-xs text-muted-foreground">Points: {(data.count ?? 0).toLocaleString()}</p>
                       )}
+                      {onCategoryToggle && (
+                        <p className="text-[10px] text-muted-foreground mt-1 opacity-70">Click to isolate · Shift+click to toggle</p>
+                      )}
                     </div>
                   );
                 }}
               />
+              {/* Ghost background bar: shows total count when search is active */}
+              {isSearchActive && (
+                <Bar
+                  dataKey="count"
+                  radius={4}
+                  fillOpacity={0.15}
+                  strokeWidth={0}
+                  isAnimationActive={false}
+                  onClick={(data: Record<string, unknown>, _index: number, event: React.MouseEvent) =>
+                    handleBarClick(data as { category?: string }, event)
+                  }
+                  cursor={onCategoryToggle ? 'pointer' : undefined}
+                />
+              )}
               <Bar
                 dataKey={isSearchActive ? 'matches' : 'count'}
                 strokeWidth={2}
@@ -244,12 +290,25 @@ export function CategoryBarChart({
                 activeBar={({ ...props }) => (
                   <Rectangle
                     {...props}
-                    fillOpacity={0.8}
+                    fillOpacity={props.payload?.isMuted ? 0.25 : 0.8}
                     stroke={props.payload.fill}
                     strokeDasharray={4}
                     strokeDashoffset={4}
                   />
                 )}
+                shape={({ ...props }) => {
+                  const isMuted = props.payload?.isMuted;
+                  return (
+                    <Rectangle
+                      {...props}
+                      fillOpacity={isMuted ? 0.3 : 1}
+                    />
+                  );
+                }}
+                onClick={(data: Record<string, unknown>, _index: number, event: React.MouseEvent) =>
+                  handleBarClick(data as { category?: string }, event)
+                }
+                cursor={onCategoryToggle ? 'pointer' : undefined}
               />
             </BarChart>
           </ChartContainer>

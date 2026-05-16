@@ -33,6 +33,7 @@ interface AnalyticsSidebarProps extends React.ComponentProps<typeof Sidebar> {
   /** Combined muted indices (text search + temporal) for local fallback computation. */
   combinedMutedIndices?: Set<number> | null;
   colorFieldOptions?: ColorFieldOption[];
+  onCategoryToggle?: (category: string, shiftKey: boolean) => void;
 }
 
 export function AnalyticsSidebar({
@@ -48,6 +49,7 @@ export function AnalyticsSidebar({
   sharedFilteredCounts,
   combinedMutedIndices,
   colorFieldOptions,
+  onCategoryToggle,
   className,
   ...props
 }: AnalyticsSidebarProps) {
@@ -187,6 +189,8 @@ export function AnalyticsSidebar({
               colorFieldOptions={colorFieldOptions}
               analysisField={analysisField}
               onAnalysisFieldChange={handleAnalysisFieldChange}
+              mutedCategories={mutedCategories}
+              onCategoryToggle={onCategoryToggle}
             />
           )}
 

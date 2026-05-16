@@ -1,22 +1,33 @@
 """GraphQL mutation resolvers for embedding visualization backend."""
 
 import asyncio
+import json
 import logging
 import time
 
+import pandas as pd
 import strawberry
 
 from ..clients.duckdb_client import _sanitize_for_json
+from ..services.cancel_registry import (
+    register_cancel_event,
+    request_cancel,
+    unregister_cancel_event,
+)
 from ..services.embedding_pipeline import (
     HuggingFaceEmbeddingPipeline,
     LocalFileEmbeddingPipeline,
+    ReEmbeddingPipeline,
 )
 from ..services.interpret_service import SteeringSpec
+from ..services.job_state import JobStatus, get_job_state_service
+from ..services.progress_emitter import emit_progress_sync
 from ..services.topic_extraction_service import (
     extract_topics as do_extract_topics,
 )
 from .chromadb_instance import get_chromadb_client
 from .converters import (
+    build_embedding_model_config,
     build_hf_embedding_config,
     build_local_file_embedding_config,
     build_topic_extraction_config,
@@ -27,8 +38,11 @@ from .interpret_instance import get_interpret_service
 from .types import (
     JSON,
     AppliedSteering,
+    ChatSessionInfo,
+    ChatSessionMessage,
     ComputeDocumentActivationsInput,
     ComputeDocumentActivationsResult,
+    CreateChatSessionInput,
     EmbedDatasetInput,
     EmbedDatasetResult,
     EmbedLocalFileInput,
@@ -47,14 +61,19 @@ from .types import (
     PrepareSaeInput,
     PrepareSaeResult,
     PromptActivationsResponse,
+    PromptDocumentSearchResponse,
+    PromptDocumentSearchResult,
     PromptHighlightFeature,
     PromptHighlightResponse,
     ReduceTopicsInput,
     ReduceTopicsResult,
+    ReEmbedDatasetInput,
     RenameTopicLabelInput,
     RenameTopicLabelResult,
     RunPromptActivationsInput,
     RunPromptHighlightInput,
+    SaveChatMessageInput,
+    SearchDocumentsByPromptInput,
     SteeredGenerationResponse,
     UpdateCollectionMetadataResult,
 )
@@ -76,13 +95,19 @@ class Mutation:
             else None
         )
 
-        pipeline = HuggingFaceEmbeddingPipeline(
-            config=config,
-            compute_projections=input.compute_projections,
-            extract_topics=input.extract_topics,
-            topic_config=topic_config,
-        )
-        pipeline_result = await pipeline.run()
+        cancel_event = register_cancel_event(input.collection_name)
+        try:
+            pipeline = HuggingFaceEmbeddingPipeline(
+                config=config,
+                compute_projections=input.compute_projections,
+                extract_topics=input.extract_topics,
+                topic_config=topic_config,
+                cancel_event=cancel_event,
+            )
+            pipeline_result = await pipeline.run()
+        finally:
+            unregister_cancel_event(input.collection_name)
+
         result = pipeline_result.embedding_result
 
         return EmbedDatasetResult(
@@ -107,7 +132,57 @@ class Mutation:
             else None
         )
 
-        pipeline = LocalFileEmbeddingPipeline(
+        cancel_event = register_cancel_event(input.collection_name)
+        try:
+            pipeline = LocalFileEmbeddingPipeline(
+                config=config,
+                compute_projections=input.compute_projections,
+                extract_topics=input.extract_topics,
+                topic_config=topic_config,
+                cancel_event=cancel_event,
+            )
+            pipeline_result = await pipeline.run()
+        finally:
+            unregister_cancel_event(input.collection_name)
+
+        result = pipeline_result.embedding_result
+
+        return EmbedDatasetResult(
+            collection_name=result.collection_name,
+            total_embedded=result.total_embedded,
+            embedding_dim=result.embedding_dim,
+            device=result.device,
+            duration_seconds=result.duration_seconds,
+            projections_computed=pipeline_result.projections_computed,
+            error=result.error,
+            embedding_provider=result.embedding_provider,
+            embedding_model=result.embedding_model,
+        )
+
+    @strawberry.mutation
+    async def re_embed_dataset(self, input: ReEmbedDatasetInput, info=None) -> EmbedDatasetResult:
+        """Re-embed an existing dataset with a different embedding model."""
+        from ..embedding_functions.config import (
+            ReEmbedConfig,  # noqa: E402 - avoid circular at module level
+        )
+
+        config = ReEmbedConfig(
+            source_dataset_name=input.source_dataset_name,
+            collection_name=input.collection_name,
+            embedding_model=build_embedding_model_config(input.embedding_model),
+            columns=input.columns,
+            text_template=input.text_template,
+            batch_size=input.batch_size or 100,
+            resume=input.resume,
+        )
+
+        topic_config = (
+            build_topic_extraction_config(input.collection_name, input.topic_config)
+            if input.extract_topics
+            else None
+        )
+
+        pipeline = ReEmbeddingPipeline(
             config=config,
             compute_projections=input.compute_projections,
             extract_topics=input.extract_topics,
@@ -127,6 +202,33 @@ class Mutation:
             embedding_provider=result.embedding_provider,
             embedding_model=result.embedding_model,
         )
+
+    @strawberry.mutation
+    def cancel_embedding_job(self, collection_name: str, info=None) -> bool:
+        """Cancel a running embedding job.
+
+        Sets the cancel event so the batch loop stops after the current batch.
+        The job will be marked as interrupted with partial results preserved.
+        Returns True if a running job was found and signalled, False otherwise.
+        """
+        return request_cancel(collection_name)
+
+    @strawberry.mutation
+    def remove_embedding_job(self, collection_name: str, info=None) -> bool:
+        """Remove an interrupted job record from the job state.
+
+        Only removes the job tracking entry. Does NOT delete partially
+        embedded data (ChromaDB vectors, DuckDB documents).
+        Returns True if a job was found and removed, False otherwise.
+        """
+        job_service = get_job_state_service()
+        job = job_service.get_job(collection_name)
+        if job is None:
+            return False
+        if job.status == JobStatus.RUNNING:
+            return False
+        job_service.remove_job(collection_name)
+        return True
 
     @strawberry.mutation
     def delete_collection(self, collection_name: str, info=None) -> bool:
@@ -630,8 +732,6 @@ class Mutation:
         Supports resume: already-processed items are skipped.
         Emits progress via the embedding_progress subscription.
         """
-        from ..services.progress_emitter import emit_progress_sync
-
         logger = logging.getLogger("star_map.mutations")
         db = get_duckdb_client()
         service = get_interpret_service()
@@ -749,11 +849,20 @@ class Mutation:
                 progress_callback=progress_cb,
             )
 
-            # Store activations in DuckDB
+            # Store activations in DuckDB (bulk insert)
+            bulk_rows = []
             for item_id, activations in results:
-                acts = [(f.feature_index, f.activation) for f in activations]
-                if acts:
-                    db.insert_document_activations_batch(collection_name, item_id, acts)
+                for f in activations:
+                    bulk_rows.append(
+                        {
+                            "collection_name": collection_name,
+                            "item_id": item_id,
+                            "feature_index": f.feature_index,
+                            "activation": f.activation,
+                        }
+                    )
+            if bulk_rows:
+                db.insert_document_activations_bulk(pd.DataFrame(bulk_rows))
 
             elapsed = time.monotonic() - start
 
@@ -797,6 +906,168 @@ class Mutation:
                 duration_seconds=0.0,
                 error=str(e),
             )
+
+    # ------------------------------------------------------------------
+    # Chat history
+    # ------------------------------------------------------------------
+
+    @strawberry.mutation
+    def create_chat_session(self, input: CreateChatSessionInput, info=None) -> ChatSessionInfo:
+        """Create a new chat session."""
+        db = get_duckdb_client()
+        config_str = (
+            json.dumps(input.config) if not isinstance(input.config, str) else input.config
+        )
+        data = db.create_chat_session(input.id, input.title, config_str)
+        return ChatSessionInfo(
+            id=data["id"],
+            title=data["title"],
+            config=data["config"],
+            created_at=data["created_at"],
+            updated_at=data["updated_at"],
+        )
+
+    @strawberry.mutation
+    def save_chat_message(self, input: SaveChatMessageInput, info=None) -> ChatSessionMessage:
+        """Save a message to a chat session."""
+        db = get_duckdb_client()
+        parts_str = json.dumps(input.parts) if input.parts is not None else None
+        data = db.save_chat_message(
+            input.id, input.session_id, input.role, input.content, parts_str
+        )
+        return ChatSessionMessage(
+            id=data["id"],
+            session_id=data["session_id"],
+            role=data["role"],
+            content=data["content"],
+            parts=data.get("parts"),
+            created_at=data["created_at"],
+        )
+
+    # ------------------------------------------------------------------
+    # Prompt → SAE → document similarity search
+    # ------------------------------------------------------------------
+
+    @strawberry.mutation
+    async def search_documents_by_prompt(
+        self, input: SearchDocumentsByPromptInput, info=None
+    ) -> PromptDocumentSearchResponse:
+        """Run a prompt through model+SAE, then find documents with similar activations.
+
+        1. Runs the prompt through the model with SAE hooks (same as runPromptHighlight).
+        2. Takes the max-pooled activation vector.
+        3. Computes sparse dot-product similarity against precomputed document activations.
+        4. Returns ranked documents.
+        """
+
+        service = get_interpret_service()
+        db = get_duckdb_client()
+        collection_name = input.collection_name
+
+        # Check document activations exist
+        if not db.has_document_activations(collection_name):
+            return PromptDocumentSearchResponse(
+                results=[],
+                prompt_feature_count=0,
+                error="No document activations computed for this collection. "
+                "Run computeDocumentActivations first.",
+            )
+
+        # Resolve SAE config from collection metadata
+        vc_row = db._conn.execute(
+            "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
+            [collection_name],
+        ).fetchone()
+        if not vc_row:
+            return PromptDocumentSearchResponse(
+                results=[],
+                prompt_feature_count=0,
+                error=f"Collection '{collection_name}' not found.",
+            )
+
+        ds = db.get_dataset(vc_row[0])
+        extra = (ds.get("extra_metadata") or {}) if ds else {}
+        sae_id = extra.get("sae_id")
+        if not sae_id:
+            return PromptDocumentSearchResponse(
+                results=[],
+                prompt_feature_count=0,
+                error="Collection has no SAE metadata.",
+            )
+
+        # Parse sae_id → layer, hook_type, width
+        parts = sae_id.split("-")
+        layer = int(parts[0]) if parts else 9
+        hook_abbrev = parts[3] if len(parts) > 3 else "res"
+        width = parts[4] if len(parts) > 4 else "16k"
+        hook_map = {"res": "RESID_POST", "mlp": "MLP_OUT", "att": "ATTN_OUT"}
+        hook_type = hook_map.get(hook_abbrev, "RESID_POST")
+
+        # Check model loaded
+        if not service.get_status().loaded:
+            return PromptDocumentSearchResponse(
+                results=[],
+                prompt_feature_count=0,
+                error="Model not loaded. Call loadModel first.",
+            )
+
+        try:
+            async with service._lock:
+                activations = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        service.run_prompt_highlight,
+                        input.prompt,
+                        layer,
+                        width,
+                        hook_type,
+                    ),
+                    timeout=120.0,
+                )
+        except (RuntimeError, ValueError) as e:
+            return PromptDocumentSearchResponse(results=[], prompt_feature_count=0, error=str(e))
+        except TimeoutError:
+            return PromptDocumentSearchResponse(
+                results=[],
+                prompt_feature_count=0,
+                error="Inference timed out after 120s.",
+            )
+
+        if not activations:
+            return PromptDocumentSearchResponse(
+                results=[],
+                prompt_feature_count=0,
+                error="No features activated for this prompt.",
+            )
+
+        # Search documents by sparse dot product
+        acts_tuples = [(f.feature_index, f.activation) for f in activations]
+        results = db.search_documents_by_activations(
+            collection_name=collection_name,
+            activations=acts_tuples,
+            limit=input.limit,
+            top_k=input.top_k_features,
+        )
+
+        return PromptDocumentSearchResponse(
+            results=[
+                PromptDocumentSearchResult(
+                    item_id=r["item_id"],
+                    document=r.get("document"),
+                    metadata=r.get("metadata"),
+                    score=r["score"],
+                    shared_features=r["shared_features"],
+                    row_index=r.get("row_index"),
+                )
+                for r in results
+            ],
+            prompt_feature_count=len(activations),
+        )
+
+    @strawberry.mutation
+    def delete_chat_session(self, id: str, info=None) -> bool:
+        """Delete a chat session and all its messages."""
+        db = get_duckdb_client()
+        return db.delete_chat_session(id)
 
 
 def _steering_inputs_to_specs(inputs) -> list[SteeringSpec]:

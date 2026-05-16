@@ -5,9 +5,11 @@ import { useSubscription } from '@apollo/client/react';
 import { Card, CardContent } from '@/lib/ui-primitives/card';
 import { Progress } from '@/lib/ui-primitives/progress';
 import { Badge } from '@/lib/ui-primitives/badge';
+import { Button } from '@/lib/ui-primitives/button';
 import { Spinner } from '@/lib/ui-primitives/spinner';
 import { EMBEDDING_PROGRESS_SUBSCRIPTION } from '@/lib/graphql/queries';
 import type { JobProgress } from '@/lib/graphql/mutations';
+import { Square } from 'lucide-react';
 
 interface ProgressModalProps {
   /** Job ID to subscribe to for WebSocket progress updates */
@@ -18,6 +20,10 @@ interface ProgressModalProps {
   subtitle?: string;
   /** Label for the items counter, e.g. "topics" or "items" (default: "items") */
   itemsLabel?: string;
+  /** Called when user clicks the Cancel button */
+  onCancel?: () => void;
+  /** Disable the Cancel button while the mutation is in flight */
+  cancelLoading?: boolean;
 }
 
 interface SubscriptionData {
@@ -75,6 +81,8 @@ export function ProgressModal({
   title,
   subtitle = 'This may take several minutes for large datasets.',
   itemsLabel = 'items',
+  onCancel,
+  cancelLoading,
 }: ProgressModalProps) {
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const startTimeRef = useRef(Date.now());
@@ -184,9 +192,23 @@ export function ProgressModal({
                 </span>
               </div>
             </div>
-            {(!progress || progress.status === 'running') && (
-              <Spinner className="h-5 w-5" />
-            )}
+            <div className="flex items-center gap-2">
+              {onCancel && (!progress || progress.status === 'running') && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={onCancel}
+                  disabled={cancelLoading}
+                  className="gap-1"
+                >
+                  <Square className="h-3 w-3" />
+                  {cancelLoading ? 'Cancelling...' : 'Cancel'}
+                </Button>
+              )}
+              {(!progress || progress.status === 'running') && (
+                <Spinner className="h-5 w-5" />
+              )}
+            </div>
           </div>
 
           {/* Status message */}
