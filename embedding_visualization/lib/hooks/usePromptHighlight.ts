@@ -3,7 +3,7 @@ import { apolloClient } from '@/lib/utils/apollo-client';
 import { RUN_PROMPT_HIGHLIGHT } from '@/lib/graphql/mutations';
 import type { PromptHighlightFeature, PromptHighlightResult } from '@/lib/graphql/mutations';
 import { SAE_FEATURE_INDEX_FIELD, parseSaeId } from '@/lib/utils/saeCollections';
-import { ensureModelLoaded } from '@/lib/utils/modelLoader';
+import { ensureModelLoaded, modelIdToCheckpoint } from '@/lib/utils/modelLoader';
 import type { HighlightMap, SemanticSearchResult } from '@/lib/types/types';
 
 type PromptHighlightStatus = 'idle' | 'loading_model' | 'running' | 'error';
@@ -124,7 +124,8 @@ export function usePromptHighlight(
         setError(null);
 
         try {
-          const loadError = await ensureModelLoaded();
+          const checkpoint = modelIdToCheckpoint(saeInfo.modelId);
+          const loadError = await ensureModelLoaded(checkpoint);
           if (requestIdRef.current !== currentRequestId) return;
           if (loadError) {
             setError(loadError);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { apolloClient } from '@/lib/utils/apollo-client';
 import { GENERATE_STREAM } from '@/lib/graphql/queries';
-import { ensureModelLoaded } from '@/lib/utils/modelLoader';
+import { ensureModelLoaded, modelIdToCheckpoint } from '@/lib/utils/modelLoader';
 import type { ChatMessage, ChatStatus, SteeringConfig } from '@/lib/types/types';
 
 export interface UseSteeringChatReturn {
@@ -166,9 +166,8 @@ export function useSteeringChat(
       // Ensure model is loaded, then start streaming
       const startStreaming = async () => {
         try {
-          // Derive checkpoint from steering config modelId (e.g. "gemma-3-4b-it" → "google/gemma-3-4b-it")
           const modelId = config.features[0]?.modelId;
-          const checkpoint = modelId ? `google/${modelId}` : undefined;
+          const checkpoint = modelId ? modelIdToCheckpoint(modelId) : undefined;
           const loadError = await ensureModelLoaded(checkpoint);
           if (cancelledRef.current) return;
           if (loadError) {

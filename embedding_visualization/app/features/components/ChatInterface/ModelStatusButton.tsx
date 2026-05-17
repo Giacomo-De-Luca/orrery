@@ -13,6 +13,7 @@ import {
 import { cn } from '@/lib/utils/utils';
 import { MODEL_STATUS, GET_SAE_MODELS } from '@/lib/graphql/queries';
 import { LOAD_MODEL, UNLOAD_MODEL } from '@/lib/graphql/mutations';
+import { modelIdToCheckpoint, isModelMatch } from '@/lib/utils/modelLoader';
 
 interface SaeModelInfo {
   modelId: string;
@@ -48,8 +49,8 @@ function PureModelStatusButton({ modelId, saeId, onSelectModel }: ModelStatusBut
   // Derive status
   const loaded = statusData?.modelStatus?.loaded ?? false;
   const loadedModelName = statusData?.modelStatus?.modelName ?? null;
-  const checkpoint = modelId ? `google/${modelId}` : null;
-  const isCorrectModel = loaded && loadedModelName === checkpoint;
+  const checkpoint = modelId ? modelIdToCheckpoint(modelId) : null;
+  const isCorrectModel = loaded && !!checkpoint && isModelMatch(loadedModelName, checkpoint);
 
   const dotColorClass = transitioning
     ? 'bg-amber-400 animate-pulse'

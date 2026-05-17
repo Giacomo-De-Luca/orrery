@@ -35,7 +35,7 @@ import { Slider } from '@/lib/ui-primitives/slider';
 import { RUN_PROMPT_ACTIVATIONS } from '@/lib/graphql/mutations';
 import type { PromptActivationsResult } from '@/lib/graphql/mutations';
 import { SAE_TO_COLLECTION, getSemanticCollectionName, getSemanticCollections, parseSaeId } from '@/lib/utils/saeCollections';
-import { ensureModelLoaded } from '@/lib/utils/modelLoader';
+import { ensureModelLoaded, modelIdToCheckpoint } from '@/lib/utils/modelLoader';
 import { ChatPanel, steeringFeatureKey } from './components/ChatInterface';
 import { PromptTokenActivations, type SelectedTokenInfo } from './components/PromptTokenActivations';
 import { useChatSessions } from '@/lib/hooks/useChatSessions';
@@ -288,25 +288,27 @@ export default function FeaturesPage() {
     }
   }, [models, modelIdParam, saeIdParam, resolvedSaePairs.length, setModel, setLayer, setHookType, setWidth]);
 
-  // Sync steering config when the page-level model/SAE selection changes
+  // Sync steering config when the page-level model/SAE resolves to a single pair
   useEffect(() => {
-    if (!modelId || !saeId) return;
+    if (!isSingleSae || !modelId || !saeId) return;
     const currentModelId = steeringConfig.features[0]?.modelId;
     const currentSaeId = steeringConfig.features[0]?.saeId;
     if (currentModelId === modelId && currentSaeId === saeId) return;
     const parsed = parseSaeId(saeId);
-    setSteeringConfig({
-      features: [{
-        modelId,
-        saeId,
-        layerIndex: parsed.layerIndex,
-        featureIndex: 0,
-        strength: 0,
-        hookType: parsed.hookType,
-        width: parsed.width,
-      }],
-    });
-  }, [modelId, saeId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setSteeringConfig((prev) => ({
+      features: prev.features.length > 0 && prev.features[0].modelId === modelId
+        ? prev.features.map((f) => ({ ...f, saeId, layerIndex: parsed.layerIndex, hookType: parsed.hookType, width: parsed.width }))
+        : [{
+            modelId,
+            saeId,
+            layerIndex: parsed.layerIndex,
+            featureIndex: 0,
+            strength: 0,
+            hookType: parsed.hookType,
+            width: parsed.width,
+          }],
+    }));
+  }, [isSingleSae, modelId, saeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Semantic collection: single-SAE mode uses direct lookup, multi-SAE checks all resolved
   const semanticCollectionName = useMemo(
@@ -491,7 +493,8 @@ export default function FeaturesPage() {
       setPromptSearchLoading(true);
       setPromptSearchError(null);
       try {
-        const loadErr = await ensureModelLoaded();
+        const checkpoint = modelIdToCheckpoint(modelId);
+        const loadErr = await ensureModelLoaded(checkpoint);
         if (loadErr) {
           setPromptSearchError(loadErr);
           setPromptSearchLoading(false);
