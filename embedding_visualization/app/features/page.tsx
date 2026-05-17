@@ -37,7 +37,7 @@ import type { PromptActivationsResult } from '@/lib/graphql/mutations';
 import { SAE_TO_COLLECTION, getSemanticCollectionName, getSemanticCollections, parseSaeId } from '@/lib/utils/saeCollections';
 import { ensureModelLoaded } from '@/lib/utils/modelLoader';
 import { ChatPanel, steeringFeatureKey } from './components/ChatInterface';
-import { PromptTokenActivations } from './components/PromptTokenActivations';
+import { PromptTokenActivations, type SelectedTokenInfo } from './components/PromptTokenActivations';
 import { useChatSessions } from '@/lib/hooks/useChatSessions';
 import { useSaeSelectors } from './hooks/useSaeSelectors';
 import type { ChatMessage } from '@/lib/types/types';
@@ -99,6 +99,7 @@ export default function FeaturesPage() {
   const [promptSearchError, setPromptSearchError] = useState<string | null>(null);
   const [promptPooling, setPromptPooling] = useState<'max' | 'mean' | 'last'>('max');
   const [promptMaxDensity, setPromptMaxDensity] = useState<number>(0.01);
+  const [selectedTokenInfo, setSelectedTokenInfo] = useState<SelectedTokenInfo | null>(null);
   const [hoveredActivationValue, setHoveredActivationValue] = useState<number | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [steeringConfig, setSteeringConfig] = useState<SteeringConfig>(() => {
@@ -203,6 +204,21 @@ export default function FeaturesPage() {
     setActiveSessionId(null);
     setLoadedMessages([]);
   }, [setActiveSessionId]);
+
+  const handleSelectModel = useCallback((newModelId: string, newSaeId: string) => {
+    const parsed = parseSaeId(newSaeId);
+    setSteeringConfig({
+      features: [{
+        modelId: newModelId,
+        saeId: newSaeId,
+        layerIndex: parsed.layerIndex,
+        featureIndex: 0,
+        strength: 0,
+        hookType: parsed.hookType,
+        width: parsed.width,
+      }],
+    });
+  }, []);
 
   // ---------- Queries ----------
 
@@ -393,6 +409,7 @@ export default function FeaturesPage() {
     setMergedSemanticResults([]);
     setPromptActivations(null);
     setPromptSearchError(null);
+    setSelectedTokenInfo(null);
   }, [resolvedSaePairs]);
 
   // ---------- Effects ----------
@@ -687,26 +704,34 @@ export default function FeaturesPage() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
                   {/* Left: Search results */}
-                  <div className="lg:col-span-1 space-y-2 overflow-y-auto min-h-0">
-                    {/* Token-level activations strip */}
+                  <div className="lg:col-span-1 flex flex-col min-h-0">
+                    {/* Token strip (prompt mode only) */}
                     {isPromptSearch && promptActivations && (
-                      <PromptTokenActivations
-                        layers={promptActivations.layers}
-                        tokenStrings={promptActivations.tokenStrings}
-                        onFeatureSelect={handleSearchSelect}
-                      />
+                      <div className="shrink-0 mb-2">
+                        <PromptTokenActivations
+                          layers={promptActivations.layers}
+                          tokenStrings={promptActivations.tokenStrings}
+                          onTokenSelect={setSelectedTokenInfo}
+                        />
+                      </div>
                     )}
-                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      {hasActiveResults
-                        ? `${isPromptSearch ? 'Prompt' : isSemanticSearch ? 'Semantic' : 'Search'} Results (${activeResultCount})`
-                        : 'Search Features'}
+
+                    {/* Header */}
+                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0 mb-1">
+                      {isPromptSearch && selectedTokenInfo
+                        ? `Token "${selectedTokenInfo.token}" features (${selectedTokenInfo.features.length})`
+                        : hasActiveResults
+                          ? `${isPromptSearch ? 'Prompt' : isSemanticSearch ? 'Semantic' : 'Search'} Results (${activeResultCount})`
+                          : 'Search Features'}
                     </h3>
+
                     {isPromptSearch && promptSearchError && (
-                      <p className="text-xs text-destructive">{promptSearchError}</p>
+                      <p className="text-xs text-destructive shrink-0">{promptSearchError}</p>
                     )}
-                    {/* Prompt search controls: pooling strategy + density filter */}
-                    {isPromptSearch && hasActiveResults && (
-                      <div className="space-y-2 border rounded-md p-2 bg-muted/30">
+
+                    {/* Prompt pooling controls (only when showing pooled results, not token features) */}
+                    {isPromptSearch && hasActiveResults && !selectedTokenInfo && (
+                      <div className="space-y-2 border rounded-md p-2 bg-muted/30 shrink-0 mb-1">
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-muted-foreground shrink-0">Pool:</span>
                           <ToggleGroup
@@ -737,33 +762,51 @@ export default function FeaturesPage() {
                         </div>
                       </div>
                     )}
-                    {activeSearchLoading ? (
-                      <div className="flex items-center justify-center gap-2 py-4">
-                        <Spinner className="h-4 w-4" />
-                        {isPromptSearch && (
-                          <span className="text-xs text-muted-foreground">Running inference...</span>
-                        )}
-                      </div>
-                    ) : hasActiveResults ? (
-                      <FeatureSearchResults
-                        results={searchResults}
-                        onSelect={handleSearchSelect}
-                        selectedIndex={featureIndex}
-                        mode={searchMode}
-                        semanticResults={
-                          isPromptSearch ? promptSearchAsSemanticResults
-                            : isSemanticSearch ? semanticSearchResults
-                              : undefined
-                        }
-                        showSaeBadge={showSaeBadge}
-                      />
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        {!isSingleSae
-                          ? `Search across ${resolvedSaePairs.length} SAEs, or select a single SAE to browse features.`
-                          : 'Search by label or browse with the arrow buttons.'}
-                      </p>
-                    )}
+
+                    {/* Scrollable results area */}
+                    <div className="flex-1 min-h-0 overflow-y-auto">
+                      {activeSearchLoading ? (
+                        <div className="flex items-center justify-center gap-2 py-4">
+                          <Spinner className="h-4 w-4" />
+                          {isPromptSearch && (
+                            <span className="text-xs text-muted-foreground">Running inference...</span>
+                          )}
+                        </div>
+                      ) : isPromptSearch && selectedTokenInfo ? (
+                        /* Token-level feature list (replaces pooled results when token is selected) */
+                        <FeatureSearchResults
+                          results={[]}
+                          onSelect={handleSearchSelect}
+                          selectedIndex={featureIndex}
+                          mode="prompt"
+                          semanticResults={selectedTokenInfo.features.map((f) => ({
+                            featureIndex: f.index,
+                            label: f.label || null,
+                            density: f.density,
+                            similarity: f.activation,
+                          }))}
+                        />
+                      ) : hasActiveResults ? (
+                        <FeatureSearchResults
+                          results={searchResults}
+                          onSelect={handleSearchSelect}
+                          selectedIndex={featureIndex}
+                          mode={searchMode}
+                          semanticResults={
+                            isPromptSearch ? promptSearchAsSemanticResults
+                              : isSemanticSearch ? semanticSearchResults
+                                : undefined
+                          }
+                          showSaeBadge={showSaeBadge}
+                        />
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {!isSingleSae
+                            ? `Search across ${resolvedSaePairs.length} SAEs, or select a single SAE to browse features.`
+                            : 'Search by label or browse with the arrow buttons.'}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Right: Feature detail + statistics + similar + activations */}
@@ -882,6 +925,7 @@ export default function FeaturesPage() {
               onUserMessageSent={handleUserMessageSent}
               onAssistantMessageComplete={handleAssistantMessageComplete}
               loadedMessages={loadedMessages}
+              onSelectModel={handleSelectModel}
             />
           </div>
         </div>

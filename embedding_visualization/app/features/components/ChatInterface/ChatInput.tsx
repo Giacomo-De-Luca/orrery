@@ -23,9 +23,11 @@ interface ChatInputProps {
   showSuggestions?: boolean;
   onSuggest?: (prompt: string) => void;
   modelId?: string | null;
+  saeId?: string | null;
+  onSelectModel?: (modelId: string, saeId: string) => void;
 }
 
-export function ChatInput({ onSend, onStop, isGenerating, disabled, showSuggestions, onSuggest, modelId }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, isGenerating, disabled, showSuggestions, onSuggest, modelId, saeId, onSelectModel }: ChatInputProps) {
   const [input, setInput] = useState(() => {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem(DRAFT_KEY) ?? '';
@@ -146,7 +148,7 @@ export function ChatInput({ onSend, onStop, isGenerating, disabled, showSuggesti
               <Paperclip style={{ width: 14, height: 14 }} />
             </div>
             {/* Model status indicator */}
-            <ModelStatusButton modelId={modelId ?? null} />
+            <ModelStatusButton modelId={modelId ?? null} saeId={saeId ?? null} onSelectModel={onSelectModel} />
           </div>
 
           {/* Send / Stop */}

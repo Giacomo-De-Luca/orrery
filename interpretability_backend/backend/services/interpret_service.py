@@ -176,6 +176,22 @@ class InterpretService:
         variant = parts[1] if len(parts) > 1 else "pt"  # "it" or default "pt"
         return model_size, variant
 
+    @staticmethod
+    def _normalize_checkpoint(checkpoint: str, model_size: str, variant: str) -> str:
+        """Ensure the checkpoint string has the variant suffix.
+
+        HuggingFace repos require explicit variant: google/gemma-3-1b-pt
+        (google/gemma-3-1b alone returns 404).
+        """
+        name = checkpoint.rsplit("/", 1)[-1]
+        # If it already ends with the variant, leave it alone
+        if name.endswith(f"-{variant}"):
+            return checkpoint
+        # Reconstruct with the variant suffix
+        org = checkpoint.rsplit("/", 1)[0] if "/" in checkpoint else ""
+        canonical = f"gemma-3-{model_size}-{variant}"
+        return f"{org}/{canonical}" if org else canonical
+
     def load_model(
         self,
         checkpoint: str = "google/gemma-3-4b-it",
@@ -189,10 +205,11 @@ class InterpretService:
             raise RuntimeError(
                 f"Model already loaded ({self._model_name}). Call unloadModel first."
             )
-        logger.info("Loading model %s ...", checkpoint)
-        self._wrapper = GemmaPytorchInference(checkpoint)
-        self._model_name = checkpoint
         self._model_size, self._variant = self._parse_checkpoint(checkpoint)
+        checkpoint = self._normalize_checkpoint(checkpoint, self._model_size, self._variant)
+        logger.info("Loading model %s ...", checkpoint)
+        self._wrapper = GemmaPytorchInference(checkpoint, model_size=self._model_size)
+        self._model_name = checkpoint
         self._prompt_explorer = None  # rebuilt lazily
         logger.info("Model loaded on %s", self._wrapper.device)
         return self.get_status()
@@ -292,12 +309,18 @@ class InterpretService:
     ) -> tuple[int, int]:
         """Find the start/end indices of the actual user prompt tokens.
 
-        The chat template wraps as:
+        For IT models, the chat template wraps as:
           <bos><start_of_turn>user\\n{prompt}<end_of_turn>\\n<start_of_turn>model
+
+        For base (pt) models, there's no template — just BOS + prompt tokens.
 
         Returns (start, end) where token_strings[start:end] are the prompt tokens.
         """
-        # Tokenize just the prefix to find where prompt content begins
+        # Base models: no chat template, skip only BOS (position 0)
+        if self._variant == "pt":
+            return 1, len(token_strings)
+
+        # IT models: strip the chat template prefix/suffix
         wrapper = self._require_model()
         prefix = "<start_of_turn>user\n"
         prefix_ids = wrapper.tokenize(prefix, bos=True)
@@ -451,11 +474,14 @@ class InterpretService:
             self._parse_hook_type(spec.hook_type)  # validate early
 
         # --- Baseline (no steering) ---
-        baseline_text = wrapper.generate(
-            prompt,
-            output_len=output_len,
-            temperature=temperature,
-        )
+        if self._variant == "pt":
+            baseline_text = wrapper.generate_from_template(
+                prompt, output_len=output_len, temperature=temperature,
+            )
+        else:
+            baseline_text = wrapper.generate(
+                prompt, output_len=output_len, temperature=temperature,
+            )
 
         # --- Steered ---
         # Collect unique (layer, hook_type, width) combos for SAE loading.
@@ -471,6 +497,8 @@ class InterpretService:
                         layer_index=spec.layer,
                         hook_type=ht,
                         width=spec.width,
+                        model_size=self._model_size,
+                        variant=self._variant,
                         device=device,
                         read_only=True,
                     )
@@ -487,11 +515,14 @@ class InterpretService:
             )
 
         with manager.session(wrapper.model.model.layers):
-            steered_text = wrapper.generate(
-                prompt,
-                output_len=output_len,
-                temperature=temperature,
-            )
+            if self._variant == "pt":
+                steered_text = wrapper.generate_from_template(
+                    prompt, output_len=output_len, temperature=temperature,
+                )
+            else:
+                steered_text = wrapper.generate(
+                    prompt, output_len=output_len, temperature=temperature,
+                )
 
         return SteeredGenerationResult(
             baseline_text=baseline_text,
@@ -554,6 +585,8 @@ class InterpretService:
             layer_index=layer,
             hook_type=ht,
             width=width,
+            model_size=self._model_size,
+            variant=self._variant,
             device=device,
             prefill_only=True,
             read_only=True,
@@ -563,7 +596,10 @@ class InterpretService:
         manager.add_sae(sae_config)
 
         with manager.session(wrapper.model.model.layers) as store:
-            wrapper.generate(prompt, output_len=1)
+            if self._variant == "pt":
+                wrapper.generate_from_template(prompt, output_len=1)
+            else:
+                wrapper.generate(prompt, output_len=1)
             record = store.prefill(layer=layer, hook_type=ht)
 
         if record is None:
@@ -616,6 +652,8 @@ class InterpretService:
             layer_index=layer,
             hook_type=ht,
             width=width,
+            model_size=self._model_size,
+            variant=self._variant,
             device=device,
             prefill_only=True,
             read_only=True,
@@ -631,7 +669,10 @@ class InterpretService:
             for i, (item_id, text) in enumerate(documents):
                 store.clear()
                 try:
-                    wrapper.generate(text, output_len=1)
+                    if self._variant == "pt":
+                        wrapper.generate_from_template(text, output_len=1)
+                    else:
+                        wrapper.generate(text, output_len=1)
                     record = store.prefill(layer=layer, hook_type=ht)
                 except Exception:
                     logger.exception("Failed inference for item %s (%d/%d)", item_id, i + 1, total)
@@ -704,6 +745,8 @@ class InterpretService:
                                 layer_index=spec.layer,
                                 hook_type=ht,
                                 width=width,
+                                model_size=self._model_size,
+                                variant=self._variant,
                                 device=device,
                                 read_only=True,
                             )

@@ -36,6 +36,7 @@ interface ChatPanelProps {
   onAssistantMessageComplete?: (message: ChatMessageType) => void;
   /** When set, replaces current messages (used for loading a session). Reset to null after load. */
   loadedMessages?: ChatMessageType[] | null;
+  onSelectModel?: (modelId: string, saeId: string) => void;
 }
 
 export function ChatPanel({
@@ -56,6 +57,7 @@ export function ChatPanel({
   onUserMessageSent,
   onAssistantMessageComplete,
   loadedMessages,
+  onSelectModel,
 }: ChatPanelProps) {
   const [maxTokens, setMaxTokens] = useState(256);
   const [temperature, setTemperature] = useState(0.7);
@@ -290,6 +292,8 @@ export function ChatPanel({
           showSuggestions={isEmpty}
           onSuggest={send}
           modelId={steeringConfig.features[0]?.modelId ?? null}
+          saeId={steeringConfig.features[0]?.saeId ?? null}
+          onSelectModel={onSelectModel}
         />
       </div>
     </div>
