@@ -289,6 +289,7 @@ export function ChatPanel({
           isGenerating={isBusy}
           showSuggestions={isEmpty}
           onSuggest={send}
+          modelId={steeringConfig.features[0]?.modelId ?? null}
         />
       </div>
     </div>

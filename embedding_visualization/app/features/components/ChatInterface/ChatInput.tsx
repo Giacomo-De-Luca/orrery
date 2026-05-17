@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Clip
 import { motion } from 'motion/react';
 import { ArrowUp, Paperclip, Square } from 'lucide-react';
 import { cn } from '@/lib/utils/utils';
+import { ModelStatusButton } from './ModelStatusButton';
 
 const DRAFT_KEY = 'steering-chat-draft';
 
@@ -21,9 +22,10 @@ interface ChatInputProps {
   disabled?: boolean;
   showSuggestions?: boolean;
   onSuggest?: (prompt: string) => void;
+  modelId?: string | null;
 }
 
-export function ChatInput({ onSend, onStop, isGenerating, disabled, showSuggestions, onSuggest }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, isGenerating, disabled, showSuggestions, onSuggest, modelId }: ChatInputProps) {
   const [input, setInput] = useState(() => {
     if (typeof window === 'undefined') return '';
     return localStorage.getItem(DRAFT_KEY) ?? '';
@@ -135,12 +137,16 @@ export function ChatInput({ onSend, onStop, isGenerating, disabled, showSuggesti
 
         {/* Footer bar */}
         <div className="flex items-center justify-between px-3 pb-3">
-          {/* Attach — disabled placeholder */}
-          <div
-            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border/40 p-1 text-muted-foreground/30"
-            aria-hidden="true"
-          >
-            <Paperclip style={{ width: 14, height: 14 }} />
+          <div className="flex items-center gap-1">
+            {/* Attach — disabled placeholder */}
+            <div
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-border/40 p-1 text-muted-foreground/30"
+              aria-hidden="true"
+            >
+              <Paperclip style={{ width: 14, height: 14 }} />
+            </div>
+            {/* Model status indicator */}
+            <ModelStatusButton modelId={modelId ?? null} />
           </div>
 
           {/* Send / Stop */}

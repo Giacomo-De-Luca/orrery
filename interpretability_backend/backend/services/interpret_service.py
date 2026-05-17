@@ -318,11 +318,17 @@ class InterpretService:
         layers: list[int] | None,
         width: str,
         top_k: int,
+        db_model_id: str | None = None,
+        db_sae_id: str | None = None,
     ) -> PromptActivationsResult:
         """Run a prompt through the model with SAE hooks.
 
         Returns per-token top-k feature activations with labels from DuckDB,
         filtered to only include the actual prompt tokens (no chat template).
+
+        Args:
+            db_model_id: DuckDB model_id for label lookup (from frontend selector).
+            db_sae_id: DuckDB sae_id for label lookup (from frontend selector).
         """
         from backend.API.duckdb_instance import get_duckdb_client
 
@@ -339,7 +345,8 @@ class InterpretService:
         )
         prompt_token_strings = all_token_strings[prompt_start:prompt_end]
 
-        model_id = self._neuronpedia_model_id
+        # Use frontend-provided identifiers (authoritative), fall back to derived
+        model_id = db_model_id or self._neuronpedia_model_id
 
         # Enrich labels/density from DuckDB (authoritative source).
         db = get_duckdb_client()
@@ -360,14 +367,17 @@ class InterpretService:
             })
 
             # Batch fetch labels + densities from DuckDB
-            sae_id = neuronpedia_source_id(
-                GemmaScopeSAEConfig(
-                    layer_index=layer_idx,
-                    width=width,
-                    model_size=self._model_size,
-                    variant=self._variant,
+            if db_sae_id:
+                sae_id = db_sae_id
+            else:
+                sae_id = neuronpedia_source_id(
+                    GemmaScopeSAEConfig(
+                        layer_index=layer_idx,
+                        width=width,
+                        model_size=self._model_size,
+                        variant=self._variant,
+                    )
                 )
-            )
             label_map: dict[int, tuple[str, float | None]] = {}
             if all_indices:
                 label_map = db.get_sae_feature_labels_batch(

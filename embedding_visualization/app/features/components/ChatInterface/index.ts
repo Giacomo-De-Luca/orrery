@@ -9,4 +9,5 @@ export { Shimmer } from './Shimmer';
 export { AssistantAvatar } from './AssistantAvatar';
 export { ChatMessageActions } from './ChatMessageActions';
 export { MessageReasoning } from './MessageReasoning';
+export { ModelStatusButton } from './ModelStatusButton';
 export { SteeringSelector } from './SteeringSelector';

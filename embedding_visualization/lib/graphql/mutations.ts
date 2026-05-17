@@ -594,7 +594,9 @@ export interface PrepareSaeInput {
   includeActivations?: boolean;
   createCollection?: boolean;
   collectionMode?: SaeCollectionMode;
+  embeddingModel?: EmbeddingModelInput;
   extractTopics?: boolean;
+  topicConfig?: TopicConfigInput;
   deleteSourceFiles?: boolean;
 }
 

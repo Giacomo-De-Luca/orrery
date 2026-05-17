@@ -459,7 +459,14 @@ export default function FeaturesPage() {
         const { data } = await apolloClient.mutate<{ runPromptActivations: PromptActivationsResult }>({
           mutation: RUN_PROMPT_ACTIVATIONS,
           variables: {
-            input: { prompt: q, layers: [parsed.layerIndex], width: parsed.width, topK: 0 },
+            input: {
+              prompt: q,
+              layers: [parsed.layerIndex],
+              width: parsed.width,
+              topK: 0,
+              modelId: modelId,
+              saeId: saeId,
+            },
           },
         });
         const result = data?.runPromptActivations;
@@ -678,18 +685,17 @@ export default function FeaturesPage() {
                   hasPromptSearch={isSingleSae}
                 />
 
-                {/* Token-level activations strip (full width, under search bar) */}
-                {isPromptSearch && promptActivations && (
-                  <PromptTokenActivations
-                    layers={promptActivations.layers}
-                    tokenStrings={promptActivations.tokenStrings}
-                    onFeatureSelect={handleSearchSelect}
-                  />
-                )}
-
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
                   {/* Left: Search results */}
                   <div className="lg:col-span-1 space-y-2 overflow-y-auto min-h-0">
+                    {/* Token-level activations strip */}
+                    {isPromptSearch && promptActivations && (
+                      <PromptTokenActivations
+                        layers={promptActivations.layers}
+                        tokenStrings={promptActivations.tokenStrings}
+                        onFeatureSelect={handleSearchSelect}
+                      />
+                    )}
                     <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       {hasActiveResults
                         ? `${isPromptSearch ? 'Prompt' : isSemanticSearch ? 'Semantic' : 'Search'} Results (${activeResultCount})`

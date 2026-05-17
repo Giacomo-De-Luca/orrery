@@ -166,7 +166,10 @@ export function useSteeringChat(
       // Ensure model is loaded, then start streaming
       const startStreaming = async () => {
         try {
-          const loadError = await ensureModelLoaded();
+          // Derive checkpoint from steering config modelId (e.g. "gemma-3-4b-it" → "google/gemma-3-4b-it")
+          const modelId = config.features[0]?.modelId;
+          const checkpoint = modelId ? `google/${modelId}` : undefined;
+          const loadError = await ensureModelLoaded(checkpoint);
           if (cancelledRef.current) return;
           if (loadError) {
             removePlaceholder();

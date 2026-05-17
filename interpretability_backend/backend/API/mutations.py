@@ -583,6 +583,8 @@ class Mutation:
             collection_name = f"sae_{input.model_size}{variant_suffix}_{input.layer}_{hook_abbrev}_{input.width}_{mode_suffix}"
 
             try:
+                emb_model_config = build_embedding_model_config(input.embedding_model)
+
                 if mode == SaeCollectionMode.DECODER_VECTORS:
                     config = LocalFileEmbeddingConfig(
                         file_path=result["features_parquet"],
@@ -598,10 +600,11 @@ class Mutation:
                         data_type=DataType.TEXT,
                         columns=["label"],
                         metadata_columns=["density", "index"],
+                        embedding_model=emb_model_config,
                     )
 
                 topic_config = (
-                    build_topic_extraction_config(collection_name, None)
+                    build_topic_extraction_config(collection_name, input.topic_config)
                     if input.extract_topics
                     else None
                 )
@@ -711,6 +714,8 @@ class Mutation:
                         input.layers,
                         input.width,
                         input.top_k,
+                        input.model_id,
+                        input.sae_id,
                     ),
                     timeout=120.0,
                 )

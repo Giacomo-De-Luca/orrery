@@ -16,6 +16,9 @@ import {
   SelectValue,
 } from '@/lib/ui-primitives/select';
 import { ProgressModal } from './EmbeddingProgressModal';
+import { EmbeddingModelForm } from './EmbeddingModelForm';
+import { TopicConfigForm, toTopicConfigInput } from './TopicConfigForm';
+import { useEmbeddingModelState } from '../lib/useEmbeddingModelState';
 import { GET_SAE_MODELS } from '@/lib/graphql/queries';
 import {
   PREPARE_SAE_DATA,
@@ -93,11 +96,15 @@ export function SaeTab() {
       setLayer(0);
     }
   };
+
   // Collection creation state
   const [createCollection, setCreateCollection] = useState(false);
   const [collectionMode, setCollectionMode] = useState<SaeCollectionMode>('DECODER_VECTORS');
-  const [extractTopics, setExtractTopics] = useState(false);
   const [deleteSourceFiles, setDeleteSourceFiles] = useState(false);
+
+  // Embedding model & topic config (reuse shared hook + components)
+  const embeddingModel = useEmbeddingModelState();
+  const isLabelMode = collectionMode === 'LABEL_EMBEDDINGS';
 
   // Job state
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -155,6 +162,8 @@ export function SaeTab() {
     const jobId = `sae_prepare_${modelSize}_${variant}_${layer}_${hookType}_${width}`;
     setActiveJobId(jobId);
     setLastResult(null);
+
+    const topicParams = embeddingModel.getTopicParams();
     prepareSae({
       variables: {
         input: {
@@ -166,9 +175,13 @@ export function SaeTab() {
           includeActivations,
           skipDownload: false,
           createCollection,
-          collectionMode: createCollection ? collectionMode : undefined,
-          extractTopics: createCollection ? extractTopics : undefined,
-          deleteSourceFiles: createCollection ? deleteSourceFiles : undefined,
+          ...(createCollection && {
+            collectionMode,
+            embeddingModel: isLabelMode ? embeddingModel.buildEmbeddingModelInput() : undefined,
+            extractTopics: topicParams.extractTopics,
+            topicConfig: topicParams.topicConfig,
+            deleteSourceFiles,
+          }),
         },
       },
     });
@@ -308,48 +321,70 @@ export function SaeTab() {
           </label>
 
           {createCollection && (
-            <div className="ml-6 space-y-2.5">
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Vector mode</label>
-                <Select
-                  value={collectionMode}
-                  onValueChange={(v) => setCollectionMode(v as SaeCollectionMode)}
-                >
-                  <SelectTrigger className="w-64">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DECODER_VECTORS">
-                      Decoder vectors (geometric)
-                    </SelectItem>
-                    <SelectItem
-                      value="LABEL_EMBEDDINGS"
-                      disabled={!activeModel.labelledLayers.has(layer)}
-                    >
-                      Label embeddings (semantic)
-                      {!activeModel.labelledLayers.has(layer) && (
-                        <span className="ml-1 text-muted-foreground">— no labels</span>
-                      )}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="space-y-4">
+              <div className="ml-6 space-y-2.5">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-muted-foreground">Vector mode</label>
+                  <Select
+                    value={collectionMode}
+                    onValueChange={(v) => setCollectionMode(v as SaeCollectionMode)}
+                  >
+                    <SelectTrigger className="w-64">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DECODER_VECTORS">
+                        Decoder vectors (geometric)
+                      </SelectItem>
+                      <SelectItem
+                        value="LABEL_EMBEDDINGS"
+                        disabled={!activeModel.labelledLayers.has(layer)}
+                      >
+                        Label embeddings (semantic)
+                        {!activeModel.labelledLayers.has(layer) && (
+                          <span className="ml-1 text-muted-foreground">— no labels</span>
+                        )}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <label className="flex items-center gap-2 text-xs">
+                  <Checkbox
+                    checked={deleteSourceFiles}
+                    onCheckedChange={(c) => setDeleteSourceFiles(c === true)}
+                  />
+                  Delete source files after creation
+                </label>
               </div>
 
-              <label className="flex items-center gap-2 text-xs">
-                <Checkbox
-                  checked={extractTopics}
-                  onCheckedChange={(c) => setExtractTopics(c === true)}
+              {/* Embedding model (only for label embeddings mode) */}
+              {isLabelMode && (
+                <EmbeddingModelForm
+                  model={embeddingModel}
+                  showTopics={false}
+                  idPrefix="sae-"
                 />
-                Extract topics (HDBSCAN + c-TF-IDF)
-              </label>
+              )}
 
-              <label className="flex items-center gap-2 text-xs">
-                <Checkbox
-                  checked={deleteSourceFiles}
-                  onCheckedChange={(c) => setDeleteSourceFiles(c === true)}
-                />
-                Delete source files after creation
-              </label>
+              {/* Topic extraction config */}
+              <Card>
+                <CardContent className="pt-4 space-y-3">
+                  <label className="flex items-center gap-2 text-xs font-medium">
+                    <Checkbox
+                      checked={embeddingModel.enableTopics}
+                      onCheckedChange={(c) => embeddingModel.setEnableTopics(c === true)}
+                    />
+                    Extract topics
+                  </label>
+                  {embeddingModel.enableTopics && (
+                    <TopicConfigForm
+                      value={embeddingModel.topicConfig}
+                      onChange={embeddingModel.setTopicConfig}
+                    />
+                  )}
+                </CardContent>
+              </Card>
             </div>
           )}
 

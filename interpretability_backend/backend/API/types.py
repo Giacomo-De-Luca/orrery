@@ -822,7 +822,9 @@ class PrepareSaeInput:
     # Collection creation options
     create_collection: bool = False
     collection_mode: SaeCollectionMode | None = None
+    embedding_model: EmbeddingModelInput | None = None
     extract_topics: bool = False
+    topic_config: TopicConfigInput | None = None
     delete_source_files: bool = False
 
 
@@ -882,6 +884,8 @@ class RunPromptActivationsInput:
     layers: list[int] | None = None
     width: str = "16k"
     top_k: int = 10
+    model_id: str | None = None
+    sae_id: str | None = None
 
 
 @strawberry.input
