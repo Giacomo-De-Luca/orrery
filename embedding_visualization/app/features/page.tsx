@@ -205,21 +205,6 @@ export default function FeaturesPage() {
     setLoadedMessages([]);
   }, [setActiveSessionId]);
 
-  const handleSelectModel = useCallback((newModelId: string, newSaeId: string) => {
-    const parsed = parseSaeId(newSaeId);
-    setSteeringConfig({
-      features: [{
-        modelId: newModelId,
-        saeId: newSaeId,
-        layerIndex: parsed.layerIndex,
-        featureIndex: 0,
-        strength: 0,
-        hookType: parsed.hookType,
-        width: parsed.width,
-      }],
-    });
-  }, []);
-
   // ---------- Queries ----------
 
   const { data: modelsData, loading: modelsLoading } = useQuery<{ saeModels: SaeModelInfo[] }>(
@@ -270,6 +255,26 @@ export default function FeaturesPage() {
   const modelId = singleModelId;
   const saeId = singleSaeId;
 
+  // Handle model selection from the chat input — syncs both steering config and page selectors
+  const handleSelectModel = useCallback((newModelId: string, newSaeId: string) => {
+    const parsed = parseSaeId(newSaeId);
+    setSteeringConfig({
+      features: [{
+        modelId: newModelId,
+        saeId: newSaeId,
+        layerIndex: parsed.layerIndex,
+        featureIndex: 0,
+        strength: 0,
+        hookType: parsed.hookType,
+        width: parsed.width,
+      }],
+    });
+    setModel(newModelId);
+    setLayer(String(parsed.layerIndex));
+    setHookType(parsed.hookType);
+    setWidth(parsed.width);
+  }, [setModel, setLayer, setHookType, setWidth]);
+
   // Auto-select first model when no URL params and models load
   useEffect(() => {
     if (!modelIdParam && !saeIdParam && models.length > 0 && resolvedSaePairs.length === 0) {
@@ -282,6 +287,26 @@ export default function FeaturesPage() {
       setWidth(parsed.width);
     }
   }, [models, modelIdParam, saeIdParam, resolvedSaePairs.length, setModel, setLayer, setHookType, setWidth]);
+
+  // Sync steering config when the page-level model/SAE selection changes
+  useEffect(() => {
+    if (!modelId || !saeId) return;
+    const currentModelId = steeringConfig.features[0]?.modelId;
+    const currentSaeId = steeringConfig.features[0]?.saeId;
+    if (currentModelId === modelId && currentSaeId === saeId) return;
+    const parsed = parseSaeId(saeId);
+    setSteeringConfig({
+      features: [{
+        modelId,
+        saeId,
+        layerIndex: parsed.layerIndex,
+        featureIndex: 0,
+        strength: 0,
+        hookType: parsed.hookType,
+        width: parsed.width,
+      }],
+    });
+  }, [modelId, saeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Semantic collection: single-SAE mode uses direct lookup, multi-SAE checks all resolved
   const semanticCollectionName = useMemo(
