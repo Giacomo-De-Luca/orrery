@@ -376,13 +376,19 @@ class PromptExplorer:
             self._density_masks[key] = mask
         return self._density_masks[key]
 
+    @property
+    def _is_base_model(self) -> bool:
+        """True if using a base (pretrained) model without chat template."""
+        return self._config.variant == "pt"
+
     def run_prompt(
         self, prompt: str, output_len: int = 1, top_k: int | None = None,
     ) -> PromptResult:
         """Run a prompt through Gemma with SAE hooks and collect features.
 
         Args:
-            prompt: Raw user prompt (chat template is applied automatically).
+            prompt: Raw user prompt. Chat template is applied for IT models;
+                    base (pt) models receive the raw text with BOS only.
             output_len: Tokens to generate (1 is enough for activation capture).
             top_k: Override config top_k for this call. 0 = all non-zero features.
 
@@ -407,8 +413,12 @@ class PromptExplorer:
             sae_configs[layer] = cfg
             manager.add_sae(cfg)
 
-        # Format prompt and get token strings
-        formatted = self._format_prompt(prompt)
+        # Base models: pass raw text (no chat template).
+        # IT models: wrap in chat template as before.
+        if self._is_base_model:
+            formatted = prompt
+        else:
+            formatted = self._format_prompt(prompt)
         token_strings = self._tokenize_to_strings(formatted)
 
         # Run inference with hooks
