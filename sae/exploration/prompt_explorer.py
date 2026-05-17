@@ -447,10 +447,15 @@ class PromptExplorer:
                             feature_acts, params, mask,
                         )
                 except FileNotFoundError:
-                    # No label file — fall back to unlabelled top-k
-                    per_token = self._unlabelled_top_k_per_token(
-                        feature_acts, k=k, mask=mask,
-                    )
+                    # No label file — fall back to unlabelled results
+                    if k > 0:
+                        per_token = self._unlabelled_top_k_per_token(
+                            feature_acts, k=k, mask=mask,
+                        )
+                    else:
+                        per_token = self._unlabelled_all_nonzero_per_token(
+                            feature_acts, mask=mask,
+                        )
 
                 # Build TokenFeatures for each position
                 # Densities for annotation
@@ -509,19 +514,47 @@ class PromptExplorer:
             result.append(token_feats)
         return result
 
-    def _all_nonzero_per_token(
-        self,
+    @staticmethod
+    def _unlabelled_all_nonzero_per_token(
         feature_acts: torch.Tensor,
-        params: tuple[str, int, str, str],
-        mask: torch.Tensor,
+        mask: torch.Tensor | None = None,
     ) -> list[list[tuple[int, float, str]]]:
-        """Return all non-zero features per token (when top_k=0)."""
-        mask_cpu = mask.cpu()
+        """Return all nonzero features per token without labels."""
+        mask_cpu = mask.cpu() if mask is not None else None
         zeros = torch.zeros(feature_acts.shape[1])
         result = []
         for pos in range(feature_acts.shape[0]):
             acts = feature_acts[pos].detach().float().cpu()
-            acts = torch.where(mask_cpu, acts, zeros)
+            if mask_cpu is not None:
+                acts = torch.where(mask_cpu, acts, zeros)
+            nonzero_idx = torch.nonzero(acts, as_tuple=True)[0]
+            if len(nonzero_idx) == 0:
+                result.append([])
+                continue
+            vals = acts[nonzero_idx]
+            order = vals.argsort(descending=True)
+            sorted_idx = nonzero_idx[order]
+            sorted_vals = vals[order]
+            result.append([
+                (idx.item(), float(sorted_vals[i]), "")
+                for i, idx in enumerate(sorted_idx)
+            ])
+        return result
+
+    def _all_nonzero_per_token(
+        self,
+        feature_acts: torch.Tensor,
+        params: tuple[str, int, str, str],
+        mask: torch.Tensor | None,
+    ) -> list[list[tuple[int, float, str]]]:
+        """Return all non-zero features per token (when top_k=0)."""
+        mask_cpu = mask.cpu() if mask is not None else None
+        zeros = torch.zeros(feature_acts.shape[1])
+        result = []
+        for pos in range(feature_acts.shape[0]):
+            acts = feature_acts[pos].detach().float().cpu()
+            if mask_cpu is not None:
+                acts = torch.where(mask_cpu, acts, zeros)
             nonzero_idx = torch.nonzero(acts, as_tuple=True)[0]
             if len(nonzero_idx) == 0:
                 result.append([])
