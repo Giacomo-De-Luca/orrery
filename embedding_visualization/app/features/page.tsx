@@ -35,7 +35,7 @@ import { Slider } from '@/lib/ui-primitives/slider';
 import { RUN_PROMPT_ACTIVATIONS } from '@/lib/graphql/mutations';
 import type { PromptActivationsResult } from '@/lib/graphql/mutations';
 import { SAE_TO_COLLECTION, getSemanticCollectionName, getSemanticCollections, parseSaeId } from '@/lib/utils/saeCollections';
-import { ensureModelLoaded, modelIdToCheckpoint } from '@/lib/utils/modelLoader';
+import { ensureModelLoaded } from '@/lib/utils/modelLoader';
 import { ChatPanel, steeringFeatureKey } from './components/ChatInterface';
 import { PromptTokenActivations, type SelectedTokenInfo } from './components/PromptTokenActivations';
 import { useChatSessions } from '@/lib/hooks/useChatSessions';
@@ -493,8 +493,7 @@ export default function FeaturesPage() {
       setPromptSearchLoading(true);
       setPromptSearchError(null);
       try {
-        const checkpoint = modelIdToCheckpoint(modelId);
-        const loadErr = await ensureModelLoaded(checkpoint);
+        const loadErr = await ensureModelLoaded();
         if (loadErr) {
           setPromptSearchError(loadErr);
           setPromptSearchLoading(false);

@@ -54,7 +54,15 @@ from interpret.sae import paths as sae_paths  # noqa: E402
 
 logger = logging.getLogger("star_map." + __name__)
 
-_DEFAULT_LAYERS = [9, 17, 22, 29]
+# Default layers per model size — must match layers available in google/gemma-scope-2-*
+# Only layers for which SAE weights have been published are listed.
+_DEFAULT_LAYERS_BY_SIZE: dict[str, list[int]] = {
+    "1b": [7, 13, 17, 22],
+    "4b": [9, 17, 22, 29],
+    "12b": [9, 17, 29, 40],
+    "27b": [9, 17, 29, 50],
+}
+_DEFAULT_LAYERS = [9, 17, 22, 29]  # fallback for unknown sizes
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +364,9 @@ class InterpretService:
         from backend.API.duckdb_instance import get_duckdb_client
 
         self._require_model()
-        effective_layers = layers if layers else _DEFAULT_LAYERS
+        effective_layers = layers if layers else _DEFAULT_LAYERS_BY_SIZE.get(
+            self._model_size, _DEFAULT_LAYERS
+        )
 
         explorer = self._get_prompt_explorer(effective_layers, width, top_k)
         prompt_result = explorer.run_prompt(prompt, output_len=1, top_k=top_k)
