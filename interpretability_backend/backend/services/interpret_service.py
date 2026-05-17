@@ -324,9 +324,7 @@ class InterpretService:
         Returns per-token top-k feature activations with labels from DuckDB,
         filtered to only include the actual prompt tokens (no chat template).
         """
-        import duckdb as _duckdb
-
-        from backend.embedding_functions.config import DUCKDB_PATH
+        from backend.API.duckdb_instance import get_duckdb_client
 
         self._require_model()
         effective_layers = layers if layers else _DEFAULT_LAYERS
@@ -343,11 +341,8 @@ class InterpretService:
 
         model_id = self._neuronpedia_model_id
 
-        # Convert the toolkit's PromptResult → service dataclasses,
-        # enriching labels/density from DuckDB (authoritative source).
-        # Only include tokens within the prompt range.
-        # Use a dedicated read-only connection (the singleton isn't thread-safe).
-        db_conn = _duckdb.connect(str(DUCKDB_PATH.resolve()), read_only=True)
+        # Enrich labels/density from DuckDB (authoritative source).
+        db = get_duckdb_client()
 
         layer_results: list[LayerActivationsResult] = []
         for layer_idx in sorted(prompt_result.layers.keys()):
@@ -375,13 +370,9 @@ class InterpretService:
             )
             label_map: dict[int, tuple[str, float | None]] = {}
             if all_indices:
-                rows = db_conn.execute(
-                    "SELECT feature_index, label, density FROM sae_features "
-                    "WHERE model_id = ? AND sae_id = ? AND feature_index IN "
-                    "(SELECT UNNEST(?::INT[]))",
-                    [model_id, sae_id, all_indices],
-                ).fetchall()
-                label_map = {r[0]: (r[1] or "", r[2]) for r in rows}
+                label_map = db.get_sae_feature_labels_batch(
+                    model_id, sae_id, all_indices
+                )
 
             token_results: list[TokenFeaturesResult] = []
             for tf in prompt_tokens:
@@ -410,8 +401,6 @@ class InterpretService:
                     tokens=token_results,
                 )
             )
-
-        db_conn.close()
 
         return PromptActivationsResult(
             prompt=prompt,
