@@ -19,9 +19,6 @@ const STRENGTH_MIN = -2000;
 const STRENGTH_MAX = 2000;
 const STRENGTH_STEP = 50;
 
-// Re-export so existing barrel imports still work
-export { steeringFeatureKey };
-
 interface SteeringControlsProps {
   currentFeature: SaeFeature | null;
 }

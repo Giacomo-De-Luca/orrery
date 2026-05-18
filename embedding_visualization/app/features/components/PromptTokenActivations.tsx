@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useCallback } from 'react';
+import { X } from 'lucide-react';
 import { cn } from '@/lib/utils/utils';
 import type { LayerActivationsResult, ActiveFeatureResult } from '@/lib/graphql/mutations';
 
@@ -15,35 +16,55 @@ interface PromptTokenActivationsProps {
   tokenStrings: string[];
   /** Called when a token is selected (click) or deselected (click again). */
   onTokenSelect?: (info: SelectedTokenInfo | null) => void;
+  /** When set, color tokens by this feature's activation instead of max across all. */
+  highlightedFeatureIndex?: number | null;
+  /** Label of the highlighted feature (for the indicator). */
+  highlightedFeatureLabel?: string | null;
+  /** Called when the user clears the feature highlight. */
+  onClearHighlight?: () => void;
 }
 
 /**
  * Interactive token strip with heatmap coloring by activation intensity.
  * Hover shows numeric activation value. Click selects/deselects a token.
+ *
+ * When `highlightedFeatureIndex` is set, colors tokens by that single
+ * feature's activation per token (instead of max across all features).
  */
 export function PromptTokenActivations({
   layers,
   tokenStrings,
   onTokenSelect,
+  highlightedFeatureIndex,
+  highlightedFeatureLabel,
+  onClearHighlight,
 }: PromptTokenActivationsProps) {
   const [selectedLayer, setSelectedLayer] = useState<number>(0);
   const [selectedTokenIdx, setSelectedTokenIdx] = useState<number | null>(null);
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const layerData = layers[selectedLayer];
-  if (!layerData) return null;
+  const isFeatureHighlighted = highlightedFeatureIndex != null;
 
-  // Max activation per token (for heatmap)
-  const tokenMaxActivations = useMemo(() => {
+  // Per-token activation values: either for a single feature or max across all
+  const tokenActivations = useMemo(() => {
+    if (!layerData) return [];
+    if (isFeatureHighlighted) {
+      return layerData.tokens.map((t) => {
+        const feat = t.features.find((f) => f.index === highlightedFeatureIndex);
+        return feat?.activation ?? 0;
+      });
+    }
     return layerData.tokens.map((t) => {
       if (t.features.length === 0) return 0;
       return Math.max(...t.features.map((f) => f.activation));
     });
-  }, [layerData]);
+  }, [layerData, highlightedFeatureIndex]);
 
-  const globalMax = useMemo(() => Math.max(...tokenMaxActivations, 0.01), [tokenMaxActivations]);
+  const globalMax = useMemo(() => Math.max(...tokenActivations, 0.01), [tokenActivations]);
 
   const handleTokenClick = useCallback((i: number) => {
+    if (!layerData) return;
     const newIdx = i === selectedTokenIdx ? null : i;
     setSelectedTokenIdx(newIdx);
     if (newIdx === null) {
@@ -61,8 +82,10 @@ export function PromptTokenActivations({
     }
   }, [selectedTokenIdx, layerData, tokenStrings, onTokenSelect]);
 
+  if (!layerData) return null;
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {/* Layer selector (if multiple layers) */}
       {layers.length > 1 && (
         <div className="flex items-center gap-2">
@@ -93,7 +116,7 @@ export function PromptTokenActivations({
         </p>
         <div className="relative leading-relaxed font-mono text-xs flex flex-wrap">
           {layerData.tokens.map((tokenData, i) => {
-            const intensity = globalMax > 0 ? tokenMaxActivations[i] / globalMax : 0;
+            const intensity = globalMax > 0 ? tokenActivations[i] / globalMax : 0;
             const r = 255;
             const g = Math.round(165 - intensity * 100);
             const b = Math.round(50 - intensity * 50);
@@ -119,13 +142,41 @@ export function PromptTokenActivations({
                 </span>
                 {isHovered && (
                   <span className="absolute z-10 -mt-7 px-1.5 py-0.5 text-[10px] bg-popover text-popover-foreground border rounded shadow-md whitespace-nowrap pointer-events-none">
-                    {tokenMaxActivations[i].toFixed(2)} ({tokenData.features.length} features)
+                    {tokenActivations[i].toFixed(2)}
+                    {isFeatureHighlighted
+                      ? ` — #${highlightedFeatureIndex}`
+                      : ` (${tokenData.features.length} features)`}
                   </span>
                 )}
               </span>
             );
           })}
         </div>
+      </div>
+
+      {/* Mode indicator */}
+      <div className="flex items-center gap-1 min-h-[16px]">
+        {isFeatureHighlighted ? (
+          <>
+            <span className="text-[10px] text-muted-foreground truncate">
+              Feature #{highlightedFeatureIndex}
+              {highlightedFeatureLabel && `: ${highlightedFeatureLabel}`}
+            </span>
+            {onClearHighlight && (
+              <button
+                onClick={onClearHighlight}
+                className="shrink-0 p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                title="Show all features"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">
+            Max activation across all features
+          </span>
+        )}
       </div>
     </div>
   );

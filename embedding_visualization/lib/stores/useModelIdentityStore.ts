@@ -111,15 +111,19 @@ export const useModelIdentityStore = create<ModelIdentityStore>()(
 
       set({ modelId, saeId, ...parsed, checkpoint });
 
-      // Sync steering config to new identity when it changes
+      // Sync steering config to new identity when it changes.
+      // Three cases:
+      //   (a) No features → nothing to sync
+      //   (b) Same model, different SAE → update SAE-derived fields on existing features
+      //   (c) Different model → clear features (they reference the wrong model)
       const { steeringConfig } = get();
+      if (steeringConfig.features.length === 0) return;
       if (modelId && saeId && parsed.parsedSae) {
         const currentModelId = steeringConfig.features[0]?.modelId;
         const currentSaeId = steeringConfig.features[0]?.saeId;
         if (currentModelId !== modelId || currentSaeId !== saeId) {
-          // Model changed: update all features to use new identity
-          if (steeringConfig.features.length > 0 && currentModelId === modelId) {
-            // Same model, different SAE: update saeId and parsed fields
+          if (currentModelId === modelId) {
+            // Case (b): same model, different SAE
             set({
               steeringConfig: {
                 features: steeringConfig.features.map((f) => ({
@@ -132,7 +136,7 @@ export const useModelIdentityStore = create<ModelIdentityStore>()(
               },
             });
           } else {
-            // Different model: reset to empty steering config
+            // Case (c): different model
             set({ steeringConfig: { features: [] } });
           }
         }

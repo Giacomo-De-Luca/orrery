@@ -394,11 +394,31 @@ class InterpretService:
 
         # Enrich labels/density from DuckDB (authoritative source).
         db = get_duckdb_client()
-        density_threshold = explorer._config.density_threshold
+        density_threshold = PromptExplorerConfig.density_threshold
 
         layer_results: list[LayerActivationsResult] = []
         for layer_idx in sorted(prompt_result.layers.keys()):
             lr = prompt_result.layers[layer_idx]
+
+            # ── Diagnostic: raw top-10 from feature_acts tensor ──────
+            # This bypasses both the explorer-level density mask and the
+            # service-level DuckDB filter, showing what Neuronpedia would
+            # see (sae.encode → torch.topk, no filtering).
+            raw_acts = lr.feature_acts  # (seq_len, d_sae)
+            for pos in range(prompt_start, min(prompt_end, raw_acts.shape[0])):
+                tok = all_token_strings[pos] if pos < len(all_token_strings) else f"[{pos}]"
+                acts_at_pos = raw_acts[pos]
+                topk_vals, topk_idx = torch.topk(acts_at_pos, k=min(10, acts_at_pos.shape[0]))
+                top_str = ", ".join(
+                    f"F{idx.item()}={val.item():.2f}"
+                    for val, idx in zip(topk_vals, topk_idx)
+                    if val.item() > 0
+                )
+                logger.info(
+                    "RAW_TOPK layer=%d pos=%d token=%r: %s",
+                    layer_idx, pos - prompt_start, tok, top_str,
+                )
+            # ── End diagnostic ───────────────────────────────────────
 
             # Filter to only prompt token positions
             prompt_tokens = [
@@ -793,6 +813,9 @@ class InterpretService:
                 if self._variant == "pt":
                     # Base model: no chat template. Use the last user turn as
                     # a plain prompt via generate_from_template (non-streaming).
+                    # NOTE: cancel_event is not checked — generate_from_template
+                    # is a single blocking call. The user's Stop button will only
+                    # take effect after generation completes.
                     last_user_content = next(
                         (content for role, content in reversed(turns) if role == "user"),
                         "",

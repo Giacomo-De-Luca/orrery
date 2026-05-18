@@ -558,6 +558,7 @@ export default function FeaturesPage() {
     searchQuery, searchMode, isSingleSae, modelId, saeId,
     semanticCollectionName, resolvedSaePairs, selectors.model,
     fetchSearch, fetchSemanticSearch, apolloClient, promptSearchLoading,
+    skipChatTemplate,
   ]);
 
   const handleSearchSelect = useCallback((index: number, resultModelId?: string, resultSaeId?: string) => {
@@ -633,8 +634,8 @@ export default function FeaturesPage() {
           <ModeToggle />
         </header>
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="max-w-7xl mx-auto px-4 py-4 space-y-4">
+        <main className="flex-1 overflow-hidden flex flex-col">
+          <div className="max-w-7xl mx-auto px-4 pt-4 pb-2 shrink-0 w-full">
             {modelsLoading ? (
               <div className="flex items-center gap-2 py-8 justify-center">
                 <Spinner className="h-5 w-5" />
@@ -645,8 +646,7 @@ export default function FeaturesPage() {
                 <p className="text-muted-foreground">No SAE data found. Ingest features first.</p>
               </div>
             ) : (
-              <>
-                <FeatureHeader
+              <FeatureHeader
                   selectors={selectors}
                   modelOptions={modelOptions}
                   layerOptions={layerOptions}
@@ -670,201 +670,208 @@ export default function FeaturesPage() {
                   hasSemanticSearch={hasAnySemanticCollection}
                   hasPromptSearch={isSingleSae}
                 />
+            )}
+          </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0">
-                  {/* Left: Search results */}
-                  <div className="lg:col-span-1 flex flex-col min-h-0">
-                    {/* Token strip (prompt mode only) */}
-                    {isPromptSearch && promptActivations && (
-                      <div className="shrink-0 mb-2">
-                        <PromptTokenActivations
-                          layers={promptActivations.layers}
-                          tokenStrings={promptActivations.tokenStrings}
-                          onTokenSelect={setSelectedTokenInfo}
-                        />
-                      </div>
-                    )}
-
-                    {/* Header */}
-                    <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0 mb-1">
-                      {isPromptSearch && selectedTokenInfo
-                        ? `Token "${selectedTokenInfo.token}" features (${selectedTokenInfo.features.length})`
-                        : hasActiveResults
-                          ? `${isPromptSearch ? 'Prompt' : isSemanticSearch ? 'Semantic' : 'Search'} Results (${activeResultCount})`
-                          : 'Search Features'}
-                    </h3>
-
-                    {isPromptSearch && promptSearchError && (
-                      <p className="text-xs text-destructive shrink-0">{promptSearchError}</p>
-                    )}
-
-                    {/* Skip chat template toggle (prompt mode only) */}
-                    {isPromptSearch && (
-                      <label className="flex items-center gap-1.5 shrink-0 mb-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={skipChatTemplate}
-                          onChange={(e) => setSkipChatTemplate(e.target.checked)}
-                          className="h-3 w-3 rounded border-border accent-primary"
-                        />
-                        <span className="text-[10px] text-muted-foreground select-none">
-                          Raw tokens (skip chat template)
-                        </span>
-                      </label>
-                    )}
-
-                    {/* Prompt pooling controls (only when showing pooled results, not token features) */}
-                    {isPromptSearch && hasActiveResults && !selectedTokenInfo && (
-                      <div className="space-y-2 border rounded-md p-2 bg-muted/30 shrink-0 mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-muted-foreground shrink-0">Pool:</span>
-                          <ToggleGroup
-                            type="single"
-                            value={promptPooling}
-                            onValueChange={(v) => v && setPromptPooling(v as 'max' | 'mean' | 'last')}
-                            variant="outline"
-                            className="flex-1"
-                          >
-                            <ToggleGroupItem value="max" className="text-[10px] h-6 px-2 flex-1">Max</ToggleGroupItem>
-                            <ToggleGroupItem value="mean" className="text-[10px] h-6 px-2 flex-1">Mean</ToggleGroupItem>
-                            <ToggleGroupItem value="last" className="text-[10px] h-6 px-2 flex-1">Last</ToggleGroupItem>
-                          </ToggleGroup>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-muted-foreground shrink-0">Density ≤</span>
-                          <Slider
-                            value={[promptMaxDensity]}
-                            onValueChange={([v]) => setPromptMaxDensity(v)}
-                            min={0.0001}
-                            max={0.1}
-                            step={0.0001}
-                            className="flex-1"
-                          />
-                          <span className="text-[10px] font-mono text-muted-foreground w-12 text-right">
-                            {promptMaxDensity < 0.001 ? promptMaxDensity.toExponential(0) : promptMaxDensity.toFixed(3)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Scrollable results area */}
-                    <div className="flex-1 min-h-0 overflow-y-auto">
-                      {activeSearchLoading ? (
-                        <div className="flex items-center justify-center gap-2 py-4">
-                          <Spinner className="h-4 w-4" />
-                          {isPromptSearch && (
-                            <span className="text-xs text-muted-foreground">Running inference...</span>
-                          )}
-                        </div>
-                      ) : isPromptSearch && selectedTokenInfo ? (
-                        /* Token-level feature list (replaces pooled results when token is selected) */
-                        <FeatureSearchResults
-                          results={[]}
-                          onSelect={handleSearchSelect}
-                          selectedIndex={featureIndex}
-                          mode="prompt"
-                          semanticResults={selectedTokenInfo.features.map((f) => ({
-                            featureIndex: f.index,
-                            label: f.label || null,
-                            density: f.density,
-                            similarity: f.activation,
-                          }))}
-                        />
-                      ) : hasActiveResults ? (
-                        <FeatureSearchResults
-                          results={searchResults}
-                          onSelect={handleSearchSelect}
-                          selectedIndex={featureIndex}
-                          mode={searchMode}
-                          semanticResults={
-                            isPromptSearch ? promptSearchAsSemanticResults
-                              : isSemanticSearch ? semanticSearchResults
-                                : undefined
-                          }
-                          showSaeBadge={showSaeBadge}
-                        />
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          {!isSingleSae
-                            ? `Search across ${resolvedSaePairs.length} SAEs, or select a single SAE to browse features.`
-                            : 'Search by label or browse with the arrow buttons.'}
-                        </p>
-                      )}
+          {/* Grid fills remaining viewport height — each column scrolls independently */}
+          {!modelsLoading && models.length > 0 && (
+            <div className="flex-1 min-h-0 max-w-7xl mx-auto px-4 pb-4 w-full overflow-y-auto lg:overflow-hidden">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:h-full">
+                {/* Left: Search results */}
+                <div className="lg:col-span-1 flex flex-col min-h-0">
+                  {/* Token strip (prompt mode only) */}
+                  {isPromptSearch && promptActivations && (
+                    <div className="shrink-0 mb-2">
+                      <PromptTokenActivations
+                        layers={promptActivations.layers}
+                        tokenStrings={promptActivations.tokenStrings}
+                        onTokenSelect={setSelectedTokenInfo}
+                        highlightedFeatureIndex={featureIndex}
+                        highlightedFeatureLabel={feature?.label}
+                        onClearHighlight={() => setFeatureIndex(null)}
+                      />
                     </div>
-                  </div>
+                  )}
 
-                  {/* Right: Feature detail + statistics + similar + activations */}
-                  <div className="lg:col-span-2 space-y-4">
-                    {!isSingleSae ? (
-                      <div className="text-center py-8 text-muted-foreground text-sm">
-                        {resolvedSaePairs.length > 1
-                          ? `${resolvedSaePairs.length} SAEs selected. Use the search to find features across them, or narrow the selectors to browse a single SAE.`
-                          : 'No SAEs match the current selection.'}
-                      </div>
-                    ) : featureLoading ? (
-                      <div className="flex justify-center py-8">
-                        <Spinner className="h-5 w-5" />
-                      </div>
-                    ) : feature ? (
-                      <>
-                        <div className="border rounded-lg p-4 bg-card">
-                          <FeatureDetailCard feature={feature} />
-                        </div>
+                  {/* Header */}
+                  <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0 mb-1">
+                    {isPromptSearch && selectedTokenInfo
+                      ? `Token "${selectedTokenInfo.token}" features (${selectedTokenInfo.features.length})`
+                      : hasActiveResults
+                        ? `${isPromptSearch ? 'Prompt' : isSemanticSearch ? 'Semantic' : 'Search'} Results (${activeResultCount})`
+                        : 'Search Features'}
+                  </h3>
 
-                        <FeatureStatistics
-                          feature={feature}
-                          activations={activations}
-                          allDensities={allDensities}
-                          densitiesLoading={densitiesLoading}
-                          hoveredActivationValue={hoveredActivationValue}
+                  {isPromptSearch && promptSearchError && (
+                    <p className="text-xs text-destructive shrink-0">{promptSearchError}</p>
+                  )}
+
+                  {/* Skip chat template toggle (prompt mode only) */}
+                  {isPromptSearch && (
+                    <label className="flex items-center gap-1.5 shrink-0 mb-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={skipChatTemplate}
+                        onChange={(e) => setSkipChatTemplate(e.target.checked)}
+                        className="h-3 w-3 rounded border-border accent-primary"
+                      />
+                      <span className="text-[10px] text-muted-foreground select-none">
+                        Raw tokens (skip chat template)
+                      </span>
+                    </label>
+                  )}
+
+                  {/* Prompt pooling controls (only when showing pooled results, not token features) */}
+                  {isPromptSearch && hasActiveResults && !selectedTokenInfo && (
+                    <div className="space-y-2 border rounded-md p-2 bg-muted/30 shrink-0 mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground shrink-0">Pool:</span>
+                        <ToggleGroup
+                          type="single"
+                          value={promptPooling}
+                          onValueChange={(v) => v && setPromptPooling(v as 'max' | 'mean' | 'last')}
+                          variant="outline"
+                          className="flex-1"
+                        >
+                          <ToggleGroupItem value="max" className="text-[10px] h-6 px-2 flex-1">Max</ToggleGroupItem>
+                          <ToggleGroupItem value="mean" className="text-[10px] h-6 px-2 flex-1">Mean</ToggleGroupItem>
+                          <ToggleGroupItem value="last" className="text-[10px] h-6 px-2 flex-1">Last</ToggleGroupItem>
+                        </ToggleGroup>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground shrink-0">Density ≤</span>
+                        <Slider
+                          value={[promptMaxDensity]}
+                          onValueChange={([v]) => setPromptMaxDensity(v)}
+                          min={0.0001}
+                          max={0.1}
+                          step={0.0001}
+                          className="flex-1"
                         />
+                        <span className="text-[10px] font-mono text-muted-foreground w-12 text-right">
+                          {promptMaxDensity < 0.001 ? promptMaxDensity.toExponential(0) : promptMaxDensity.toFixed(3)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
-                        {semanticCollectionName && (
-                          <SimilarFeatures
-                            collectionName={semanticCollectionName}
-                            featureIndex={feature.featureIndex}
-                            featureLabel={feature.label}
-                            onSelectFeature={handleSearchSelect}
-                            selectedIndex={featureIndex}
-                          />
+                  {/* Scrollable results area */}
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    {activeSearchLoading ? (
+                      <div className="flex items-center justify-center gap-2 py-4">
+                        <Spinner className="h-4 w-4" />
+                        {isPromptSearch && (
+                          <span className="text-xs text-muted-foreground">Running inference...</span>
                         )}
-
-                        <div>
-                          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-                            Activations
-                            {activations.length > 0 && (
-                              <span className="ml-1">({activations.length})</span>
-                            )}
-                          </h3>
-                          {activationsLoading ? (
-                            <div className="flex justify-center py-4">
-                              <Spinner className="h-4 w-4" />
-                            </div>
-                          ) : (
-                            <ActivationExamples
-                              activations={activations}
-                              quantileGroups={quantileGroups}
-                              quantileLoading={quantilesLoading}
-                              onRequestQuantiles={handleRequestQuantiles}
-                              onHoverActivation={setHoveredActivationValue}
-                            />
-                          )}
-                        </div>
-                      </>
-                    ) : featureIndex != null ? (
-                      <div className="text-center py-8 text-muted-foreground text-sm">
-                        Feature #{featureIndex} not found.
                       </div>
+                    ) : isPromptSearch && selectedTokenInfo ? (
+                      /* Token-level feature list (replaces pooled results when token is selected) */
+                      <FeatureSearchResults
+                        results={[]}
+                        onSelect={handleSearchSelect}
+                        selectedIndex={featureIndex}
+                        mode="prompt"
+                        semanticResults={selectedTokenInfo.features.map((f) => ({
+                          featureIndex: f.index,
+                          label: f.label || null,
+                          density: f.density,
+                          similarity: f.activation,
+                        }))}
+                      />
+                    ) : hasActiveResults ? (
+                      <FeatureSearchResults
+                        results={searchResults}
+                        onSelect={handleSearchSelect}
+                        selectedIndex={featureIndex}
+                        mode={searchMode}
+                        semanticResults={
+                          isPromptSearch ? promptSearchAsSemanticResults
+                            : isSemanticSearch ? semanticSearchResults
+                              : undefined
+                        }
+                        showSaeBadge={showSaeBadge}
+                      />
                     ) : (
-                      <div className="text-center py-8 text-muted-foreground text-sm">
-                        Select a feature to view details.
-                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {!isSingleSae
+                          ? `Search across ${resolvedSaePairs.length} SAEs, or select a single SAE to browse features.`
+                          : 'Search by label or browse with the arrow buttons.'}
+                      </p>
                     )}
                   </div>
                 </div>
-              </>
-            )}
-          </div>
+
+                {/* Right: Feature detail + statistics + similar + activations */}
+                <div className="lg:col-span-2 overflow-y-auto space-y-4">
+                  {!isSingleSae ? (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      {resolvedSaePairs.length > 1
+                        ? `${resolvedSaePairs.length} SAEs selected. Use the search to find features across them, or narrow the selectors to browse a single SAE.`
+                        : 'No SAEs match the current selection.'}
+                    </div>
+                  ) : featureLoading ? (
+                    <div className="flex justify-center py-8">
+                      <Spinner className="h-5 w-5" />
+                    </div>
+                  ) : feature ? (
+                    <>
+                      <div className="border rounded-lg p-4 bg-card">
+                        <FeatureDetailCard feature={feature} />
+                      </div>
+
+                      <FeatureStatistics
+                        feature={feature}
+                        activations={activations}
+                        allDensities={allDensities}
+                        densitiesLoading={densitiesLoading}
+                        hoveredActivationValue={hoveredActivationValue}
+                      />
+
+                      {semanticCollectionName && (
+                        <SimilarFeatures
+                          collectionName={semanticCollectionName}
+                          featureIndex={feature.featureIndex}
+                          featureLabel={feature.label}
+                          onSelectFeature={handleSearchSelect}
+                          selectedIndex={featureIndex}
+                        />
+                      )}
+
+                      <div>
+                        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                          Activations
+                          {activations.length > 0 && (
+                            <span className="ml-1">({activations.length})</span>
+                          )}
+                        </h3>
+                        {activationsLoading ? (
+                          <div className="flex justify-center py-4">
+                            <Spinner className="h-4 w-4" />
+                          </div>
+                        ) : (
+                          <ActivationExamples
+                            activations={activations}
+                            quantileGroups={quantileGroups}
+                            quantileLoading={quantilesLoading}
+                            onRequestQuantiles={handleRequestQuantiles}
+                            onHoverActivation={setHoveredActivationValue}
+                          />
+                        )}
+                      </div>
+                    </>
+                  ) : featureIndex != null ? (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      Feature #{featureIndex} not found.
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground text-sm">
+                      Select a feature to view details.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
