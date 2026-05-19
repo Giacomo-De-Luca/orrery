@@ -184,35 +184,28 @@ export default function Home() {
   const wrappedHandlePointClick = useCallback(
     (point: Parameters<typeof handlePointClick>[0]) => {
       promptHighlight.clear();
-      featureSearch.clear();
+      featureSearch.clearFeatures();
       handlePointClick(point);
     },
-    [handlePointClick, promptHighlight.clear, featureSearch.clear],
+    [handlePointClick, promptHighlight.clear, featureSearch.clearFeatures],
   );
   const wrappedHandleSemanticSearch = useCallback(
     (query: string) => {
       promptHighlight.clear();
-      featureSearch.clear();
+      featureSearch.clearFeatures();
       handleSemanticSearch(query);
     },
-    [handleSemanticSearch, promptHighlight.clear, featureSearch.clear],
-  );
-  const wrappedFeatureSearchSubmit = useCallback(
-    (query: string) => {
-      promptHighlight.clear();
-      featureSearch.search(query);
-    },
-    [promptHighlight.clear, featureSearch.search],
+    [handleSemanticSearch, promptHighlight.clear, featureSearch.clearFeatures],
   );
   const handleFeatureSearchResultClick = useCallback(
     (rowIndex: number) => {
       const pts = mode === '3d' ? points3d : points2d;
       const point = pts.find(p => p.index === rowIndex);
       if (point) {
-        setSelectedPoint(point);
+        handlePointClick(point);
       }
     },
-    [mode, points2d, points3d, setSelectedPoint],
+    [mode, points2d, points3d, handlePointClick],
   );
 
   // Build table-ready results from prompt highlight features
@@ -262,10 +255,10 @@ export default function Home() {
     if (isInitialLoad.current) return;
     resetSearch();
     promptHighlight.clear();
-    featureSearch.clear();
+    featureSearch.clearFeatures();
     setQueryPromptName(null);
     store.getState().resetForCollectionChange();
-  }, [selectedCollection, resetSearch, promptHighlight.clear, featureSearch.clear]);
+  }, [selectedCollection, resetSearch, promptHighlight.clear, featureSearch.clearFeatures]);
 
   // Apply colorBy from URL once data loads, then mark initial load complete
   useEffect(() => {
@@ -346,17 +339,8 @@ export default function Home() {
                   promptHighlightResults={promptHighlightResults}
                   promptMaxDensity={promptMaxDensity}
                   onPromptMaxDensityChange={setPromptMaxDensity}
-                  featureSearchStatus={featureSearch.status}
-                  featureSearchError={featureSearch.error}
-                  featureSearchActiveQuery={featureSearch.activeQuery}
-                  featureSearchResults={featureSearch.results}
-                  featureSearchMatchedFeatures={featureSearch.matchedFeatures}
-                  featureSearchTotalResults={featureSearch.totalResults}
-                  featureSearchMatchedFeatureCount={featureSearch.matchedFeatureCount}
-                  onFeatureSearchSubmit={wrappedFeatureSearchSubmit}
-                  onFeatureSearchClear={featureSearch.clear}
+                  featureSearch={featureSearch}
                   onFeatureSearchResultClick={handleFeatureSearchResultClick}
-                  hasDocumentActivations={featureSearch.hasActivations}
                   metadata={{
                     pca_2d_variance: data.metadata.pca_2d_variance,
                     pca_3d_variance: data.metadata.pca_3d_variance,

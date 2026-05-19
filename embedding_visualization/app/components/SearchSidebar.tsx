@@ -36,6 +36,7 @@ import { TopicSearchSection } from './TopicSearchSection';
 import { MetadataFilters } from './MetadataFilters';
 import type { Point2D, Point3D, TopicInfo, TextSearchConfig } from '../../lib/types/types';
 import type { TopicSearchMode, TopicSearchResult } from '../../lib/hooks/useTopicSearch';
+import type { UseDocumentFeatureSearchReturn, SelectedFeature } from '../../lib/hooks/useDocumentFeatureSearch';
 import { cn } from '@/lib/utils/utils';
 import { fieldToDisplayName } from '../../lib/utils/fieldAnalysis';
 import { MAX_HIGHLIGHTED_FEATURES } from '../../lib/hooks/usePromptHighlight';
@@ -89,27 +90,9 @@ interface SearchSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onPromptHighlightClear?: () => void;
   promptMaxDensity?: number | null;
   onPromptMaxDensityChange?: (value: number | null) => void;
-  // Feature search (document activations)
-  featureSearchStatus?: 'idle' | 'searching' | 'error';
-  featureSearchError?: string | null;
-  featureSearchActiveQuery?: string | null;
-  featureSearchResults?: Array<{
-    itemId: string;
-    document: string | null;
-    score: number;
-    matchingFeatures: number;
-    rowIndex: number | null;
-  }>;
-  featureSearchMatchedFeatures?: Array<{
-    featureIndex: number;
-    label: string | null;
-  }>;
-  featureSearchTotalResults?: number;
-  featureSearchMatchedFeatureCount?: number;
-  onFeatureSearchSubmit?: (query: string) => void;
-  onFeatureSearchClear?: () => void;
+  // Feature search (document activations) — combobox multi-select
+  featureSearch?: UseDocumentFeatureSearchReturn | null;
   onFeatureSearchResultClick?: (rowIndex: number) => void;
-  hasDocumentActivations?: boolean | null;
 }
 
 export function SearchSidebar({
@@ -156,17 +139,8 @@ export function SearchSidebar({
   promptMaxDensity,
   onPromptMaxDensityChange,
   // Feature search (document activations)
-  featureSearchStatus,
-  featureSearchError,
-  featureSearchActiveQuery,
-  featureSearchResults,
-  featureSearchMatchedFeatures,
-  featureSearchTotalResults,
-  featureSearchMatchedFeatureCount,
-  onFeatureSearchSubmit,
-  onFeatureSearchClear,
+  featureSearch,
   onFeatureSearchResultClick,
-  hasDocumentActivations,
   className,
   ...props
 }: SearchSidebarProps) {
@@ -187,19 +161,58 @@ export function SearchSidebar({
     onPromptHighlightClear?.();
   }, [onPromptHighlightClear]);
 
-  // Feature search state
-  const [featureQueryText, setFeatureQueryText] = React.useState('');
-  const featureSearchBusy = featureSearchStatus === 'searching';
-  const handleFeatureSearchSubmit = React.useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    if (featureQueryText.trim() && onFeatureSearchSubmit) {
-      onFeatureSearchSubmit(featureQueryText.trim());
+  // Feature search combobox state
+  const featureChipsRef = useComboboxAnchor();
+  const featureMapRef = React.useRef(new Map<string, SelectedFeature>());
+
+  // Keep a map of value keys → feature objects for the combobox
+  const featureValueKey = React.useCallback((f: SelectedFeature) => String(f.featureIndex), []);
+
+  const selectedFeatureValues = React.useMemo(
+    () => (featureSearch?.selectedFeatures ?? []).map((f) => featureValueKey(f)),
+    [featureSearch?.selectedFeatures, featureValueKey],
+  );
+
+  // Update the map when suggestions or selected features change
+  React.useEffect(() => {
+    if (!featureSearch) return;
+    for (const f of featureSearch.suggestions) {
+      featureMapRef.current.set(featureValueKey(f), f);
     }
-  }, [featureQueryText, onFeatureSearchSubmit]);
-  const handleFeatureSearchClear = React.useCallback(() => {
-    setFeatureQueryText('');
-    onFeatureSearchClear?.();
-  }, [onFeatureSearchClear]);
+    for (const f of featureSearch.selectedFeatures) {
+      featureMapRef.current.set(featureValueKey(f), f);
+    }
+  }, [featureSearch?.suggestions, featureSearch?.selectedFeatures, featureValueKey]);
+
+  const handleFeatureSelectionChange = React.useCallback(
+    (newValues: string[]) => {
+      if (!featureSearch) return;
+      const currentKeys = new Set(selectedFeatureValues);
+      const nextKeys = new Set(newValues);
+
+      // Find added
+      for (const key of nextKeys) {
+        if (!currentKeys.has(key)) {
+          const feature = featureMapRef.current.get(key);
+          if (feature) featureSearch.addFeature(feature);
+        }
+      }
+      // Find removed
+      for (const key of currentKeys) {
+        if (!nextKeys.has(key)) {
+          featureSearch.removeFeature(Number(key));
+        }
+      }
+    },
+    [featureSearch?.addFeature, featureSearch?.removeFeature, selectedFeatureValues],
+  );
+
+  const handleFeatureInputChange = React.useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      featureSearch?.searchFeatures(e.target.value);
+    },
+    [featureSearch?.searchFeatures],
+  );
 
   // Read search config from store
   const textSearchConfig = useVisualizationStore((s) => s.textSearchConfig);
@@ -351,79 +364,107 @@ export function SearchSidebar({
             </div>
           )}
 
-          {/* Feature Search (Document Activations) */}
-          {saeInfo && hasDocumentActivations === true && onFeatureSearchSubmit && (
+          {/* Feature Search (Document Activations — combobox multi-select) */}
+          {saeInfo && featureSearch && featureSearch.hasActivations === true && (
             <div className="space-y-3">
               <Label className="text-base">Feature Search</Label>
-              <form onSubmit={handleFeatureSearchSubmit} className="flex gap-2">
-                <Input
-                  placeholder="Search by feature label..."
-                  value={featureQueryText}
-                  onChange={(e) => setFeatureQueryText(e.target.value)}
-                  className="h-8 text-sm"
-                  disabled={featureSearchBusy}
-                />
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={featureSearchBusy || !featureQueryText.trim()}
-                  className="h-8 px-3"
-                >
-                  {featureSearchBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Search'}
-                </Button>
-              </form>
-              {featureSearchError && (
-                <p className="text-xs text-destructive">{featureSearchError}</p>
+              <Combobox<string, true>
+                multiple
+                value={selectedFeatureValues}
+                onValueChange={handleFeatureSelectionChange}
+              >
+                <ComboboxChips ref={featureChipsRef} className="min-h-8">
+                  {featureSearch.selectedFeatures.map((f) => (
+                    <ComboboxChip key={f.featureIndex}>
+                      #{f.featureIndex}: {f.label ? (f.label.length > 25 ? f.label.slice(0, 25) + '…' : f.label) : 'unlabeled'}
+                    </ComboboxChip>
+                  ))}
+                  <ComboboxChipsInput
+                    placeholder={featureSearch.selectedFeatures.length === 0 ? 'Search features...' : 'Add more...'}
+                    className="text-xs"
+                    onChange={handleFeatureInputChange}
+                  />
+                </ComboboxChips>
+                <ComboboxContent anchor={featureChipsRef}>
+                  <ComboboxList>
+                    {featureSearch.suggestions.map((f) => (
+                      <ComboboxItem key={f.featureIndex} value={featureValueKey(f)}>
+                        <span className="truncate flex-1">
+                          #{f.featureIndex}: {f.label ?? 'unlabeled'}
+                        </span>
+                        {f.density != null && (
+                          <span className="text-muted-foreground text-[10px] ml-auto shrink-0">
+                            {f.density.toExponential(1)}
+                          </span>
+                        )}
+                      </ComboboxItem>
+                    ))}
+                  </ComboboxList>
+                  <ComboboxEmpty>
+                    {featureSearch.suggestionsLoading ? 'Searching...' : 'No matching features'}
+                  </ComboboxEmpty>
+                </ComboboxContent>
+              </Combobox>
+
+              {featureSearch.error && (
+                <p className="text-xs text-destructive">{featureSearch.error}</p>
               )}
-              {featureSearchActiveQuery && !featureSearchBusy && (
+
+              {featureSearch.selectedFeatures.length > 0 && (
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-muted-foreground truncate flex-1">
-                      {featureSearchMatchedFeatureCount} feature{featureSearchMatchedFeatureCount !== 1 ? 's' : ''} matched
-                      {' \u2022 '}{featureSearchTotalResults} document{featureSearchTotalResults !== 1 ? 's' : ''} found
-                    </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {featureSearch.selectedFeatures.length} feature{featureSearch.selectedFeatures.length !== 1 ? 's' : ''} selected
+                      {featureSearch.status !== 'searching' && (
+                        <> · {featureSearch.totalResults} doc{featureSearch.totalResults !== 1 ? 's' : ''}</>
+                      )}
+                      {featureSearch.status === 'searching' && (
+                        <> · <Loader2 className="inline h-3 w-3 animate-spin" /></>
+                      )}
+                    </span>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="h-5 w-5 shrink-0"
-                      onClick={handleFeatureSearchClear}
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={featureSearch.clearFeatures}
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-3 w-3 mr-1" />Clear
                     </Button>
                   </div>
-                  {featureSearchResults && featureSearchResults.length > 0 && (
-                    <div className="max-h-48 overflow-y-auto space-y-1">
-                      {featureSearchResults.slice(0, 10).map((r, i) => (
+
+                  {featureSearch.results.length > 0 && (
+                    <div className="max-h-60 overflow-y-auto rounded-md border p-1 space-y-0.5">
+                      {featureSearch.results.slice(0, 20).map((r, i) => (
                         <button
                           key={r.itemId ?? i}
-                          className="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors border border-transparent hover:border-border"
+                          className="w-full text-left px-3 py-2 rounded-md text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
                           onClick={() => {
-                            if (r.rowIndex != null && onFeatureSearchResultClick) {
-                              onFeatureSearchResultClick(r.rowIndex);
+                            if (r.rowIndex != null) {
+                              onFeatureSearchResultClick?.(r.rowIndex);
                             }
                           }}
                         >
-                          <div className="truncate text-foreground">
-                            {r.document?.slice(0, 80) ?? r.itemId}
-                          </div>
-                          <div className="flex gap-2 mt-0.5 text-muted-foreground">
-                            <span>score: {r.score.toFixed(3)}</span>
-                            <span>{r.matchingFeatures} feature{r.matchingFeatures !== 1 ? 's' : ''}</span>
-                          </div>
+                          <span className="font-medium line-clamp-2">
+                            {r.document ?? r.itemId}
+                          </span>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            score: {r.score.toFixed(3)} · {r.matchingFeatures} feature{r.matchingFeatures !== 1 ? 's' : ''}
+                          </p>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
               )}
-              {!featureSearchActiveQuery && !featureSearchBusy && (
+
+              {featureSearch.selectedFeatures.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Search documents by SAE feature labels (e.g. &ldquo;poetry&rdquo;, &ldquo;religion&rdquo;)
+                  Search and select SAE features to find matching documents
                 </p>
               )}
             </div>
           )}
-          {saeInfo && hasDocumentActivations === false && (
+          {saeInfo && featureSearch && featureSearch.hasActivations === false && (
             <div className="space-y-2">
               <Label className="text-base text-muted-foreground">Feature Search</Label>
               <p className="text-xs text-muted-foreground">

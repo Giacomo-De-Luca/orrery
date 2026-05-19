@@ -28,7 +28,7 @@ export function ChatGreeting({ featureCount }: ChatGreetingProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.35, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          Chat with Gemma
+          Chat with Steered Gemma
         </motion.h3>
 
         {/* Subtitle */}

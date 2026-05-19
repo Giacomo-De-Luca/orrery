@@ -858,6 +858,22 @@ class HookTypeEnum(Enum):
     ATTN_OUT = "attn_out"
 
 
+@strawberry.enum
+class ActivationFilterMode(Enum):
+    """Filter mode for prompt activation results.
+
+    NONE: All nonzero features, no filtering.
+    NEURONPEDIA: Top-50 per token, no server-side density filter (Neuronpedia-style).
+    COVERAGE_BOS: Remove features firing on >=80% of all positions (incl. BOS).
+    COVERAGE_NO_BOS: Same but coverage on prompt tokens only (stricter).
+    """
+
+    NONE = "none"
+    NEURONPEDIA = "neuronpedia"
+    COVERAGE_BOS = "coverage_bos"
+    COVERAGE_NO_BOS = "coverage_no_bos"
+
+
 # --- Inputs ---
 
 
@@ -887,6 +903,7 @@ class RunPromptActivationsInput:
     model_id: str | None = None
     sae_id: str | None = None
     skip_chat_template: bool = False
+    filter_mode: ActivationFilterMode = ActivationFilterMode.NEURONPEDIA
 
 
 @strawberry.input

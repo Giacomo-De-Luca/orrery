@@ -133,32 +133,19 @@ def _sync_topics_to_duckdb(
         )
 
         # Store reduction metadata if applicable
+        topic_count = len([t for t in topic_infos if t.topic_id != -1])
         if reduction_applied:
-            db._conn.execute(
-                """
-                UPDATE topic_extractions SET
-                    reduction_applied = TRUE,
-                    reduction_method = ?,
-                    reduction_target = ?,
-                    num_topics_before_reduction = ?,
-                    topic_hierarchy = ?,
-                    topic_count = ?
-                WHERE id = ?
-            """,
-                [
-                    reduction_method,
-                    reduction_target,
-                    num_topics_before_reduction,
-                    json.dumps(topic_hierarchy) if topic_hierarchy else None,
-                    len([t for t in topic_infos if t.topic_id != -1]),
-                    ext_id,
-                ],
+            db.update_topic_extraction(
+                ext_id,
+                reduction_applied=True,
+                reduction_method=reduction_method,
+                reduction_target=reduction_target,
+                num_topics_before_reduction=num_topics_before_reduction,
+                topic_hierarchy=json.dumps(topic_hierarchy) if topic_hierarchy else None,
+                topic_count=topic_count,
             )
         else:
-            db._conn.execute(
-                "UPDATE topic_extractions SET topic_count = ? WHERE id = ?",
-                [len([t for t in topic_infos if t.topic_id != -1]), ext_id],
-            )
+            db.update_topic_extraction(ext_id, topic_count=topic_count)
 
         # Insert topic info
         topic_info_records = []
@@ -190,10 +177,7 @@ def _sync_topics_to_duckdb(
         db.insert_topic_assignments_batch(ext_id, assignment_records)
 
         # Update vector collection flag
-        db._conn.execute(
-            "UPDATE vector_collections SET has_topics = TRUE WHERE collection_name = ?",
-            [collection_name],
-        )
+        db.set_collection_has_topics(collection_name)
 
         logger.info(
             "DuckDB: synced %d topics, %d assignments for %s",
@@ -643,18 +627,14 @@ def reduce_existing_topics(
         extraction_id = active_topics["id"]
 
         # Step 2: Load items + topic assignments from DuckDB
-        items_table = duckdb._items_table(collection_name)
-        items_rows = duckdb._conn.execute(
-            f"SELECT id, document FROM {items_table} ORDER BY row_index",
-        ).fetchall()
+        items_rows = duckdb.get_items_columns(collection_name, ("id", "document"))
         ids = [r[0] for r in items_rows]
         documents = [r[1] or "" for r in items_rows]
 
         # Load topic assignments
-        assign_rows = duckdb._conn.execute(
-            "SELECT item_id, topic_id FROM topic_assignments WHERE extraction_id = ?",
-            [extraction_id],
-        ).fetchall()
+        assign_rows = duckdb.get_topic_assignments_raw(
+            extraction_id, ["item_id", "topic_id"]
+        )
         assign_map = {r[0]: r[1] for r in assign_rows}
 
         total_items = len(ids)
@@ -1014,18 +994,15 @@ def generate_llm_labels_for_collection(
         has_hierarchy = bool(active_topics.get("topic_hierarchy"))
 
         # Load items from DuckDB
-        items_table = duckdb._items_table(collection_name)
-        items_rows = duckdb._conn.execute(
-            f"SELECT id, document FROM {items_table} ORDER BY row_index",
-        ).fetchall()
+        items_rows = duckdb.get_items_columns(collection_name, ("id", "document"))
         all_ids = [r[0] for r in items_rows]
         all_documents = [r[1] or "" for r in items_rows]
 
         # Load topic + subtopic assignments from DuckDB
-        assign_rows = duckdb._conn.execute(
-            "SELECT item_id, topic_id, topic_label, subtopic_id, subtopic_label FROM topic_assignments WHERE extraction_id = ?",
-            [extraction_id],
-        ).fetchall()
+        assign_rows = duckdb.get_topic_assignments_raw(
+            extraction_id,
+            ["item_id", "topic_id", "topic_label", "subtopic_id", "subtopic_label"],
+        )
         assign_map = {}
         for r in assign_rows:
             assign_map[r[0]] = {

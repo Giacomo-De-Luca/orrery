@@ -311,10 +311,7 @@ class Query:
             if ds is None:
                 return None
             # Load items directly
-            items_table = db._items_table(dataset_name)
-            rows = db._conn.execute(
-                f"SELECT id, document, metadata FROM {items_table} ORDER BY row_index",
-            ).fetchall()
+            rows = db.get_items_columns(dataset_name, ("id", "document", "metadata"))
             if not rows:
                 return None
             import json as json_mod
@@ -358,10 +355,10 @@ class Query:
         # Merge topic assignments into item_metadata so frontend sees topic_id/topic_label
         if topic_data and topic_data.get("topics"):
             ext_id = topic_data["id"]
-            assignments = db._conn.execute(
-                "SELECT item_id, topic_id, topic_label, subtopic_id, subtopic_label FROM topic_assignments WHERE extraction_id = ?",
-                [ext_id],
-            ).fetchall()
+            assignments = db.get_topic_assignments_raw(
+                ext_id,
+                ["item_id", "topic_id", "topic_label", "subtopic_id", "subtopic_label"],
+            )
             assign_map = {}
             for row in assignments:
                 assign_map[row[0]] = {
@@ -906,12 +903,9 @@ class Query:
             ds = db.get_dataset(collection_name)
             if ds is None:
                 # Try via vector_collections → dataset_name
-                vc_row = db._conn.execute(
-                    "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
-                    [collection_name],
-                ).fetchone()
-                if vc_row:
-                    ds = db.get_dataset(vc_row[0])
+                vc_dataset = db.get_dataset_name_for_collection(collection_name)
+                if vc_dataset:
+                    ds = db.get_dataset(vc_dataset)
             if ds:
                 raw_extra = ds.get("extra_metadata") or {}
                 extra = json.loads(raw_extra) if isinstance(raw_extra, str) else raw_extra

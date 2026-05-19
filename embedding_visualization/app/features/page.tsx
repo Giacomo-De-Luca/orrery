@@ -100,6 +100,7 @@ export default function FeaturesPage() {
   const [promptSearchError, setPromptSearchError] = useState<string | null>(null);
   const [promptPooling, setPromptPooling] = useState<'max' | 'mean' | 'last'>('max');
   const [promptMaxDensity, setPromptMaxDensity] = useState<number>(0.01);
+  const [activationFilterMode, setActivationFilterMode] = useState<'NONE' | 'NEURONPEDIA' | 'COVERAGE_BOS' | 'COVERAGE_NO_BOS'>('COVERAGE_BOS');
   const [selectedTokenInfo, setSelectedTokenInfo] = useState<SelectedTokenInfo | null>(null);
   const [hoveredActivationValue, setHoveredActivationValue] = useState<number | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -476,6 +477,7 @@ export default function FeaturesPage() {
               modelId: modelId,
               saeId: saeId,
               skipChatTemplate,
+              filterMode: activationFilterMode,
             },
           },
         });
@@ -559,7 +561,7 @@ export default function FeaturesPage() {
     searchQuery, searchMode, isSingleSae, modelId, saeId,
     semanticCollectionName, resolvedSaePairs, selectors.model,
     fetchSearch, fetchSemanticSearch, apolloClient, promptSearchLoading,
-    skipChatTemplate,
+    skipChatTemplate, activationFilterMode,
   ]);
 
   const handleSearchSelect = useCallback((index: number, resultModelId?: string, resultSaeId?: string) => {
@@ -720,6 +722,42 @@ export default function FeaturesPage() {
                         Raw tokens (skip chat template)
                       </span>
                     </label>
+                  )}
+
+                  {/* Activation filter mode (prompt mode only) */}
+                  {isPromptSearch && (
+                    <div className="space-y-1 shrink-0 mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground shrink-0">Filter:</span>
+                        <ToggleGroup
+                          type="single"
+                          value={activationFilterMode}
+                          onValueChange={(v) => {
+                            if (v) {
+                              setActivationFilterMode(v as 'NONE' | 'NEURONPEDIA' | 'COVERAGE_BOS' | 'COVERAGE_NO_BOS');
+                              setPromptActivations(null);
+                              setSelectedTokenInfo(null);
+                            }
+                          }}
+                          variant="outline"
+                          className="flex-1"
+                        >
+                          <ToggleGroupItem value="NONE" className="text-[10px] h-6 px-1.5 flex-1">None</ToggleGroupItem>
+                          <ToggleGroupItem value="NEURONPEDIA" className="text-[10px] h-6 px-1.5 flex-1">Top-50</ToggleGroupItem>
+                          <ToggleGroupItem value="COVERAGE_BOS" className="text-[10px] h-6 px-1.5 flex-1">Coverage</ToggleGroupItem>
+                          <ToggleGroupItem value="COVERAGE_NO_BOS" className="text-[10px] h-6 px-1.5 flex-1">Strict</ToggleGroupItem>
+                        </ToggleGroup>
+                      </div>
+                      <p className="text-[9px] text-muted-foreground leading-tight">
+                        {activationFilterMode === 'NONE'
+                          ? 'All nonzero features, no filtering'
+                          : activationFilterMode === 'NEURONPEDIA'
+                          ? 'Top 50 features per token (Neuronpedia-style)'
+                          : activationFilterMode === 'COVERAGE_BOS'
+                          ? 'Removes features firing on >80% of all positions'
+                          : 'Removes features firing on >80% of prompt tokens only'}
+                      </p>
+                    </div>
                   )}
 
                   {/* Prompt pooling controls (only when showing pooled results, not token features) */}

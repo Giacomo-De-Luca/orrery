@@ -145,6 +145,11 @@ class InterpretService:
     to serialise GPU access across concurrent requests.
     """
 
+    # Coverage filter constants
+    COVERAGE_THRESHOLD: float = 0.80
+    DENSITY_FLOOR: float = 1e-4
+    NEURONPEDIA_TOP_K: int = 50
+
     def __init__(self) -> None:
         self._wrapper: GemmaPytorchInference | None = None
         self._prompt_explorer: PromptExplorer | None = None
@@ -220,7 +225,7 @@ class InterpretService:
         self._model_size, self._variant = self._parse_checkpoint(checkpoint)
         checkpoint = self._normalize_checkpoint(checkpoint, self._model_size, self._variant)
         logger.info("Loading model %s ...", checkpoint)
-        self._wrapper = GemmaPytorchInference(checkpoint, model_size=self._model_size)
+        self._wrapper = GemmaPytorchInference(checkpoint, model_size=self._model_size, precision="bfloat16")
         self._model_name = checkpoint
         self._prompt_explorer = None  # rebuilt lazily
         logger.info("Model loaded on %s", self._wrapper.device)
@@ -347,6 +352,46 @@ class InterpretService:
 
         return start, end
 
+    def _compute_coverage_exclusions(
+        self,
+        feature_acts: torch.Tensor,
+        prompt_start: int,
+        prompt_end: int,
+        include_bos: bool,
+        label_map: dict[int, tuple[str, float | None]],
+    ) -> set[int]:
+        """Return feature indices to exclude based on coverage + density floor.
+
+        Args:
+            feature_acts: Raw activation tensor ``(seq_len, d_sae)``.
+            prompt_start: Start index of user prompt tokens.
+            prompt_end: End index of user prompt tokens.
+            include_bos: If True, coverage computed over all positions (incl.
+                BOS and template). If False, only prompt token positions.
+            label_map: ``{feature_index: (label, density)}`` from DuckDB.
+        """
+        fired = feature_acts > 0
+        if include_bos:
+            coverage = fired.sum(dim=0).float() / feature_acts.shape[0]
+        else:
+            n = max(prompt_end - prompt_start, 1)
+            # Edge case: single-token prompt — skip coverage filter
+            if n <= 1:
+                coverage = torch.zeros(feature_acts.shape[1])
+            else:
+                coverage = fired[prompt_start:prompt_end].sum(dim=0).float() / n
+
+        exclude = set(
+            torch.nonzero(coverage >= self.COVERAGE_THRESHOLD, as_tuple=True)[0].tolist()
+        )
+
+        # Dead/near-dead features below density floor
+        for idx, (_, density) in label_map.items():
+            if density is not None and density < self.DENSITY_FLOOR:
+                exclude.add(idx)
+
+        return exclude
+
     def run_prompt_activations(
         self,
         prompt: str,
@@ -356,10 +401,11 @@ class InterpretService:
         db_model_id: str | None = None,
         db_sae_id: str | None = None,
         skip_chat_template: bool = False,
+        filter_mode: str = "neuronpedia",
     ) -> PromptActivationsResult:
         """Run a prompt through the model with SAE hooks.
 
-        Returns per-token top-k feature activations with labels from DuckDB,
+        Returns per-token feature activations with labels from DuckDB,
         filtered to only include the actual prompt tokens (no chat template).
 
         Args:
@@ -367,6 +413,8 @@ class InterpretService:
             db_sae_id: DuckDB sae_id for label lookup (from frontend selector).
             skip_chat_template: If True, treat the prompt as raw text even for
                 instruction-tuned models (skip BOS only, no chat wrapping).
+            filter_mode: One of ``"neuronpedia"``, ``"coverage_bos"``,
+                ``"coverage_no_bos"``. Controls how features are filtered.
         """
         from backend.API.duckdb_instance import get_duckdb_client
 
@@ -375,13 +423,18 @@ class InterpretService:
             self._model_size, _DEFAULT_LAYERS
         )
 
-        explorer = self._get_prompt_explorer(effective_layers, width, top_k)
-        prompt_result = explorer.run_prompt(prompt, output_len=1, top_k=top_k)
+        # Mode-specific top-k: NEURONPEDIA caps at 50, coverage modes need all
+        if filter_mode == "neuronpedia":
+            effective_top_k = self.NEURONPEDIA_TOP_K
+        else:
+            effective_top_k = 0  # all nonzero
+
+        explorer = self._get_prompt_explorer(effective_layers, width, effective_top_k)
+        prompt_result = explorer.run_prompt(prompt, output_len=1, top_k=effective_top_k)
 
         # Determine which token positions belong to the actual prompt
         all_token_strings = list(prompt_result.token_strings)
         if skip_chat_template:
-            # Treat as raw text: skip only BOS token (position 0)
             prompt_start, prompt_end = 1, len(all_token_strings)
         else:
             prompt_start, prompt_end = self._find_prompt_token_range(
@@ -392,33 +445,11 @@ class InterpretService:
         # Use frontend-provided identifiers (authoritative), fall back to derived
         model_id = db_model_id or self._neuronpedia_model_id
 
-        # Enrich labels/density from DuckDB (authoritative source).
         db = get_duckdb_client()
-        density_threshold = PromptExplorerConfig.density_threshold
 
         layer_results: list[LayerActivationsResult] = []
         for layer_idx in sorted(prompt_result.layers.keys()):
             lr = prompt_result.layers[layer_idx]
-
-            # ── Diagnostic: raw top-10 from feature_acts tensor ──────
-            # This bypasses both the explorer-level density mask and the
-            # service-level DuckDB filter, showing what Neuronpedia would
-            # see (sae.encode → torch.topk, no filtering).
-            raw_acts = lr.feature_acts  # (seq_len, d_sae)
-            for pos in range(prompt_start, min(prompt_end, raw_acts.shape[0])):
-                tok = all_token_strings[pos] if pos < len(all_token_strings) else f"[{pos}]"
-                acts_at_pos = raw_acts[pos]
-                topk_vals, topk_idx = torch.topk(acts_at_pos, k=min(10, acts_at_pos.shape[0]))
-                top_str = ", ".join(
-                    f"F{idx.item()}={val.item():.2f}"
-                    for val, idx in zip(topk_vals, topk_idx)
-                    if val.item() > 0
-                )
-                logger.info(
-                    "RAW_TOPK layer=%d pos=%d token=%r: %s",
-                    layer_idx, pos - prompt_start, tok, top_str,
-                )
-            # ── End diagnostic ───────────────────────────────────────
 
             # Filter to only prompt token positions
             prompt_tokens = [
@@ -449,15 +480,26 @@ class InterpretService:
                     model_id, sae_id, all_indices
                 )
 
+            # Compute exclusion set for coverage modes
+            if filter_mode in ("coverage_bos", "coverage_no_bos"):
+                exclude = self._compute_coverage_exclusions(
+                    lr.feature_acts,
+                    prompt_start,
+                    prompt_end,
+                    include_bos=(filter_mode == "coverage_bos"),
+                    label_map=label_map,
+                )
+            else:
+                exclude = set()
+
             token_results: list[TokenFeaturesResult] = []
             for tf in prompt_tokens:
                 features = []
                 for f in tf.features:
+                    if f.index in exclude:
+                        continue
                     db_label, db_density = label_map.get(f.index, ("", None))
                     density = db_density if db_density is not None else f.density
-                    # Filter out ultra-common features using DuckDB density
-                    if density is not None and density >= density_threshold:
-                        continue
                     features.append(
                         ActiveFeatureResult(
                             index=f.index,
@@ -665,6 +707,7 @@ class InterpretService:
         width: str,
         hook_type: str,
         progress_callback: Callable[[int, int], None] | None = None,
+        result_callback: Callable[[str, list[FeatureActivation]], None] | None = None,
     ) -> list[tuple[str, list[FeatureActivation]]]:
         """Run SAE highlight inference on multiple documents.
 
@@ -683,6 +726,9 @@ class InterpretService:
             Hook type string (e.g. ``"RESID_POST"``).
         progress_callback:
             Optional ``(done, total)`` callback invoked after each document.
+        result_callback:
+            Optional ``(item_id, activations)`` callback invoked after each
+            document so callers can persist results incrementally.
 
         Returns
         -------
@@ -713,7 +759,7 @@ class InterpretService:
 
         with manager.session(wrapper.model.model.layers) as store:
             for i, (item_id, text) in enumerate(documents):
-                store.clear()
+                manager.reset()
                 try:
                     if self._variant == "pt":
                         wrapper.generate_from_template(text, output_len=1)
@@ -722,15 +768,18 @@ class InterpretService:
                     record = store.prefill(layer=layer, hook_type=ht)
                 except Exception:
                     logger.exception("Failed inference for item %s (%d/%d)", item_id, i + 1, total)
-                    results.append((item_id, []))
+                    activations: list[FeatureActivation] = []
+                    results.append((item_id, activations))
+                    if result_callback:
+                        result_callback(item_id, activations)
                     if progress_callback:
                         progress_callback(i + 1, total)
                     continue
 
-                if record is None:
-                    results.append((item_id, []))
-                else:
-                    results.append((item_id, self._max_pool_activations(record)))
+                activations = self._max_pool_activations(record) if record else []
+                results.append((item_id, activations))
+                if result_callback:
+                    result_callback(item_id, activations)
 
                 if progress_callback:
                     progress_callback(i + 1, total)

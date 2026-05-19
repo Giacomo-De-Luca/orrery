@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import Any
 from pathlib import Path
 
 import pandas as pd
@@ -256,10 +257,11 @@ class Mutation:
     ) -> UpdateCollectionMetadataResult:
         """Update metadata for a collection."""
         try:
-            # Update DuckDB (primary)
+            # Update DuckDB (primary) — resolve dataset name from vector_collections
             db = get_duckdb_client()
-            db.update_dataset(collection_name, extra_metadata=metadata)
-            ds = db.get_dataset(collection_name)
+            dataset_name = db.get_dataset_name_for_collection(collection_name) or collection_name
+            db.update_dataset(dataset_name, extra_metadata=metadata)
+            ds = db.get_dataset(dataset_name)
 
             return UpdateCollectionMetadataResult(
                 name=collection_name,
@@ -436,14 +438,11 @@ class Mutation:
         # Get sample documents for this topic
         item_ids = db.get_items_for_topic(extraction_id, input.topic_id)
         dataset_name = topic_data.get("dataset_name", input.collection_name)
-        items_table = db._items_table(dataset_name)
         sample_ids = item_ids[:10]
         if sample_ids:
-            placeholders = ", ".join(["?"] * len(sample_ids))
-            docs_rows = db._conn.execute(
-                f"SELECT document FROM {items_table} WHERE id IN ({placeholders})",
-                sample_ids,
-            ).fetchall()
+            docs_rows = db.get_items_columns(
+                dataset_name, ("document",), where_ids=sample_ids
+            )
             sample_docs = [r[0] for r in docs_rows if r[0]]
         else:
             sample_docs = []
@@ -721,6 +720,7 @@ class Mutation:
                         input.model_id,
                         input.sae_id,
                         input.skip_chat_template,
+                        input.filter_mode.value,
                     ),
                     timeout=120.0,
                 )
@@ -836,11 +836,8 @@ class Mutation:
         collection_name = input.collection_name
 
         # --- Resolve SAE config from collection metadata ---
-        vc_row = db._conn.execute(
-            "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
-            [collection_name],
-        ).fetchone()
-        if not vc_row:
+        dataset_name = db.get_dataset_name_for_collection(collection_name)
+        if not dataset_name:
             return ComputeDocumentActivationsResult(
                 collection_name=collection_name,
                 items_processed=0,
@@ -848,7 +845,6 @@ class Mutation:
                 duration_seconds=0.0,
                 error=f"Collection '{collection_name}' not found.",
             )
-        dataset_name = vc_row[0]
 
         ds = db.get_dataset(dataset_name)
         raw_extra = (ds.get("extra_metadata") or {}) if ds else {}
@@ -872,6 +868,12 @@ class Mutation:
         width = parts[4] if len(parts) > 4 else "16k"
         hook_map = {"res": "resid_post", "mlp": "mlp_out", "att": "attn_out"}
         hook_type = hook_map.get(hook_abbrev, "resid_post")
+
+        # Derive expected checkpoint from model_id (e.g. "gemma-3-4b-it")
+        # and ensure the correct model is loaded before running inference.
+        # model_id is the Neuronpedia ID (e.g. "gemma-3-1b"), but load_model
+        # expects a HuggingFace checkpoint (e.g. "google/gemma-3-1b-pt").
+        expected_checkpoint = f"google/{model_id}" if "/" not in model_id else model_id
 
         # --- Load all items ---
         all_items = db.get_filtered_items(dataset_name, filters=[], limit=100_000)
@@ -906,19 +908,6 @@ class Mutation:
 
         job_id = f"{collection_name}_sae_activations"
 
-        # Auto-load model if not already loaded
-        if not service.get_status().loaded:
-            try:
-                await asyncio.to_thread(service.load_model)
-            except Exception as e:
-                return ComputeDocumentActivationsResult(
-                    collection_name=collection_name,
-                    items_processed=already_done,
-                    total_items=total_items,
-                    duration_seconds=0.0,
-                    error=f"Failed to load model: {e}",
-                )
-
         def _run_batch():
             start = time.monotonic()
 
@@ -943,19 +932,15 @@ class Mutation:
                 message=f"Starting SAE inference ({to_process} items)...",
             )
 
-            results = service.run_batch_highlight(
-                documents=documents,
-                layer=layer,
-                width=width,
-                hook_type=hook_type,
-                progress_callback=progress_cb,
-            )
+            FLUSH_EVERY = 50  # persist every N documents to avoid losing work
+            pending_rows: list[dict[str, Any]] = []
+            docs_since_flush = 0
+            docs_processed = 0
 
-            # Store activations in DuckDB (bulk insert)
-            bulk_rows = []
-            for item_id, activations in results:
+            def on_result(item_id: str, activations: list) -> None:
+                nonlocal docs_since_flush, docs_processed
                 for f in activations:
-                    bulk_rows.append(
+                    pending_rows.append(
                         {
                             "collection_name": collection_name,
                             "item_id": item_id,
@@ -963,8 +948,25 @@ class Mutation:
                             "activation": f.activation,
                         }
                     )
-            if bulk_rows:
-                db.insert_document_activations_bulk(pd.DataFrame(bulk_rows))
+                docs_since_flush += 1
+                docs_processed += 1
+                if docs_since_flush >= FLUSH_EVERY and pending_rows:
+                    db.insert_document_activations_bulk(pd.DataFrame(pending_rows))
+                    pending_rows.clear()
+                    docs_since_flush = 0
+
+            service.run_batch_highlight(
+                documents=documents,
+                layer=layer,
+                width=width,
+                hook_type=hook_type,
+                progress_callback=progress_cb,
+                result_callback=on_result,
+            )
+
+            # Flush remaining
+            if pending_rows:
+                db.insert_document_activations_bulk(pd.DataFrame(pending_rows))
 
             elapsed = time.monotonic() - start
 
@@ -978,17 +980,18 @@ class Mutation:
                 message="SAE document activations complete.",
             )
 
-            return already_done + len(results), elapsed
+            return already_done + docs_processed, elapsed
 
         try:
             async with service._lock:
+                # Ensure the correct model is loaded for this SAE
+                status = service.get_status()
+                if status.loaded and service._neuronpedia_model_id != expected_checkpoint:
+                    await asyncio.to_thread(service.unload_model)
+                    status = service.get_status()
+                if not status.loaded:
+                    await asyncio.to_thread(service.load_model, expected_checkpoint)
                 items_processed, duration = await asyncio.to_thread(_run_batch)
-
-            # Persist SAE link in collection metadata if not already set
-            if not extra.get("sae_model_id") or not extra.get("sae_id"):
-                extra["sae_model_id"] = model_id
-                extra["sae_id"] = sae_id
-                db.update_dataset_metadata(dataset_name, {"extra_metadata": json.dumps(extra)})
 
             return ComputeDocumentActivationsResult(
                 collection_name=collection_name,
@@ -1014,6 +1017,14 @@ class Mutation:
                 duration_seconds=0.0,
                 error=str(e),
             )
+
+    @strawberry.mutation
+    def delete_document_activations(
+        self, collection_name: str, info=None
+    ) -> int:
+        """Delete all precomputed SAE document activations for a collection."""
+        db = get_duckdb_client()
+        return db.delete_document_activations(collection_name)
 
     # ------------------------------------------------------------------
     # Chat history
@@ -1082,18 +1093,15 @@ class Mutation:
             )
 
         # Resolve SAE config from collection metadata
-        vc_row = db._conn.execute(
-            "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
-            [collection_name],
-        ).fetchone()
-        if not vc_row:
+        dataset_name = db.get_dataset_name_for_collection(collection_name)
+        if not dataset_name:
             return PromptDocumentSearchResponse(
                 results=[],
                 prompt_feature_count=0,
                 error=f"Collection '{collection_name}' not found.",
             )
 
-        ds = db.get_dataset(vc_row[0])
+        ds = db.get_dataset(dataset_name)
         raw_extra = (ds.get("extra_metadata") or {}) if ds else {}
         extra = json.loads(raw_extra) if isinstance(raw_extra, str) else raw_extra
         sae_id = extra.get("sae_id")

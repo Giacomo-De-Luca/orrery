@@ -12,6 +12,7 @@ projections, projection_metadata, topic_extractions, topic_info, topic_assignmen
 
 import json
 import logging
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -69,8 +70,44 @@ class DuckDBClient:
 
         self.db_path = db_path
         self._conn = duckdb.connect(db_path)
+        # Lock for DataFrame-based inserts that must use self._conn.execute()
+        # directly (DuckDB's replacement scan only finds Python variables in
+        # the immediate caller's frame — cursor-based _exec adds an extra frame).
+        # Non-DataFrame writes go through _exec (cursor) and rely on DuckDB's
+        # internal write serialization.
+        self._write_lock = threading.Lock()
         self._fts_dirty: set[str] = set()  # dataset_ids needing FTS rebuild
         self._ensure_schema()
+
+    def _exec(self, sql, params=None):
+        """Execute SQL on a fresh cursor (thread-safe).
+
+        DuckDB cursors from the same connection are safe for concurrent use
+        from different threads.  Each call creates a short-lived cursor so
+        background threads (embedding, topic extraction, SAE inference) and
+        the main event-loop thread never contend on the same query state.
+
+        **Not for DataFrame references**: DuckDB's replacement scan resolves
+        Python variable names from the immediate caller's frame.  Because
+        ``_exec`` adds an intermediary frame, ``SELECT * FROM df`` won't
+        find a caller's local ``df``.  Use ``self._write_lock`` +
+        ``self._conn.execute()`` directly for those (see insert methods).
+
+        Returns the cursor (supports ``.fetchall()``, ``.fetchone()``,
+        ``.description``).
+        """
+        cur = self._conn.cursor()
+        if params is not None:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql)
+        return cur
+
+    def _execmany(self, sql, values):
+        """executemany on a fresh cursor (thread-safe). Returns the cursor."""
+        cur = self._conn.cursor()
+        cur.executemany(sql, values)
+        return cur
 
     def close(self):
         if self._conn:
@@ -98,7 +135,7 @@ class DuckDBClient:
 
     def _ensure_schema(self):
         """Create global tables if they don't exist. Idempotent."""
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS datasets (
                 name                VARCHAR PRIMARY KEY,
                 description         VARCHAR,
@@ -116,7 +153,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS vector_collections (
                 collection_name     VARCHAR PRIMARY KEY,
                 dataset_name        VARCHAR NOT NULL REFERENCES datasets(name),
@@ -135,7 +172,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS projections (
                 collection_name     VARCHAR NOT NULL REFERENCES vector_collections(collection_name),
                 item_id             VARCHAR NOT NULL,
@@ -145,7 +182,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS projection_metadata (
                 collection_name     VARCHAR NOT NULL REFERENCES vector_collections(collection_name),
                 projection_type     VARCHAR NOT NULL,
@@ -155,7 +192,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS topic_extractions (
                 id                          VARCHAR PRIMARY KEY,
                 collection_name             VARCHAR NOT NULL REFERENCES vector_collections(collection_name),
@@ -172,7 +209,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS topic_info (
                 extraction_id VARCHAR NOT NULL REFERENCES topic_extractions(id),
                 topic_id      INTEGER NOT NULL,
@@ -185,7 +222,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS topic_assignments (
                 extraction_id  VARCHAR NOT NULL REFERENCES topic_extractions(id),
                 item_id        VARCHAR NOT NULL,
@@ -199,7 +236,7 @@ class DuckDBClient:
 
         # -- SAE (Sparse Autoencoder) tables --
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS sae_features (
                 model_id        VARCHAR NOT NULL,
                 sae_id          VARCHAR NOT NULL,
@@ -213,7 +250,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS sae_activations (
                 id                   VARCHAR PRIMARY KEY,
                 model_id             VARCHAR NOT NULL,
@@ -228,18 +265,18 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE INDEX IF NOT EXISTS idx_sae_act_feature
             ON sae_activations (model_id, sae_id, feature_index)
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE INDEX IF NOT EXISTS idx_sae_features_model
             ON sae_features (model_id)
         """)
 
         # -- SAE document activation table (per-document max-pooled activations) --
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS sae_document_activations (
                 collection_name  VARCHAR NOT NULL,
                 item_id          VARCHAR NOT NULL,
@@ -249,14 +286,14 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE INDEX IF NOT EXISTS idx_sae_doc_act_feature
             ON sae_document_activations (collection_name, feature_index)
         """)
 
         # -- Chat history tables --
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 id          VARCHAR PRIMARY KEY,
                 title       VARCHAR NOT NULL,
@@ -266,7 +303,7 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id          VARCHAR PRIMARY KEY,
                 session_id  VARCHAR NOT NULL REFERENCES chat_sessions(id),
@@ -277,21 +314,21 @@ class DuckDBClient:
             )
         """)
 
-        self._conn.execute("""
+        self._exec("""
             CREATE INDEX IF NOT EXISTS idx_chat_messages_session
             ON chat_messages (session_id, created_at)
         """)
 
         # FTS extension
-        self._conn.execute("INSTALL fts")
-        self._conn.execute("LOAD fts")
+        self._exec("INSTALL fts")
+        self._exec("LOAD fts")
 
         logger.info("DuckDB schema ensured at %s", self.db_path)
 
     def _ensure_items_table(self, dataset_name: str):
         """Create the per-dataset items table if it doesn't exist."""
         table = self._items_table(dataset_name)
-        self._conn.execute(f"""
+        self._exec(f"""
             CREATE TABLE IF NOT EXISTS {table} (
                 id          VARCHAR PRIMARY KEY,
                 document    VARCHAR,
@@ -320,7 +357,7 @@ class DuckDBClient:
         extra_metadata: dict = None,
     ) -> str:
         """Create a new dataset + its items table. Returns the dataset name."""
-        self._conn.execute(
+        self._exec(
             """
             INSERT INTO datasets (name, description, source_type, source_dataset,
                 source_config, source_split, source_file, embedded_columns,
@@ -352,22 +389,24 @@ class DuckDBClient:
         parent dataset's item count and metadata. Datasets without any vector_collections
         are also included (for re-embedding as a data source).
         """
-        rows = self._conn.execute("SELECT * FROM datasets ORDER BY created_at DESC").fetchall()
-        columns = [desc[0] for desc in self._conn.description]
+        ds_cur = self._exec("SELECT * FROM datasets ORDER BY created_at DESC")
+        rows = ds_cur.fetchall()
+        columns = [desc[0] for desc in ds_cur.description]
         datasets_by_name: dict[str, dict[str, Any]] = {}
         for row in rows:
             d = _sanitize_for_json(dict(zip(columns, row)))
             datasets_by_name[d["name"]] = d
 
         # Get all vector_collections
-        vc_rows = self._conn.execute(
+        vc_cur = self._exec(
             "SELECT * FROM vector_collections ORDER BY created_at DESC"
-        ).fetchall()
-        vc_columns = [desc[0] for desc in self._conn.description]
+        )
+        vc_rows = vc_cur.fetchall()
+        vc_columns = [desc[0] for desc in vc_cur.description]
         all_vcs = [dict(zip(vc_columns, vr)) for vr in vc_rows]
 
         # Build lookup of active topic extractions keyed by collection_name
-        te_rows = self._conn.execute(
+        te_rows = self._exec(
             "SELECT collection_name, topic_count, topic_hierarchy FROM topic_extractions WHERE is_active = TRUE"
         ).fetchall()
         te_by_collection: dict[str, dict[str, Any]] = {}
@@ -439,18 +478,35 @@ class DuckDBClient:
 
     def get_dataset(self, name: str) -> dict[str, Any] | None:
         """Get dataset by name."""
-        rows = self._conn.execute("SELECT * FROM datasets WHERE name = ?", [name]).fetchall()
+        cur = self._exec("SELECT * FROM datasets WHERE name = ?", [name])
+        rows = cur.fetchall()
         if not rows:
             return None
-        columns = [desc[0] for desc in self._conn.description]
+        columns = [desc[0] for desc in cur.description]
         d = dict(zip(columns, rows[0]))
         d["count"] = d.get("item_count", 0)
         return d
 
     def update_dataset(self, name: str, **kwargs) -> None:
-        """Update dataset fields by name."""
+        """Update dataset fields by name.
+
+        For ``extra_metadata``, new keys are **merged** into the existing JSON
+        rather than replacing it.  Keys explicitly set to ``None`` are removed.
+        """
         if not kwargs:
             return
+
+        if "extra_metadata" in kwargs and isinstance(kwargs["extra_metadata"], dict):
+            existing = self._exec(
+                "SELECT extra_metadata FROM datasets WHERE name = ?", [name]
+            ).fetchone()
+            old = {}
+            if existing and existing[0]:
+                old = json.loads(existing[0]) if isinstance(existing[0], str) else existing[0]
+            merged = {**old, **kwargs["extra_metadata"]}
+            merged = {k: v for k, v in merged.items() if v is not None}
+            kwargs["extra_metadata"] = merged
+
         set_parts = []
         values = []
         for key, val in kwargs.items():
@@ -460,7 +516,7 @@ class DuckDBClient:
             else:
                 values.append(val)
         values.append(name)
-        self._conn.execute(
+        self._exec(
             f"UPDATE datasets SET {', '.join(set_parts)} WHERE name = ?",
             values,
         )
@@ -472,7 +528,7 @@ class DuckDBClient:
             return False
 
         # Delete in dependency order
-        self._conn.execute(
+        self._exec(
             """
             DELETE FROM topic_assignments WHERE extraction_id IN (
                 SELECT id FROM topic_extractions WHERE dataset_name = ?
@@ -480,7 +536,7 @@ class DuckDBClient:
         """,
             [name],
         )
-        self._conn.execute(
+        self._exec(
             """
             DELETE FROM topic_info WHERE extraction_id IN (
                 SELECT id FROM topic_extractions WHERE dataset_name = ?
@@ -488,9 +544,9 @@ class DuckDBClient:
         """,
             [name],
         )
-        self._conn.execute("DELETE FROM topic_extractions WHERE dataset_name = ?", [name])
+        self._exec("DELETE FROM topic_extractions WHERE dataset_name = ?", [name])
 
-        self._conn.execute(
+        self._exec(
             """
             DELETE FROM projection_metadata WHERE collection_name IN (
                 SELECT collection_name FROM vector_collections WHERE dataset_name = ?
@@ -498,7 +554,7 @@ class DuckDBClient:
         """,
             [name],
         )
-        self._conn.execute(
+        self._exec(
             """
             DELETE FROM projections WHERE collection_name IN (
                 SELECT collection_name FROM vector_collections WHERE dataset_name = ?
@@ -507,7 +563,7 @@ class DuckDBClient:
             [name],
         )
 
-        self._conn.execute(
+        self._exec(
             """
             DELETE FROM sae_document_activations WHERE collection_name IN (
                 SELECT collection_name FROM vector_collections WHERE dataset_name = ?
@@ -516,12 +572,12 @@ class DuckDBClient:
             [name],
         )
 
-        self._conn.execute("DELETE FROM vector_collections WHERE dataset_name = ?", [name])
+        self._exec("DELETE FROM vector_collections WHERE dataset_name = ?", [name])
 
         # Drop per-dataset items table
-        self._conn.execute(f"DROP TABLE IF EXISTS {self._items_table(name)}")
+        self._exec(f"DROP TABLE IF EXISTS {self._items_table(name)}")
 
-        self._conn.execute("DELETE FROM datasets WHERE name = ?", [name])
+        self._exec("DELETE FROM datasets WHERE name = ?", [name])
 
         self._fts_dirty.discard(name)
         logger.info("Deleted dataset %r", name)
@@ -571,11 +627,12 @@ class DuckDBClient:
         )
 
         table = self._items_table(dataset_name)
-        self._conn.execute(f"INSERT OR REPLACE INTO {table} SELECT * FROM df")
+        with self._write_lock:
+            self._conn.execute(f"INSERT OR REPLACE INTO {table} SELECT * FROM df")
 
         # Update cached item count
-        count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        self._conn.execute(
+        count = self._exec(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        self._exec(
             "UPDATE datasets SET item_count = ? WHERE name = ?", [count, dataset_name]
         )
 
@@ -586,7 +643,7 @@ class DuckDBClient:
         """Get all item IDs for a dataset."""
         table = self._items_table(dataset_name)
         try:
-            rows = self._conn.execute(f"SELECT id FROM {table}").fetchall()
+            rows = self._exec(f"SELECT id FROM {table}").fetchall()
         except duckdb.CatalogException:
             return set()
         return {r[0] for r in rows}
@@ -597,7 +654,7 @@ class DuckDBClient:
             return []
         table = self._items_table(dataset_name)
         placeholders = ", ".join(["?"] * len(ids))
-        rows = self._conn.execute(
+        rows = self._exec(
             f"SELECT id, document, metadata, row_index FROM {table} WHERE id IN ({placeholders})",
             list(ids),
         ).fetchall()
@@ -673,7 +730,7 @@ class DuckDBClient:
         where_sql, params = self._build_metadata_where(filters)
         params.extend([limit, offset])
 
-        rows = self._conn.execute(
+        rows = self._exec(
             f"SELECT id, document, metadata, row_index FROM {table} WHERE {where_sql} ORDER BY row_index LIMIT ? OFFSET ?",
             params,
         ).fetchall()
@@ -707,7 +764,7 @@ class DuckDBClient:
         item_count: int = 0,
     ) -> str:
         """Register a vector collection. Returns the collection_name (PK)."""
-        self._conn.execute(
+        self._exec(
             """
             INSERT INTO vector_collections (collection_name, dataset_name, backend,
                 vector_type, embedding_provider, embedding_model, embedding_dim,
@@ -732,23 +789,92 @@ class DuckDBClient:
 
     def get_vector_collections(self, dataset_name: str) -> list[dict[str, Any]]:
         """Get all vector collections for a dataset."""
-        rows = self._conn.execute(
+        cur = self._exec(
             "SELECT * FROM vector_collections WHERE dataset_name = ? ORDER BY created_at",
             [dataset_name],
-        ).fetchall()
-        columns = [desc[0] for desc in self._conn.description]
+        )
+        rows = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
         return [dict(zip(columns, r)) for r in rows]
 
     def get_vector_collection(self, collection_name: str) -> dict[str, Any] | None:
         """Get a vector collection by its collection_name (PK)."""
-        rows = self._conn.execute(
+        cur = self._exec(
             "SELECT * FROM vector_collections WHERE collection_name = ?",
             [collection_name],
-        ).fetchall()
+        )
+        rows = cur.fetchall()
         if not rows:
             return None
-        columns = [desc[0] for desc in self._conn.description]
+        columns = [desc[0] for desc in cur.description]
         return dict(zip(columns, rows[0]))
+
+    def get_dataset_name_for_collection(self, collection_name: str) -> str | None:
+        """Return the dataset_name for a vector collection, or None."""
+        row = self._exec(
+            "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
+            [collection_name],
+        ).fetchone()
+        return row[0] if row else None
+
+    def set_collection_has_topics(self, collection_name: str) -> None:
+        """Mark a vector collection as having topic data."""
+        self._exec(
+            "UPDATE vector_collections SET has_topics = TRUE WHERE collection_name = ?",
+            [collection_name],
+        )
+
+    def update_topic_extraction(self, extraction_id: str, **kwargs) -> None:
+        """Update fields on a topic_extractions row."""
+        if not kwargs:
+            return
+        set_parts = []
+        values = []
+        for key, val in kwargs.items():
+            set_parts.append(f"{key} = ?")
+            if isinstance(val, (dict, list)):
+                values.append(json.dumps(val))
+            else:
+                values.append(val)
+        values.append(extraction_id)
+        self._exec(
+            f"UPDATE topic_extractions SET {', '.join(set_parts)} WHERE id = ?",
+            values,
+        )
+
+    def get_topic_assignments_raw(
+        self, extraction_id: str, columns: list[str] | None = None
+    ) -> list[tuple]:
+        """Return topic assignment rows for an extraction."""
+        col_str = ", ".join(columns) if columns else "*"
+        return self._exec(
+            f"SELECT {col_str} FROM topic_assignments WHERE extraction_id = ?",
+            [extraction_id],
+        ).fetchall()
+
+    def get_items_columns(
+        self,
+        dataset_name: str,
+        columns: tuple[str, ...] = ("id", "document"),
+        *,
+        where_ids: list[str] | None = None,
+    ) -> list[tuple]:
+        """Return rows from the items table with the specified columns.
+
+        If *where_ids* is provided, only those items are returned (unordered).
+        Otherwise all items are returned ordered by row_index.
+        """
+        col_str = ", ".join(columns)
+        table = self._items_table(dataset_name)
+        if where_ids:
+            placeholders = ", ".join(["?"] * len(where_ids))
+            return self._exec(
+                f"SELECT {col_str} FROM {table} WHERE id IN ({placeholders})",
+                list(where_ids),
+            ).fetchall()
+        return self._exec(
+            f"SELECT {col_str} FROM {table} ORDER BY row_index"
+        ).fetchall()
 
     # ------------------------------------------------------------------
     # Projections
@@ -774,11 +900,12 @@ class DuckDBClient:
             }
         )
 
-        self._conn.execute("""
-            INSERT OR REPLACE INTO projections
-            SELECT collection_name, item_id, projection_type, coordinates
-            FROM df
-        """)
+        with self._write_lock:
+            self._conn.execute("""
+                INSERT OR REPLACE INTO projections
+                SELECT collection_name, item_id, projection_type, coordinates
+                FROM df
+            """)
         return len(item_ids)
 
     def upsert_projection_metadata(
@@ -792,7 +919,7 @@ class DuckDBClient:
         """Insert or update projection metadata (variance, timestamp)."""
         if computed_at is None:
             computed_at = time.strftime("%Y-%m-%d %H:%M:%S")
-        self._conn.execute(
+        self._exec(
             """
             INSERT OR REPLACE INTO projection_metadata
                 (collection_name, projection_type, variance, computed_at)
@@ -800,7 +927,7 @@ class DuckDBClient:
         """,
             [collection_name, projection_type, variance, computed_at],
         )
-        self._conn.execute(
+        self._exec(
             "UPDATE vector_collections SET has_projections = TRUE WHERE collection_name = ?",
             [collection_name],
         )
@@ -815,7 +942,7 @@ class DuckDBClient:
         dataset_name = vc["dataset_name"]
         table = self._items_table(dataset_name)
 
-        rows = self._conn.execute(
+        rows = self._exec(
             f"""
             SELECT i.id, i.document, i.metadata, p.coordinates
             FROM {table} i
@@ -846,7 +973,7 @@ class DuckDBClient:
 
         ds = self.get_dataset(dataset_name)
 
-        pm_rows = self._conn.execute(
+        pm_rows = self._exec(
             """
             SELECT projection_type, variance
             FROM projection_metadata WHERE collection_name = ?
@@ -895,16 +1022,16 @@ class DuckDBClient:
         table = self._items_table(dataset_name)
         table_unquoted = self._items_table_name(dataset_name)
 
-        count = self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        count = self._exec(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         if count == 0:
             return
 
         try:
-            self._conn.execute(f"PRAGMA drop_fts_index('{table_unquoted}')")
+            self._exec(f"PRAGMA drop_fts_index('{table_unquoted}')")
         except duckdb.CatalogException:
             pass
 
-        self._conn.execute(f"""
+        self._exec(f"""
             PRAGMA create_fts_index('{table_unquoted}', 'id', 'document',
                 stemmer='porter', stopwords='english', lower=1, overwrite=1)
         """)
@@ -934,7 +1061,7 @@ class DuckDBClient:
         allowed_ids: set[str] | None = None
         if filters:
             where_sql, where_params = self._build_metadata_where(filters)
-            rows = self._conn.execute(
+            rows = self._exec(
                 f"SELECT id FROM {table} WHERE {where_sql}",
                 where_params,
             ).fetchall()
@@ -977,20 +1104,20 @@ class DuckDBClient:
         """Search the document column of a per-dataset items table."""
         if mode == "exact":
             if case_sensitive:
-                rows = self._conn.execute(
+                rows = self._exec(
                     f"SELECT id, document FROM {table} WHERE document = ?", [query]
                 ).fetchall()
             else:
-                rows = self._conn.execute(
+                rows = self._exec(
                     f"SELECT id, document FROM {table} WHERE LOWER(document) = LOWER(?)", [query]
                 ).fetchall()
         else:
             if case_sensitive:
-                rows = self._conn.execute(
+                rows = self._exec(
                     f"SELECT id, document FROM {table} WHERE document LIKE '%' || ? || '%'", [query]
                 ).fetchall()
             else:
-                rows = self._conn.execute(
+                rows = self._exec(
                     f"SELECT id, document FROM {table} WHERE document ILIKE '%' || ? || '%'",
                     [query],
                 ).fetchall()
@@ -1021,23 +1148,23 @@ class DuckDBClient:
             json_path = f"$.{field}"
             if mode == "exact":
                 if case_sensitive:
-                    rows = self._conn.execute(
+                    rows = self._exec(
                         f"SELECT id FROM {table} WHERE json_extract_string(metadata, ?) = ?",
                         [json_path, query],
                     ).fetchall()
                 else:
-                    rows = self._conn.execute(
+                    rows = self._exec(
                         f"SELECT id FROM {table} WHERE LOWER(CAST(json_extract_string(metadata, ?) AS VARCHAR)) = LOWER(?)",
                         [json_path, query],
                     ).fetchall()
             else:
                 if case_sensitive:
-                    rows = self._conn.execute(
+                    rows = self._exec(
                         f"SELECT id FROM {table} WHERE CAST(json_extract_string(metadata, ?) AS VARCHAR) LIKE '%' || ? || '%'",
                         [json_path, query],
                     ).fetchall()
                 else:
-                    rows = self._conn.execute(
+                    rows = self._exec(
                         f"SELECT id FROM {table} WHERE CAST(json_extract_string(metadata, ?) AS VARCHAR) ILIKE '%' || ? || '%'",
                         [json_path, query],
                     ).fetchall()
@@ -1061,7 +1188,7 @@ class DuckDBClient:
         if dataset_name in self._fts_dirty:
             self._rebuild_fts_for_dataset(dataset_name)
 
-        rows = self._conn.execute(
+        rows = self._exec(
             f"""
             SELECT id, document, metadata,
                    {fts_schema}.match_bm25(id, ?) AS score
@@ -1093,7 +1220,7 @@ class DuckDBClient:
         self, collection_name: str, dataset_name: str, config: dict = None
     ) -> str:
         """Create a new topic extraction. Deactivates previous."""
-        self._conn.execute(
+        self._exec(
             """
             UPDATE topic_extractions SET is_active = FALSE
             WHERE collection_name = ? AND is_active = TRUE
@@ -1102,7 +1229,7 @@ class DuckDBClient:
         )
 
         extraction_id = str(uuid.uuid4())
-        self._conn.execute(
+        self._exec(
             """
             INSERT INTO topic_extractions (id, collection_name, dataset_name, config, is_active)
             VALUES (?, ?, ?, ?, TRUE)
@@ -1126,7 +1253,7 @@ class DuckDBClient:
                     json.dumps(t.get("subtopics")) if t.get("subtopics") else None,
                 )
             )
-        self._conn.executemany(
+        self._execmany(
             """
             INSERT INTO topic_info (extraction_id, topic_id, label, ctfidf_label,
                 count, keywords, subtopics)
@@ -1152,36 +1279,39 @@ class DuckDBClient:
             }
         )
 
-        self._conn.execute("""
-            INSERT INTO topic_assignments
-            SELECT extraction_id, item_id, topic_id,
-                   topic_label, subtopic_id, subtopic_label
-            FROM df
-        """)
+        with self._write_lock:
+            self._conn.execute("""
+                INSERT INTO topic_assignments
+                SELECT extraction_id, item_id, topic_id,
+                       topic_label, subtopic_id, subtopic_label
+                FROM df
+            """)
         return len(assignments)
 
     def get_active_topics(self, collection_name: str) -> dict[str, Any] | None:
         """Get active topic extraction with all topic info."""
-        rows = self._conn.execute(
+        ext_cur = self._exec(
             """
             SELECT * FROM topic_extractions
             WHERE collection_name = ? AND is_active = TRUE LIMIT 1
         """,
             [collection_name],
-        ).fetchall()
+        )
+        rows = ext_cur.fetchall()
         if not rows:
             return None
 
-        columns = [desc[0] for desc in self._conn.description]
+        columns = [desc[0] for desc in ext_cur.description]
         extraction = dict(zip(columns, rows[0]))
 
-        ti_rows = self._conn.execute(
+        ti_cur = self._exec(
             """
             SELECT * FROM topic_info WHERE extraction_id = ? ORDER BY topic_id
         """,
             [extraction["id"]],
-        ).fetchall()
-        ti_columns = [desc[0] for desc in self._conn.description]
+        )
+        ti_rows = ti_cur.fetchall()
+        ti_columns = [desc[0] for desc in ti_cur.description]
         topics = []
         for r in ti_rows:
             t = dict(zip(ti_columns, r))
@@ -1196,7 +1326,7 @@ class DuckDBClient:
 
     def get_items_for_topic(self, extraction_id: str, topic_id: int) -> list[str]:
         """Get item IDs assigned to a specific topic."""
-        rows = self._conn.execute(
+        rows = self._exec(
             "SELECT item_id FROM topic_assignments WHERE extraction_id = ? AND topic_id = ?",
             [extraction_id, topic_id],
         ).fetchall()
@@ -1204,11 +1334,11 @@ class DuckDBClient:
 
     def update_topic_label(self, extraction_id: str, topic_id: int, new_label: str) -> None:
         """Update a topic label in both topic_info and topic_assignments."""
-        self._conn.execute(
+        self._exec(
             "UPDATE topic_info SET label = ? WHERE extraction_id = ? AND topic_id = ?",
             [new_label, extraction_id, topic_id],
         )
-        self._conn.execute(
+        self._exec(
             "UPDATE topic_assignments SET topic_label = ? WHERE extraction_id = ? AND topic_id = ?",
             [new_label, extraction_id, topic_id],
         )
@@ -1216,27 +1346,27 @@ class DuckDBClient:
     def update_subtopic_label(self, extraction_id: str, subtopic_id: int, new_label: str) -> None:
         """Update a subtopic label in topic_assignments and topic_info.subtopics JSON."""
         # Get old label before update
-        old_row = self._conn.execute(
+        old_row = self._exec(
             "SELECT DISTINCT subtopic_label FROM topic_assignments WHERE extraction_id = ? AND subtopic_id = ?",
             [extraction_id, subtopic_id],
         ).fetchone()
         old_label = old_row[0] if old_row else None
 
         # Update topic_assignments
-        self._conn.execute(
+        self._exec(
             "UPDATE topic_assignments SET subtopic_label = ? WHERE extraction_id = ? AND subtopic_id = ?",
             [new_label, extraction_id, subtopic_id],
         )
 
         # Also update topic_info.subtopics JSON array
         if old_label:
-            topic_row = self._conn.execute(
+            topic_row = self._exec(
                 "SELECT DISTINCT topic_id FROM topic_assignments WHERE extraction_id = ? AND subtopic_id = ?",
                 [extraction_id, subtopic_id],
             ).fetchone()
             if topic_row:
                 topic_id = topic_row[0]
-                info_row = self._conn.execute(
+                info_row = self._exec(
                     "SELECT subtopics FROM topic_info WHERE extraction_id = ? AND topic_id = ?",
                     [extraction_id, topic_id],
                 ).fetchone()
@@ -1245,7 +1375,7 @@ class DuckDBClient:
                         json.loads(info_row[0]) if isinstance(info_row[0], str) else info_row[0]
                     )
                     subtopics = [new_label if s == old_label else s for s in subtopics]
-                    self._conn.execute(
+                    self._exec(
                         "UPDATE topic_info SET subtopics = ? WHERE extraction_id = ? AND topic_id = ?",
                         [json.dumps(subtopics), extraction_id, topic_id],
                     )
@@ -1261,7 +1391,7 @@ class DuckDBClient:
             return {}
         table = self._items_table(dataset_name)
 
-        sample_rows = self._conn.execute(
+        sample_rows = self._exec(
             f"SELECT metadata FROM {table} WHERE metadata IS NOT NULL LIMIT 100"
         ).fetchall()
 
@@ -1276,7 +1406,7 @@ class DuckDBClient:
 
         analysis = {}
         for key in sorted(all_keys):
-            row = self._conn.execute(f"""
+            row = self._exec(f"""
                 SELECT
                     COUNT(*) AS total,
                     COUNT(DISTINCT json_extract_string(metadata, '$.{key}')) AS distinct_count
@@ -1309,8 +1439,9 @@ class DuckDBClient:
                 "created_at": pd.Timestamp.now(),
             }
         )
-        self._conn.execute("INSERT OR REPLACE INTO sae_features SELECT * FROM insert_df")
-        count = self._conn.execute(
+        with self._write_lock:
+            self._conn.execute("INSERT OR REPLACE INTO sae_features SELECT * FROM insert_df")
+        count = self._exec(
             "SELECT COUNT(*) FROM sae_features WHERE model_id = ? AND sae_id = ?",
             [model_id, sae_id],
         ).fetchone()[0]
@@ -1324,14 +1455,15 @@ class DuckDBClient:
         tokens (JSON str), act_values (JSON str), max_value,
         max_value_token_idx, min_value, qualifying_token_idx.
         """
-        self._conn.execute("INSERT OR REPLACE INTO sae_activations SELECT * FROM df")
+        with self._write_lock:
+            self._conn.execute("INSERT OR REPLACE INTO sae_activations SELECT * FROM df")
         return len(df)
 
     def get_sae_feature(
         self, model_id: str, sae_id: str, feature_index: int
     ) -> dict[str, Any] | None:
         """Return a single SAE feature or None."""
-        row = self._conn.execute(
+        row = self._exec(
             "SELECT feature_index, density, label, top_logits, bottom_logits "
             "FROM sae_features "
             "WHERE model_id = ? AND sae_id = ? AND feature_index = ?",
@@ -1359,7 +1491,7 @@ class DuckDBClient:
         if not feature_indices:
             return {}
         placeholders = ",".join("?" * len(feature_indices))
-        rows = self._conn.execute(
+        rows = self._exec(
             f"SELECT feature_index, label, density FROM sae_features "
             f"WHERE model_id = ? AND sae_id = ? AND feature_index IN ({placeholders})",
             [model_id, sae_id, *feature_indices],
@@ -1370,7 +1502,7 @@ class DuckDBClient:
         self, model_id: str, sae_id: str, feature_index: int, limit: int = 20
     ) -> list[dict[str, Any]]:
         """Return top activations for a feature, ordered by max_value desc."""
-        rows = self._conn.execute(
+        rows = self._exec(
             "SELECT id, tokens, act_values, max_value, max_value_token_idx "
             "FROM sae_activations "
             "WHERE model_id = ? AND sae_id = ? AND feature_index = ? "
@@ -1433,7 +1565,7 @@ class DuckDBClient:
         where = " AND ".join(conditions) if conditions else "TRUE"
         params.extend([limit, offset])
 
-        rows = self._conn.execute(
+        rows = self._exec(
             f"SELECT model_id, sae_id, feature_index, density, label, top_logits, bottom_logits "
             f"FROM sae_features WHERE {where} "
             f"ORDER BY density DESC "
@@ -1457,7 +1589,7 @@ class DuckDBClient:
 
     def list_sae_models(self) -> list[dict[str, Any]]:
         """List distinct (model_id, sae_id) pairs with counts."""
-        rows = self._conn.execute("""
+        rows = self._exec("""
             SELECT f.model_id, f.sae_id, COUNT(*) AS feature_count,
                    COALESCE(a.act_count, 0) AS activation_count
             FROM sae_features f
@@ -1479,7 +1611,7 @@ class DuckDBClient:
 
     def get_sae_feature_densities(self, model_id: str, sae_id: str) -> list[float]:
         """Return all non-null density values for a model/sae pair."""
-        rows = self._conn.execute(
+        rows = self._exec(
             "SELECT density FROM sae_features "
             "WHERE model_id = ? AND sae_id = ? AND density IS NOT NULL "
             "ORDER BY feature_index",
@@ -1500,7 +1632,7 @@ class DuckDBClient:
         Uses NTILE window function. Quantile 1 = highest activations.
         Returns list of dicts with keys: quantile, bin_min, bin_max, activations.
         """
-        rows = self._conn.execute(
+        rows = self._exec(
             """
             WITH ranked AS (
                 SELECT id, tokens, act_values, max_value, max_value_token_idx,
@@ -1523,7 +1655,7 @@ class DuckDBClient:
         ).fetchall()
 
         # Also get bin boundaries per quantile
-        bounds = self._conn.execute(
+        bounds = self._exec(
             """
             WITH ranked AS (
                 SELECT max_value,
@@ -1564,11 +1696,11 @@ class DuckDBClient:
 
     def delete_sae_data(self, model_id: str, sae_id: str) -> bool:
         """Delete all SAE features and activations for a model/sae pair."""
-        self._conn.execute(
+        self._exec(
             "DELETE FROM sae_activations WHERE model_id = ? AND sae_id = ?",
             [model_id, sae_id],
         )
-        self._conn.execute(
+        self._exec(
             "DELETE FROM sae_features WHERE model_id = ? AND sae_id = ?",
             [model_id, sae_id],
         )
@@ -1606,7 +1738,10 @@ class DuckDBClient:
                 "activation": [a[1] for a in activations],
             }
         )
-        self._conn.execute("INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df")
+        with self._write_lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df"
+            )
         return len(activations)
 
     def insert_document_activations_bulk(
@@ -1619,12 +1754,15 @@ class DuckDBClient:
         """
         if df.empty:
             return 0
-        self._conn.execute("INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df")
+        with self._write_lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO sae_document_activations SELECT * FROM df"
+            )
         return len(df)
 
     def get_document_activation_item_ids(self, collection_name: str) -> set[str]:
         """Return item IDs that already have activations stored (for resume)."""
-        rows = self._conn.execute(
+        rows = self._exec(
             "SELECT DISTINCT item_id FROM sae_document_activations WHERE collection_name = ?",
             [collection_name],
         ).fetchall()
@@ -1632,7 +1770,7 @@ class DuckDBClient:
 
     def has_document_activations(self, collection_name: str) -> bool:
         """Check if any document activations exist for a collection."""
-        row = self._conn.execute(
+        row = self._exec(
             "SELECT 1 FROM sae_document_activations WHERE collection_name = ? LIMIT 1",
             [collection_name],
         ).fetchone()
@@ -1640,11 +1778,11 @@ class DuckDBClient:
 
     def delete_document_activations(self, collection_name: str) -> int:
         """Delete all document activations for a collection. Returns rows deleted."""
-        count = self._conn.execute(
+        count = self._exec(
             "SELECT COUNT(*) FROM sae_document_activations WHERE collection_name = ?",
             [collection_name],
         ).fetchone()[0]
-        self._conn.execute(
+        self._exec(
             "DELETE FROM sae_document_activations WHERE collection_name = ?",
             [collection_name],
         )
@@ -1686,7 +1824,7 @@ class DuckDBClient:
         placeholders = ", ".join(["?"] * len(feature_indices))
 
         # Hop 2 — rank documents by MAX activation
-        rows = self._conn.execute(
+        rows = self._exec(
             f"SELECT item_id, MAX(activation) AS score, COUNT(*) AS matching_features "
             f"FROM sae_document_activations "
             f"WHERE collection_name = ? AND feature_index IN ({placeholders}) "
@@ -1708,7 +1846,7 @@ class DuckDBClient:
         scores = {r[0]: (r[1], r[2]) for r in rows}
 
         # Resolve dataset name from collection
-        vc_row = self._conn.execute(
+        vc_row = self._exec(
             "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
             [collection_name],
         ).fetchone()
@@ -1758,7 +1896,7 @@ class DuckDBClient:
             return []
 
         placeholders = ", ".join(["?"] * len(feature_indices))
-        rows = self._conn.execute(
+        rows = self._exec(
             f"SELECT item_id, MAX(activation) AS score, COUNT(*) AS matching_features "
             f"FROM sae_document_activations "
             f"WHERE collection_name = ? AND feature_index IN ({placeholders}) "
@@ -1774,7 +1912,7 @@ class DuckDBClient:
         item_ids = [r[0] for r in rows]
         scores = {r[0]: (r[1], r[2]) for r in rows}
 
-        vc_row = self._conn.execute(
+        vc_row = self._exec(
             "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
             [collection_name],
         ).fetchone()
@@ -1836,7 +1974,7 @@ class DuckDBClient:
 
         # Sparse dot product via CTE: SUM(doc_activation * query_weight) for shared features
         values_rows = ", ".join([f"({idx}, {weight})" for idx, weight in query_weights.items()])
-        rows = self._conn.execute(
+        rows = self._exec(
             f"""
             WITH query_vec(feature_index, weight) AS (
                 VALUES {values_rows}
@@ -1861,7 +1999,7 @@ class DuckDBClient:
         item_ids = [r[0] for r in rows]
         scores = {r[0]: (r[1], r[2]) for r in rows}
 
-        vc_row = self._conn.execute(
+        vc_row = self._exec(
             "SELECT dataset_name FROM vector_collections WHERE collection_name = ?",
             [collection_name],
         ).fetchone()
@@ -1890,22 +2028,23 @@ class DuckDBClient:
 
     def create_chat_session(self, session_id: str, title: str, config_json: str) -> dict:
         """Create a new chat session. Returns the created session dict."""
-        self._conn.execute(
+        self._exec(
             """
             INSERT INTO chat_sessions (id, title, config)
             VALUES (?, ?, ?::JSON)
             """,
             [session_id, title, config_json],
         )
-        row = self._conn.execute(
+        cur = self._exec(
             "SELECT * FROM chat_sessions WHERE id = ?", [session_id]
-        ).fetchone()
-        cols = [d[0] for d in self._conn.description]
+        )
+        row = cur.fetchone()
+        cols = [d[0] for d in cur.description]
         return _sanitize_for_json(dict(zip(cols, row)))
 
     def list_chat_sessions(self, limit: int = 50) -> list[dict]:
         """List chat sessions ordered by most recently updated."""
-        rows = self._conn.execute(
+        cur = self._exec(
             """
             SELECT id, title, config, created_at, updated_at
             FROM chat_sessions
@@ -1913,21 +2052,23 @@ class DuckDBClient:
             LIMIT ?
             """,
             [limit],
-        ).fetchall()
-        cols = [d[0] for d in self._conn.description]
+        )
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
         return [_sanitize_for_json(dict(zip(cols, r))) for r in rows]
 
     def get_chat_session_with_messages(self, session_id: str) -> dict | None:
         """Get a session with all its messages."""
-        row = self._conn.execute(
+        cur = self._exec(
             "SELECT * FROM chat_sessions WHERE id = ?", [session_id]
-        ).fetchone()
+        )
+        row = cur.fetchone()
         if not row:
             return None
-        cols = [d[0] for d in self._conn.description]
+        cols = [d[0] for d in cur.description]
         session = _sanitize_for_json(dict(zip(cols, row)))
 
-        msg_rows = self._conn.execute(
+        msg_cur = self._exec(
             """
             SELECT id, session_id, role, content, parts, created_at
             FROM chat_messages
@@ -1935,8 +2076,9 @@ class DuckDBClient:
             ORDER BY created_at ASC
             """,
             [session_id],
-        ).fetchall()
-        msg_cols = [d[0] for d in self._conn.description]
+        )
+        msg_rows = msg_cur.fetchall()
+        msg_cols = [d[0] for d in msg_cur.description]
         session["messages"] = [_sanitize_for_json(dict(zip(msg_cols, m))) for m in msg_rows]
         return session
 
@@ -1949,32 +2091,33 @@ class DuckDBClient:
         parts_json: str | None = None,
     ) -> dict:
         """Save a single chat message and bump session updated_at."""
-        self._conn.execute(
+        self._exec(
             """
             INSERT INTO chat_messages (id, session_id, role, content, parts)
             VALUES (?, ?, ?, ?, ?::JSON)
             """,
             [message_id, session_id, role, content, parts_json],
         )
-        self._conn.execute(
+        self._exec(
             "UPDATE chat_sessions SET updated_at = current_timestamp WHERE id = ?",
             [session_id],
         )
-        row = self._conn.execute(
+        cur = self._exec(
             "SELECT * FROM chat_messages WHERE id = ?", [message_id]
-        ).fetchone()
-        cols = [d[0] for d in self._conn.description]
+        )
+        row = cur.fetchone()
+        cols = [d[0] for d in cur.description]
         return _sanitize_for_json(dict(zip(cols, row)))
 
     def delete_chat_session(self, session_id: str) -> bool:
         """Delete a chat session and all its messages."""
-        self._conn.execute("DELETE FROM chat_messages WHERE session_id = ?", [session_id])
-        self._conn.execute("DELETE FROM chat_sessions WHERE id = ?", [session_id])
+        self._exec("DELETE FROM chat_messages WHERE session_id = ?", [session_id])
+        self._exec("DELETE FROM chat_sessions WHERE id = ?", [session_id])
         return True
 
     def update_chat_session_title(self, session_id: str, title: str) -> None:
         """Update the title of a chat session."""
-        self._conn.execute(
+        self._exec(
             "UPDATE chat_sessions SET title = ? WHERE id = ?",
             [title, session_id],
         )

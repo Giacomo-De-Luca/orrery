@@ -512,6 +512,30 @@ export const SEARCH_DOCUMENTS_BY_FEATURES = gql`
   }
 `;
 
+/**
+ * Search documents by explicit SAE feature indices (user-selected from combobox).
+ */
+export const SEARCH_DOCUMENTS_BY_FEATURE_INDICES = gql`
+  query SearchDocumentsByFeatureIndices(
+    $collectionName: String!
+    $featureIndices: [Int!]!
+    $limit: Int = 50
+  ) {
+    searchDocumentsByFeatureIndices(
+      collectionName: $collectionName
+      featureIndices: $featureIndices
+      limit: $limit
+    ) {
+      itemId
+      document
+      metadata
+      score
+      matchingFeatures
+      rowIndex
+    }
+  }
+`;
+
 // ========== Streaming Chat Generation ==========
 
 /**
