@@ -15,6 +15,7 @@ import type {
 import type { Point2D, HighlightMap, NestedColorMap, ColorScale, CustomNumericRange } from '../../lib/types/types';
 import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergingScale, getMonochromeScale, desaturateHex, type SequentialScaleName, type DivergingScaleName } from '../../lib/utils/categoryColors';
 import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crameriScales';
+import { useColorScaleReady } from '../../lib/hooks/useColorScaleReady';
 import { calculateMarkerStyle, calculateLuminosity, calculateHighlightScale, calculateSimilarityColors } from '../../lib/utils/plotUtils';
 import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
 import { useZoomLimit } from '../../lib/hooks/useZoomLimit';
@@ -453,7 +454,10 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
     return { min: effMin, max: effMax };
   }, [activeNumericData, logData, customNumericRange]);
 
-  // Generate Plotly-compatible colorscale array
+  // Generate Plotly-compatible colorscale array.
+  // Lazy-load the backing Crameri/strip colormap (only the active one); the tick
+  // forces a recompute once it's available, else custom strips fall back to viridis.
+  const colormapTick = useColorScaleReady(colorScale);
   const plotlyColorScale = useMemo(() => {
     if (colorScale.type === 'categorical') return undefined;
 
@@ -483,7 +487,7 @@ export const ScatterPlot2D = React.memo(function ScatterPlot2D({
       const t = i / steps;
       return [t, scaleFunc(t)] as [number, string];
     });
-  }, [colorScale]);
+  }, [colorScale, colormapTick]);
 
   // Calculate dynamic marker style based on point count
   const markerStyleRaw = useMemo(() => {

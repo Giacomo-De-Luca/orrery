@@ -6,6 +6,7 @@ import type { Point3D, HighlightMap, NestedColorMap, ColorScale, CustomNumericRa
 import { useTheme } from 'next-themes';
 import { buildCategoryColorMap, getCategoryLabel, getSequentialScale, getDivergingScale, getMonochromeScale, desaturateHex } from '../../lib/utils/categoryColors';
 import { isCrameriScale, getCrameriPlotlyScale } from '../../lib/colorMaps/crameriScales';
+import { useColorScaleReady } from '../../lib/hooks/useColorScaleReady';
 import { calculateMarkerStyle, calculateHighlightScale, calculateSimilarityColors } from '../../lib/utils/plotUtils';
 import { useContainerDimensions } from '../../lib/hooks/useContainerDimensions';
 import { FrostedTooltip, type TooltipData } from './FrostedTooltip';
@@ -381,6 +382,9 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
 
   // --- 2. GENERATE PLOTLY NATIVE COLORSCALE ---
   // Bridge the ColorScale union to a Plotly array [[0, 'hex'], [1, 'hex']]
+  // Lazy-load the backing Crameri/strip colormap (only the active one); the tick
+  // forces a recompute once it's available, else custom strips fall back to viridis.
+  const colormapTick = useColorScaleReady(colorScale);
   const plotlyColorScale = useMemo(() => {
     if (colorScale.type === 'categorical') return undefined;
 
@@ -411,7 +415,7 @@ export const ScatterPlot3D = React.memo(function ScatterPlot3D({
       const t = i / steps;
       return [t, scaleFunc(t)]; // [0.1, '#ff0000']
     });
-  }, [colorScale]);
+  }, [colorScale, colormapTick]);
 
   const markerStyle = useMemo(() => calculateMarkerStyle(points.length), [points.length]);
   const highlightScale = useMemo(() => calculateHighlightScale(points.length), [points.length]);

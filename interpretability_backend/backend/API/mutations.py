@@ -660,10 +660,13 @@ class Mutation:
         self, model_id: str, sae_id: str, feature_index: int, label: str, info=None
     ) -> bool:
         """Rename the label of a single SAE feature."""
-        db = get_duckdb_client()
-        return await asyncio.to_thread(
-            db.update_sae_feature_label, model_id, sae_id, feature_index, label
-        )
+        try:
+            db = get_duckdb_client()
+            return await asyncio.to_thread(
+                db.update_sae_feature_label, model_id, sae_id, feature_index, label
+            )
+        except Exception:
+            return False
 
     @strawberry.mutation
     async def delete_sae_data(self, model_id: str, sae_id: str, info=None) -> bool:

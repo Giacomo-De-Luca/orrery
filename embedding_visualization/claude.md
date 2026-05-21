@@ -84,7 +84,7 @@ Visualization state is managed by a **Zustand store** (`lib/stores/useVisualizat
 ## Troubleshooting
 
 - **Plotly types**: Use type assertions (`as Partial<Config>`)
-- **Color scale not loading**: Ensure `loadCrameriColormap()` called before `getCrameriPlotlyScale()`
+- **Color scale not loading / custom strip shows as viridis**: Crameri/strip colormaps (e.g. `hilbertColor`) are lazy-loaded JSON chunks read synchronously from cache via `getCrameriPlotlyScale()`; an unloaded strip falls back to viridis. The scatter plots call `useColorScaleReady(colorScale)` (`lib/hooks/useColorScaleReady.ts`) to lazy-load **the active** strip and bump a tick that forces the colorscale `useMemo` to recompute when it lands — needed because a scale set programmatically (URL param / collection default) never opens `ColorScaleSelector` (which is the only other thing that triggers the load). Include that tick in any new colorscale memo deps.
 - **Categories all gray**: Check `buildCategoryColorMap()` — presets only override specific values
 
 ## Tech Stack

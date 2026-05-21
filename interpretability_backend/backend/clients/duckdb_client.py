@@ -1539,10 +1539,11 @@ class DuckDBClient:
         with self._write_lock:
             result = self._conn.execute(
                 "UPDATE sae_features SET label = ? "
-                "WHERE model_id = ? AND sae_id = ? AND feature_index = ?",
+                "WHERE model_id = ? AND sae_id = ? AND feature_index = ? "
+                "RETURNING feature_index",
                 [label, model_id, sae_id, feature_index],
             )
-            return result.rowcount > 0
+            return result.fetchone() is not None
 
     def search_sae_features(
         self,
