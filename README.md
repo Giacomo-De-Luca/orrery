@@ -1,6 +1,6 @@
-# Orrery: Interactive Embedding Analysis with Mechanistic Interpretability
+# Orrery: Interactive Embedding Visualisation with Sparse Autoencoder Interpretability
 
-Orrery is an open-source platform for embedding visualization, automatic topic extraction, and Sparse Autoencoder (SAE) interpretability. Embed data from any source, visualize up to 500k points at 60 fps, extract topics, and steer a language model live from the scatter plot. *Also perform SAE search on your dataset! Or visualise your data as a galaxy using the nebula mode!*
+Orrery is an open-source platform for embedding visualization, automatic topic extraction, and Sparse Autoencoder (SAE) interpretability. Embed data from any source, visualize up to 500k points at 60 fps for 8gb of vram, extract topics, and steer a language model live from the scatter plot. *Also perform SAE search on your dataset! Or visualise your data as a galaxy using the nebula mode!*
 
 > **Beta** the platform is functional and under active development, and is going to be sent to EMNLP as demo. If you use the platform or find bugs write me, I'm thankful for any preliminar testing! 
 

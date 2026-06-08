@@ -88,6 +88,9 @@ The production frontend image is built with:
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000` |
 
 File uploads use `${NEXT_PUBLIC_API_BASE_URL}/upload`.
+Because these are `NEXT_PUBLIC_*` values, the browser-visible URLs are bundled
+at build time. Changing them requires rebuilding the frontend image with
+`docker compose build frontend` or `docker compose up --build`.
 
 The Docker frontend build sets `ORRERY_DOCKER_BUILD=1`, which skips the Next.js
 ESLint and TypeScript build gates for the current frontend backlog. This keeps
