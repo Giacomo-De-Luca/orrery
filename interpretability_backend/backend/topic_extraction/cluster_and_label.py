@@ -8,7 +8,7 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from sklearn.preprocessing import normalize
 from sklearn.utils import check_array
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 
 class ClassTfidfTransformer(TfidfTransformer):

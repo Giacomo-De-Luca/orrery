@@ -19,7 +19,7 @@ from ..embedding_functions.config import EmbeddingModelConfig, EmbeddingProvider
 from ..embedding_functions.create_embedding_function import create_embedding_function, get_device
 from ..utils.resource_paths import CHROMA_DB_PATH
 
-logger = logging.getLogger("star_map")
+logger = logging.getLogger("orrery")
 
 # Gemini task type mapping: document task type -> query task type
 GEMINI_QUERY_TASK_MAP = {

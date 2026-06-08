@@ -9,7 +9,7 @@ import os
 import time
 from collections.abc import Callable
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 
 DEFAULT_SYSTEM_PROMPT = "You are an assistant that extracts high-level topics from texts."

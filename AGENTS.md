@@ -73,9 +73,9 @@ cd interpretability_backend/interpretability_experiments/WordNet && python embed
 - `CHROMA_HUGGINGFACE_API_KEY` — HuggingFace API embedding
 - `HUGGINGFACE_API_KEY` — HuggingFace model access (gated models)
 - `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` — HuggingFace token aliases used by Docker SAE warmup
-- `STARMAP_RESOURCE_DIR` — runtime backend resource root; Docker sets `/data`
-- `STARMAP_SEED_DIR` — seed snapshot path; Docker points to the committed seed in the image
-- `STARMAP_DIRECTIONS_DIR` — steering direction preset path; Docker points to committed small presets
+- `ORRERY_RESOURCE_DIR` — runtime backend resource root; Docker sets `/data`
+- `ORRERY_SEED_DIR` — seed snapshot path; Docker points to the committed seed in the image
+- `ORRERY_DIRECTIONS_DIR` — steering direction preset path; Docker points to committed small presets
 - `NEXT_PUBLIC_API_BASE_URL` — frontend REST API base URL for uploads
 
 ## Architecture Overview
@@ -132,7 +132,7 @@ Data Sources → Embedding Providers → DuckDB (docs/metadata) + ChromaDB (vect
 
 - **DuckDB path**: `interpretability_backend/resources/main.duckdb` (documents, metadata, projections, topics)
 - **ChromaDB path**: `interpretability_backend/resources/vector_db/` (dense vectors only)
-- **Docker resource root**: when `STARMAP_RESOURCE_DIR=/data`, DuckDB, ChromaDB, uploads, job state, SAE labels, and SAE vectors move under `/data`; seed and direction presets remain read-only assets in the image.
+- **Docker resource root**: when `ORRERY_RESOURCE_DIR=/data`, DuckDB, ChromaDB, uploads, job state, SAE labels, and SAE vectors move under `/data`; seed and direction presets remain read-only assets in the image.
 - **Similarity metric**: ChromaDB uses cosine distance; similarity = 1 - distance
 - **Batch processing**: Embedding pipelines use configurable batch sizes. DuckDB bulk inserts via pandas DataFrames. ChromaDB reads embeddings in 5k batches for projection computation.
 - **DuckDB metadata**: JSON column with no type restrictions (native lists, dicts, nulls). Replaces ChromaDB's str/int/float/bool limitation.

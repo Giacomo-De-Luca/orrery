@@ -23,7 +23,7 @@ import pandas as pd
 
 from ..utils.resource_paths import DUCKDB_PATH
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 # Fields to strip from item metadata (stored in their own tables)
 _PROJECTION_KEYS = frozenset({"pca_2d", "pca_3d", "umap_2d", "umap_3d"})

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 ACTIVATION_BATCH_SIZE = 5_000
 VECTOR_BATCH_SIZE = 500

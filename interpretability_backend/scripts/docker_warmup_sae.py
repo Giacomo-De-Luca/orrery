@@ -31,17 +31,17 @@ class SaeWarmupConfig:
     def from_env(cls) -> "SaeWarmupConfig":
         return cls(
             backend_health_url=os.getenv(
-                "STARMAP_BACKEND_HEALTH_URL", "http://backend:8000/health"
+                "ORRERY_BACKEND_HEALTH_URL", "http://backend:8000/health"
             ),
-            graphql_url=os.getenv("STARMAP_GRAPHQL_URL", "http://backend:8000/graphql"),
-            checkpoint=os.getenv("STARMAP_MODEL_CHECKPOINT", "google/gemma-3-4b-it"),
-            layer=int(os.getenv("STARMAP_SAE_LAYER", "9")),
-            width=os.getenv("STARMAP_SAE_WIDTH", "16k"),
-            hook_type=os.getenv("STARMAP_SAE_HOOK_TYPE", "resid_post"),
-            model_size=os.getenv("STARMAP_SAE_MODEL_SIZE", "4b"),
-            variant=os.getenv("STARMAP_SAE_VARIANT", "it"),
-            wait_timeout_seconds=int(os.getenv("STARMAP_BACKEND_WAIT_TIMEOUT", "600")),
-            poll_interval_seconds=float(os.getenv("STARMAP_BACKEND_POLL_INTERVAL", "2")),
+            graphql_url=os.getenv("ORRERY_GRAPHQL_URL", "http://backend:8000/graphql"),
+            checkpoint=os.getenv("ORRERY_MODEL_CHECKPOINT", "google/gemma-3-4b-it"),
+            layer=int(os.getenv("ORRERY_SAE_LAYER", "9")),
+            width=os.getenv("ORRERY_SAE_WIDTH", "16k"),
+            hook_type=os.getenv("ORRERY_SAE_HOOK_TYPE", "resid_post"),
+            model_size=os.getenv("ORRERY_SAE_MODEL_SIZE", "4b"),
+            variant=os.getenv("ORRERY_SAE_VARIANT", "it"),
+            wait_timeout_seconds=int(os.getenv("ORRERY_BACKEND_WAIT_TIMEOUT", "600")),
+            poll_interval_seconds=float(os.getenv("ORRERY_BACKEND_POLL_INTERVAL", "2")),
         )
 
 

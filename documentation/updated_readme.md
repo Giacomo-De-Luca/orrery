@@ -1,6 +1,6 @@
-# StarMap: Interactive Embedding Analysis with Mechanistic Interpretability
+# Orrery: Interactive Embedding Analysis with Mechanistic Interpretability
 
-StarMap is an open-source platform for embedding visualization, automatic topic extraction, and Sparse Autoencoder (SAE) interpretability. It provides an end-to-end workflow from data ingestion through interactive exploration to mechanistic analysis of language model internals.
+Orrery is an open-source platform for embedding visualization, automatic topic extraction, and Sparse Autoencoder (SAE) interpretability. It provides an end-to-end workflow from data ingestion through interactive exploration to mechanistic analysis of language model internals.
 
 ![Embedding Visualization](gallery/harmbench.png)
 
@@ -22,7 +22,7 @@ StarMap is an open-source platform for embedding visualization, automatic topic 
 |---|---|
 | ![WordNet 212k](gallery/geometry.png) | ![HarmBench Topics](gallery/harmbench.png) |
 | WordNet Senses (212k points) with nebula cluster effects and semantic search | HarmBench safety benchmark with LLM-generated topic labels |
-| ![XKCD Colors](gallery/XKCD_embedded_colourspace.png) | ![Glasgow Norms](gallery/concreteness.jpg) |
+| ![XKCD Colors](gallery/Gemini_XKCD_PCA.png) | ![Glasgow Norms](gallery/concreteness.jpg) |
 | XKCD color words colored by actual hex values -- embedding space mirrors perceptual color space | Glasgow Norms colored by concreteness score -- psycholinguistic dimensions emerge as spatial gradients |
 
 ## Quick Start
@@ -43,7 +43,7 @@ docker compose --profile sae up --build
 
 This warms Docker volumes with Gemma 3 4B IT and the GemmaScope layer 9 residual
 16k SAE, then exits without loading the model into memory. See
-[`documentation/DOCKER.md`](DOCKER.md).
+[`documentation/DOCKER.md`](documentation/DOCKER.md).
 
 ### Manual Installation
 
@@ -92,7 +92,7 @@ Data Sources                  Embedding Providers           Storage
 ## Project Structure
 
 ```
-starmap/
+orrery/
   interpretability_backend/       # Python backend (FastAPI + Strawberry GraphQL)
     backend/
       API/                        #   GraphQL queries, mutations, subscriptions
@@ -162,7 +162,7 @@ Required only for specific features:
 ## Documentation
 
 - [`documentation/DATABASE_ARCHITECTURE.md`](documentation/DATABASE_ARCHITECTURE.md) -- DuckDB/ChromaDB schema, data flow
-- [`documentation/DOCKER.md`](DOCKER.md) -- production Docker demo launcher and SAE cache profile
+- [`documentation/DOCKER.md`](documentation/DOCKER.md) -- production Docker demo launcher and SAE cache profile
 - [`documentation/SAE_ARCHITECTURE.md`](documentation/SAE_ARCHITECTURE.md) -- SAE storage, ingestion, GraphQL API
 - [`documentation/SAE_PIPELINE.md`](documentation/SAE_PIPELINE.md) -- Neuronpedia download-to-ingestion pipeline
 - [`documentation/INTERPRET_API.md`](documentation/INTERPRET_API.md) -- SAE inference service, steering, streaming

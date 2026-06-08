@@ -1,9 +1,9 @@
 import logging
 
-logger = logging.getLogger("star_map")
+logger = logging.getLogger("orrery")
 logger.setLevel(logging.DEBUG)
 # create file handler which logs even debug messages
-fh = logging.FileHandler("star_map.log")
+fh = logging.FileHandler("orrery.log")
 fh.setLevel(logging.DEBUG)
 # create console handler with a higher log level
 ch = logging.StreamHandler()

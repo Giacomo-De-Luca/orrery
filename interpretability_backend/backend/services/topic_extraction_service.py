@@ -25,7 +25,7 @@ from ..topic_extraction.llm_labeling import (
 from ..utils.duckdb_sync import _get_db as _get_duckdb
 from .progress_emitter import emit_progress
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 
 @dataclass

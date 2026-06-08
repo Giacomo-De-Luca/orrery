@@ -27,7 +27,7 @@ from .topic_extraction_service import (
     extract_topics as do_extract_topics,
 )
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 
 @dataclass

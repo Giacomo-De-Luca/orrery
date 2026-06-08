@@ -636,7 +636,7 @@ class Mutation:
                     await asyncio.to_thread(_cleanup)
 
             except Exception as e:
-                logger = logging.getLogger("star_map.mutations")
+                logger = logging.getLogger("orrery.mutations")
                 logger.exception("SAE collection creation failed for %s", collection_name)
                 collection_error = f"Collection creation failed: {e}"
                 collection_name = None
@@ -843,7 +843,7 @@ class Mutation:
         Supports resume: already-processed items are skipped.
         Emits progress via the embedding_progress subscription.
         """
-        logger = logging.getLogger("star_map.mutations")
+        logger = logging.getLogger("orrery.mutations")
         db = get_duckdb_client()
         service = get_interpret_service()
         collection_name = input.collection_name

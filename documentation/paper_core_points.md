@@ -1,4 +1,4 @@
-# StarMap: Core Points for EMNLP Demo Paper
+# Orrery: Core Points for EMNLP Demo Paper
 
 Annotated outline for a 6-page system demonstration paper.
 
@@ -6,8 +6,8 @@ Annotated outline for a 6-page system demonstration paper.
 
 ## Title Options
 
-- "StarMap: An Interactive Platform for Embedding Analysis and Mechanistic Interpretability"
-- "StarMap: Unifying Embedding Visualization, Topic Extraction, and SAE Interpretability"
+- "Orrery: An Interactive Platform for Embedding Analysis and Mechanistic Interpretability"
+- "Orrery: Unifying Embedding Visualization, Topic Extraction, and SAE Interpretability"
 
 ---
 
@@ -15,7 +15,7 @@ Annotated outline for a 6-page system demonstration paper.
 
 **Opening problem:** Researchers working with embeddings face fragmented tooling. Visualization (TensorBoard Projector), topic analysis (BERTopic), and mechanistic interpretability (Neuronpedia) exist as separate systems. Moving between them requires data export, format conversion, and context switching. No existing tool lets a researcher go from "what does my embedding space look like?" to "which model features drive this structure?" in a single workflow.
 
-**System contribution:** StarMap is an open-source platform that integrates:
+**System contribution:** Orrery is an open-source platform that integrates:
 1. Interactive embedding visualization (2D/3D, 250k+ points)
 2. Automatic topic extraction with hierarchical reduction
 3. Sparse Autoencoder analysis with live model inference and steering
@@ -132,7 +132,7 @@ Annotated outline for a 6-page system demonstration paper.
 
 **Table:**
 
-| Feature | StarMap | TensorBoard Projector | BERTopic | Neuronpedia | Nomic Atlas |
+| Feature | Orrery | TensorBoard Projector | BERTopic | Neuronpedia | Nomic Atlas |
 |---------|---------|----------------------|----------|-------------|-------------|
 | Interactive 2D/3D visualization | Yes | Yes | No | No | Yes |
 | Custom dataset embedding | Yes (multi-provider) | No (pre-computed only) | No (headless) | No | Yes (proprietary) |
@@ -147,7 +147,7 @@ Annotated outline for a 6-page system demonstration paper.
 | Local/offline operation | Yes | Yes | Yes | No | No |
 | Scale (points) | 250k+ | ~50k | N/A | N/A | 1M+ (cloud) |
 
-**Positioning:** StarMap occupies a unique intersection: it is the only system that combines general-purpose embedding visualization with mechanistic interpretability (SAE analysis). TensorBoard Projector visualizes but cannot analyze model internals. BERTopic extracts topics but has no interactive visualization layer. Neuronpedia explores SAE features but cannot connect them to embedding-level structure. Nomic Atlas scales further but is closed-source and lacks SAE integration.
+**Positioning:** Orrery occupies a unique intersection: it is the only system that combines general-purpose embedding visualization with mechanistic interpretability (SAE analysis). TensorBoard Projector visualizes but cannot analyze model internals. BERTopic extracts topics but has no interactive visualization layer. Neuronpedia explores SAE features but cannot connect them to embedding-level structure. Nomic Atlas scales further but is closed-source and lacks SAE integration.
 
 ---
 
@@ -173,7 +173,7 @@ Annotated outline for a 6-page system demonstration paper.
 
 ## 7. Conclusion (0.25 pages)
 
-StarMap unifies embedding visualization, topic extraction, and SAE interpretability in a single open-source platform. Through analytical coloring and linear probing, we demonstrate that embedding spaces exhibit emergent alignment with perceptual color space (Mantel r=0.4) and encode psycholinguistic dimensions as linear directions (R^2 up to 0.9). The SAE integration enables researchers to trace embedding-level structure back to individual model features, and to interactively steer model behavior — a workflow not available in any existing tool.
+Orrery unifies embedding visualization, topic extraction, and SAE interpretability in a single open-source platform. Through analytical coloring and linear probing, we demonstrate that embedding spaces exhibit emergent alignment with perceptual color space (Mantel r=0.4) and encode psycholinguistic dimensions as linear directions (R^2 up to 0.9). The SAE integration enables researchers to trace embedding-level structure back to individual model features, and to interactively steer model behavior — a workflow not available in any existing tool.
 
 ---
 

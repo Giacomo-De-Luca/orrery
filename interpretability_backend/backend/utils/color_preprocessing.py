@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-logger = logging.getLogger("star_map")
+logger = logging.getLogger("orrery")
 
 # Column names that trigger color preprocessing
 COLOR_COLUMN_NAMES = {"colour_code", "color_code", "hex_color", "hex_colour", "color_hex"}

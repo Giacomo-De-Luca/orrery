@@ -1,19 +1,19 @@
 services:
   backend:
-    image: starmap-backend:latest
+    image: orrery-backend:latest
     build:
       context: .
       dockerfile: Dockerfile.backend
     ports:
       - "8000:8000"
     volumes:
-      - starmap_backend_data:/data
-      - starmap_hf_cache:/models/huggingface
+      - orrery_backend_data:/data
+      - orrery_hf_cache:/models/huggingface
     environment:
       PYTHONUNBUFFERED: "1"
-      STARMAP_RESOURCE_DIR: /data
-      STARMAP_SEED_DIR: /app/interpretability_backend/resources/seed
-      STARMAP_DIRECTIONS_DIR: /app/interpretability_backend/resources/directions
+      ORRERY_RESOURCE_DIR: /data
+      ORRERY_SEED_DIR: /app/interpretability_backend/resources/seed
+      ORRERY_DIRECTIONS_DIR: /app/interpretability_backend/resources/directions
       HF_HOME: /models/huggingface
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-}
@@ -30,7 +30,7 @@ services:
       retries: 3
 
   frontend:
-    image: starmap-frontend:latest
+    image: orrery-frontend:latest
     build:
       context: ./embedding_visualization
       dockerfile: Dockerfile
@@ -62,32 +62,32 @@ services:
       retries: 3
 
   sae-warmup:
-    image: starmap-backend:latest
+    image: orrery-backend:latest
     profiles:
       - sae
     depends_on:
       backend:
         condition: service_healthy
     volumes:
-      - starmap_backend_data:/data
-      - starmap_hf_cache:/models/huggingface
+      - orrery_backend_data:/data
+      - orrery_hf_cache:/models/huggingface
     environment:
       PYTHONUNBUFFERED: "1"
-      STARMAP_RESOURCE_DIR: /data
-      STARMAP_SEED_DIR: /app/interpretability_backend/resources/seed
-      STARMAP_DIRECTIONS_DIR: /app/interpretability_backend/resources/directions
+      ORRERY_RESOURCE_DIR: /data
+      ORRERY_SEED_DIR: /app/interpretability_backend/resources/seed
+      ORRERY_DIRECTIONS_DIR: /app/interpretability_backend/resources/directions
       HF_HOME: /models/huggingface
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_HUB_TOKEN: ${HUGGINGFACE_HUB_TOKEN:-}
       HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY:-}
-      STARMAP_BACKEND_HEALTH_URL: http://backend:8000/health
-      STARMAP_GRAPHQL_URL: http://backend:8000/graphql
-      STARMAP_MODEL_CHECKPOINT: google/gemma-3-4b-it
-      STARMAP_SAE_LAYER: "9"
-      STARMAP_SAE_WIDTH: 16k
-      STARMAP_SAE_HOOK_TYPE: resid_post
-      STARMAP_SAE_MODEL_SIZE: 4b
-      STARMAP_SAE_VARIANT: it
+      ORRERY_BACKEND_HEALTH_URL: http://backend:8000/health
+      ORRERY_GRAPHQL_URL: http://backend:8000/graphql
+      ORRERY_MODEL_CHECKPOINT: google/gemma-3-4b-it
+      ORRERY_SAE_LAYER: "9"
+      ORRERY_SAE_WIDTH: 16k
+      ORRERY_SAE_HOOK_TYPE: resid_post
+      ORRERY_SAE_MODEL_SIZE: 4b
+      ORRERY_SAE_VARIANT: it
     command:
       [
         "uv",
@@ -100,8 +100,8 @@ services:
     restart: "no"
 
 volumes:
-  starmap_backend_data:
-  starmap_hf_cache:
+  orrery_backend_data:
+  orrery_hf_cache:
 
 networks:
   default:

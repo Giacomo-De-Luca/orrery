@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .resource_paths import CHROMA_DB_PATH, DUCKDB_PATH, SEED_DIR
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 # Committed seed snapshot paths (mirror scripts/build_seed_snapshot.py).
 SEED_DUCKDB_PATH = SEED_DIR / "main.duckdb"

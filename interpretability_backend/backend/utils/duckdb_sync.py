@@ -6,7 +6,7 @@ Each function is a no-op if DuckDB is unavailable.
 
 import logging
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 
 def _get_db():

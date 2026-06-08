@@ -24,7 +24,7 @@ from interpret.sae.source_ids import neuronpedia_source_id
 
 from ..services.progress_emitter import emit_progress
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 # Total progress split across stages (100 units).
 # Download sub-stages are reported as "download:download_features" etc.

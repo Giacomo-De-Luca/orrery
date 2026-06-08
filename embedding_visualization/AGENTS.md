@@ -9,7 +9,7 @@ Follow the root `AGENTS.md` rules. Historical frontend notes also live in
 - Docker uses `npm run build:docker`, which runs webpack-backed `next build`.
   Keep this separate from the local `npm run build` script while the app still
   relies on webpack aliasing in `next.config.ts`.
-- `build:docker` sets `STARMAP_DOCKER_BUILD=1`, which skips the Next ESLint and
+- `build:docker` sets `ORRERY_DOCKER_BUILD=1`, which skips the Next ESLint and
   TypeScript build gates for the current frontend backlog. Keep this Docker-only
   and do not treat it as proof that the frontend is type-clean.
 - Public backend URLs are configured with `NEXT_PUBLIC_GRAPHQL_URL`,

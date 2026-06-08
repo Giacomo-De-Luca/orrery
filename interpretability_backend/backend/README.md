@@ -84,7 +84,7 @@ interpretability_backend/
 │       ├── batch_utils.py               # sort_items_by_length (efficient batching)
 │       ├── id_utils.py                  # IDDeduplicator (handles duplicate IDs)
 │       ├── provider_list.py             # Single source of truth for EmbeddingProviderEnum
-│       ├── logger.py                    # star_map logger setup (file + console)
+│       ├── logger.py                    # orrery logger setup (file + console)
 │       └── known_dimensions.json        # Cached model→dimension mapping
 │
 ├── resources/
@@ -305,6 +305,6 @@ uv run pytest interpretability_backend/tests/
 
 ### Logging
 
-The backend uses the `star_map` logger hierarchy with file output to `star_map.log` and console error output. Key loggers:
-- `star_map.topic_extraction` - Topic extraction and reduction
-- `star_map.llm_labeling` - LLM label generation
+The backend uses the `orrery` logger hierarchy with file output to `orrery.log` and console error output. Key loggers:
+- `orrery.topic_extraction` - Topic extraction and reduction
+- `orrery.llm_labeling` - LLM label generation

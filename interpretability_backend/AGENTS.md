@@ -7,9 +7,9 @@ Follow the root `AGENTS.md` rules. Historical backend notes also live in
 
 - Runtime resource paths are centralized in `backend/utils/resource_paths.py`.
 - Local development defaults to `interpretability_backend/resources/`.
-- Docker sets `STARMAP_RESOURCE_DIR=/data`,
-  `STARMAP_SEED_DIR=/app/interpretability_backend/resources/seed`,
-  `STARMAP_DIRECTIONS_DIR=/app/interpretability_backend/resources/directions`, and
+- Docker sets `ORRERY_RESOURCE_DIR=/data`,
+  `ORRERY_SEED_DIR=/app/interpretability_backend/resources/seed`,
+  `ORRERY_DIRECTIONS_DIR=/app/interpretability_backend/resources/directions`, and
   `HF_HOME=/models/huggingface`.
 - The optional SAE profile runs `scripts/docker_warmup_sae.py` with
   `uv run python`; it warms volumes only and must not auto-load Gemma into

@@ -54,7 +54,7 @@ from interpret.sae.source_ids import neuronpedia_source_id  # noqa: E402
 from interpret.sae.steering import SteeringMode, SteeringOp  # noqa: E402
 from interpret.sae import paths as sae_paths  # noqa: E402
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 # Default layers per model size — must match layers available in google/gemma-scope-2-*
 # Only layers for which SAE weights have been published are listed.

@@ -23,7 +23,7 @@ from sklearn.preprocessing import normalize
 
 from .cluster_and_label import ClassTfidfTransformer
 
-logger = logging.getLogger("star_map." + __name__)
+logger = logging.getLogger("orrery." + __name__)
 
 
 @dataclass
