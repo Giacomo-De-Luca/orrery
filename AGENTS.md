@@ -53,6 +53,10 @@ Embedding analysis platform: embed data from any source (HuggingFace datasets, l
 # Frontend
 cd embedding_visualization && npm run dev  # http://localhost:3000
 
+# Production Docker demo
+docker compose up --build
+docker compose --profile sae up --build     # cache Gemma 3 4B IT + layer 9 SAE, no auto-load
+
 # Dependencies
 uv sync                                    # Backend (Python)
 cd embedding_visualization && npm install  # Frontend
@@ -68,6 +72,11 @@ cd interpretability_backend/interpretability_experiments/WordNet && python embed
 - `CHROMA_COHERE_API_KEY` — Cohere embedding
 - `CHROMA_HUGGINGFACE_API_KEY` — HuggingFace API embedding
 - `HUGGINGFACE_API_KEY` — HuggingFace model access (gated models)
+- `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` — HuggingFace token aliases used by Docker SAE warmup
+- `STARMAP_RESOURCE_DIR` — runtime backend resource root; Docker sets `/data`
+- `STARMAP_SEED_DIR` — seed snapshot path; Docker points to the committed seed in the image
+- `STARMAP_DIRECTIONS_DIR` — steering direction preset path; Docker points to committed small presets
+- `NEXT_PUBLIC_API_BASE_URL` — frontend REST API base URL for uploads
 
 ## Architecture Overview
 
@@ -80,6 +89,8 @@ Data Sources → Embedding Providers → DuckDB (docs/metadata) + ChromaDB (vect
 **Dual-database design**: DuckDB (`resources/main.duckdb`) is the central orchestrator storing documents, metadata, projections (native FLOAT[] arrays), and topic data (normalized tables). ChromaDB (`resources/vector_db/`) stores only IDs + dense embedding vectors. One dataset in DuckDB can have multiple `vector_collections` (different embedding models, dense/sparse). Items are stored in **per-dataset tables** (`items_{name}`) for isolation and per-dataset FTS indexes. See `documentation/DATABASE_ARCHITECTURE.md` for full schema, API reference, and data flow diagrams.
 
 **Seed dataset (ships in git)**: The live data stores are gitignored, so a fresh clone would be empty. A small (~23 MB) committed seed snapshot at `interpretability_backend/resources/seed/` (`main.duckdb` + `vector_db/`) holds two demo collections — `emotion` (1000 rows, MiniLM, Gemini topic labels; semantic search works offline) and `xkcd_hilbert_gemini` (954 rows, Gemini-embedded XKCD colors with rainbow `mapped_colour` coloring). On first backend startup, `backend/utils/seed_bootstrap.py::ensure_seed_loaded()` (called from the FastAPI `lifespan` in `main.py`) copies the seed into the live paths **only if `main.duckdb` is absent** — it never clobbers an existing DB. The seed is regenerated from the production stores (backend stopped) via `scripts/build_seed_snapshot.py`. `.gitignore` ignores the live stores but un-ignores `resources/seed/`. Note: live semantic search on the XKCD collection needs `GEMINI_API_KEY` (its vectors are Gemini); viewing/coloring/topics work with no model since projections are precomputed.
+
+**Production Docker demo**: `docker-compose.yml` is the production launcher. Default `docker compose up --build` runs backend/frontend images without source bind mounts and stores mutable data in named volumes. `docker compose --profile sae up --build` adds a cache-only `sae-warmup` service that downloads/prepares Gemma 3 4B IT and the layer 9 residual 16k SAE into volumes, but does not call `loadModel`. Full behavior, reset semantics, and variables are documented in `documentation/DOCKER.md`; backend scripts are summarized in `interpretability_backend/scripts/README.md`.
 
 **Embedding providers**: SentenceTransformers (default, local), OpenAI, Cohere, Ollama (local), HuggingFace API, Gemini, QWEN (local), BGE (local). Model names are free-form; dimensions auto-detected. Hardware auto-detects MPS → CUDA → CPU.
 
@@ -121,6 +132,7 @@ Data Sources → Embedding Providers → DuckDB (docs/metadata) + ChromaDB (vect
 
 - **DuckDB path**: `interpretability_backend/resources/main.duckdb` (documents, metadata, projections, topics)
 - **ChromaDB path**: `interpretability_backend/resources/vector_db/` (dense vectors only)
+- **Docker resource root**: when `STARMAP_RESOURCE_DIR=/data`, DuckDB, ChromaDB, uploads, job state, SAE labels, and SAE vectors move under `/data`; seed and direction presets remain read-only assets in the image.
 - **Similarity metric**: ChromaDB uses cosine distance; similarity = 1 - distance
 - **Batch processing**: Embedding pipelines use configurable batch sizes. DuckDB bulk inserts via pandas DataFrames. ChromaDB reads embeddings in 5k batches for projection computation.
 - **DuckDB metadata**: JSON column with no type restrictions (native lists, dicts, nulls). Replaces ChromaDB's str/int/float/bool limitation.

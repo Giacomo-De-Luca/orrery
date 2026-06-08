@@ -15,7 +15,7 @@ import chromadb
 import numpy as np
 from chromadb.config import Settings
 
-from ..embedding_functions.config import DB_PATH
+from ..utils.resource_paths import CHROMA_DB_PATH as DB_PATH
 from ..topic_extraction.cluster_and_label import GenerateTopics
 from ..topic_extraction.llm_labeling import (
     _create_labeler,

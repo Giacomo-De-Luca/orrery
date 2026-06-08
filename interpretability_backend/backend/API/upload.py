@@ -3,11 +3,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from ..utils.resource_paths import UPLOADS_DIR
+
 router = APIRouter()
 
-# Define uploads directory
-# interpretability_backend/resources/uploads
-UPLOAD_DIR = Path(__file__).parent.parent.parent / "resources" / "uploads"
+UPLOAD_DIR = UPLOADS_DIR
 
 
 @router.post("/upload")
@@ -31,4 +31,4 @@ async def upload_file(file: UploadFile = File(...)):
         return {"filePath": str(target_path.absolute())}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}") from e

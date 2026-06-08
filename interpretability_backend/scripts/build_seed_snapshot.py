@@ -37,7 +37,10 @@ from chromadb.config import Settings
 
 from interpretability_backend.backend.clients.chromadb_client import ChromaDBClient
 from interpretability_backend.backend.clients.duckdb_client import DuckDBClient
-from interpretability_backend.backend.embedding_functions.config import DB_PATH, DUCKDB_PATH
+from interpretability_backend.backend.utils.resource_paths import (
+    CHROMA_DB_PATH as DB_PATH,
+    DUCKDB_PATH,
+)
 
 # Collections to ship, and the datasets that back them.
 # (A dataset's items table is shared by all its vector_collections.)

@@ -15,12 +15,11 @@ import os
 import shutil
 from pathlib import Path
 
-from ..embedding_functions.config import DB_PATH, DUCKDB_PATH
+from .resource_paths import CHROMA_DB_PATH, DUCKDB_PATH, SEED_DIR
 
 logger = logging.getLogger("star_map." + __name__)
 
 # Committed seed snapshot paths (mirror scripts/build_seed_snapshot.py).
-SEED_DIR = DUCKDB_PATH.parent / "seed"
 SEED_DUCKDB_PATH = SEED_DIR / "main.duckdb"
 SEED_VECTOR_DB = SEED_DIR / "vector_db"
 
@@ -49,11 +48,11 @@ def ensure_seed_loaded() -> bool:
     # existence, this ensures a crash mid-copy can never leave a half-seeded DB
     # that is mistaken for complete (it would just be retried next startup).
     if SEED_VECTOR_DB.exists():
-        shutil.copytree(SEED_VECTOR_DB, Path(DB_PATH), dirs_exist_ok=True)
+        shutil.copytree(SEED_VECTOR_DB, Path(CHROMA_DB_PATH), dirs_exist_ok=True)
 
     tmp_duckdb = live_duckdb.with_name(live_duckdb.name + ".seedtmp")
     shutil.copy2(SEED_DUCKDB_PATH, tmp_duckdb)
     os.replace(tmp_duckdb, live_duckdb)
 
-    logger.info("Seed snapshot loaded into %s and %s", live_duckdb, DB_PATH)
+    logger.info("Seed snapshot loaded into %s and %s", live_duckdb, CHROMA_DB_PATH)
     return True

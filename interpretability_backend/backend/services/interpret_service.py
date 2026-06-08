@@ -27,6 +27,7 @@ from pathlib import Path
 
 import torch
 
+from ..utils.resource_paths import DIRECTIONS_DIR
 from .token_emitter import emit_token
 
 # The interpret/ toolkit uses `interpret.*` absolute imports internally.
@@ -76,9 +77,6 @@ _DEFAULT_LAYERS = [9, 17, 22, 29]  # fallback for unknown sizes
 # them at ``RESID_POST`` of the configured layer. The metadata JSON files
 # co-located with each ``.pt`` are provenance only; layer + model binding
 # live here as the runtime source of truth.
-
-DIRECTIONS_DIR = Path(__file__).resolve().parents[2] / "resources" / "directions"
-
 
 @dataclass(frozen=True)
 class DirectionPreset:

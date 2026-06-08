@@ -1,7 +1,16 @@
 import type { NextConfig } from "next";
 
+const isDockerBuild = process.env.STARMAP_DOCKER_BUILD === "1";
+
 const nextConfig: NextConfig = {
   /* config options here */
+  output: "standalone",
+  eslint: {
+    ignoreDuringBuilds: isDockerBuild,
+  },
+  typescript: {
+    ignoreBuildErrors: isDockerBuild,
+  },
 
   experimental: {
     reactCompiler: true,

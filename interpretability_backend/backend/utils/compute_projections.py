@@ -12,8 +12,8 @@ import numpy as np
 from chromadb.config import Settings
 from tqdm import tqdm
 
-from ..embedding_functions.config import DB_PATH
 from ..services.progress_emitter import emit_progress
+from ..utils.resource_paths import CHROMA_DB_PATH as DB_PATH
 from .duckdb_sync import _get_db as _get_duckdb
 
 

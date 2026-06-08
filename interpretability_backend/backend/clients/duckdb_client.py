@@ -21,7 +21,7 @@ from typing import Any
 import duckdb
 import pandas as pd
 
-from ..embedding_functions.config import DUCKDB_PATH
+from ..utils.resource_paths import DUCKDB_PATH
 
 logger = logging.getLogger("star_map." + __name__)
 

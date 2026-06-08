@@ -15,6 +15,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from ..utils.resource_paths import JOB_STATE_PATH
+
 
 class JobStatus(Enum):
     """Status of an embedding job."""
@@ -86,7 +88,7 @@ class JobState:
 
 
 # Default path for job state file (alongside vector_db)
-DEFAULT_JOB_STATE_PATH = Path(__file__).parent.parent.parent / "resources" / "job_state.json"
+DEFAULT_JOB_STATE_PATH = JOB_STATE_PATH
 
 
 class JobStateService:

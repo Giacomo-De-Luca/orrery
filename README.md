@@ -15,6 +15,26 @@ Polish is not there, a lot of the functionalities are iffy at best, but the arch
 
 ## Quick Start
 
+### Production Docker Demo
+
+```bash
+docker compose up --build
+# Frontend: http://localhost:3000
+# GraphQL Playground: http://localhost:8000/graphql
+```
+
+Optional SAE cache warmup, which downloads/prepares Gemma 3 4B IT and the
+layer 9 residual 16k SAE into Docker volumes without auto-loading the model:
+
+```bash
+docker compose --profile sae up --build
+```
+
+See [documentation/DOCKER.md](documentation/DOCKER.md) for volume reset behavior,
+HuggingFace token options, and runtime path configuration.
+
+### Local Development
+
 ```bash
 # 1. Install all dependencies (Python, Rust, Node.js)
 ./install_requirements.sh
@@ -419,3 +439,4 @@ mutation {
 
 - **[interpretability_backend/README.md](interpretability_backend/README.md)** - Backend documentation
 - **[embedding_visualization/README.md](embedding_visualization/README.md)** - Frontend documentation
+- **[documentation/DOCKER.md](documentation/DOCKER.md)** - Production Docker demo and SAE cache profile

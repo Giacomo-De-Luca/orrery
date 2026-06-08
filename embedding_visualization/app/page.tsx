@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppHeader } from './components/AppHeader';
 import { AppFooter } from './components/AppFooter';
@@ -24,6 +24,18 @@ import { serializeColorScale, deserializeColorScale, resolveDefaultColorScheme }
 const EMPTY_METADATA: Record<string, unknown>[] = [];
 
 export default function Home() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        Loading...
+      </div>
+    }>
+      <HomeContent />
+    </Suspense>
+  );
+}
+
+function HomeContent() {
   const { collections, loading: collectionsLoading, error: collectionsError } = useCollections();
   const searchParams = useSearchParams();
   const router = useRouter();

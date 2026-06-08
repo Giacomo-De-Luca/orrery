@@ -28,7 +28,7 @@ from chromadb.config import Settings
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from backend.clients.duckdb_client import DuckDBClient
-from backend.embedding_functions.config import DB_PATH
+from backend.utils.resource_paths import CHROMA_DB_PATH as DB_PATH
 
 # Projection keys stored as JSON strings in ChromaDB per-item metadata
 PROJECTION_KEYS = {"pca_2d", "pca_3d", "umap_2d", "umap_3d"}

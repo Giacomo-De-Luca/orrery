@@ -30,10 +30,20 @@ StarMap is an open-source platform for embedding visualization, automatic topic 
 ### Docker (Recommended)
 
 ```bash
-docker compose up
+docker compose up --build
 # Frontend: http://localhost:3000 (pre-loaded with demo datasets)
 # GraphQL Playground: http://localhost:8000/graphql
 ```
+
+Optional SAE cache profile:
+
+```bash
+docker compose --profile sae up --build
+```
+
+This warms Docker volumes with Gemma 3 4B IT and the GemmaScope layer 9 residual
+16k SAE, then exits without loading the model into memory. See
+[`documentation/DOCKER.md`](DOCKER.md).
 
 ### Manual Installation
 
@@ -145,12 +155,14 @@ Required only for specific features:
 | `CHROMA_OPENAI_API_KEY` | OpenAI embedding + LLM topic labeling |
 | `CHROMA_COHERE_API_KEY` | Cohere embedding |
 | `HUGGINGFACE_API_KEY` | HuggingFace gated model access |
+| `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN` | HuggingFace token aliases for Docker SAE warmup |
 
 **Note:** Core features (SentenceTransformers embedding, visualization, topic extraction with keyword labels, SAE analysis) work without any API keys using local models only.
 
 ## Documentation
 
 - [`documentation/DATABASE_ARCHITECTURE.md`](documentation/DATABASE_ARCHITECTURE.md) -- DuckDB/ChromaDB schema, data flow
+- [`documentation/DOCKER.md`](DOCKER.md) -- production Docker demo launcher and SAE cache profile
 - [`documentation/SAE_ARCHITECTURE.md`](documentation/SAE_ARCHITECTURE.md) -- SAE storage, ingestion, GraphQL API
 - [`documentation/SAE_PIPELINE.md`](documentation/SAE_PIPELINE.md) -- Neuronpedia download-to-ingestion pipeline
 - [`documentation/INTERPRET_API.md`](documentation/INTERPRET_API.md) -- SAE inference service, steering, streaming

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --turbopack",
+    "build:docker": "STARMAP_DOCKER_BUILD=1 next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",

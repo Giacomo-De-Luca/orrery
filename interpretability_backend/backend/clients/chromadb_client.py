@@ -17,6 +17,7 @@ from chromadb.config import Settings
 
 from ..embedding_functions.config import EmbeddingModelConfig, EmbeddingProvider
 from ..embedding_functions.create_embedding_function import create_embedding_function, get_device
+from ..utils.resource_paths import CHROMA_DB_PATH
 
 logger = logging.getLogger("star_map")
 
@@ -37,8 +38,7 @@ class ChromaDBClient:
 
     def __init__(self, db_path: str = None):
         if db_path is None:
-            interpretability_root = Path(__file__).parent.parent.parent
-            db_path = interpretability_root / "resources" / "vector_db"
+            db_path = CHROMA_DB_PATH
         else:
             db_path = Path(db_path)
 
@@ -108,7 +108,7 @@ class ChromaDBClient:
 
             return collection
         except Exception as e:
-            raise ValueError(f"Collection '{name}' not found: {e}")
+            raise ValueError(f"Collection '{name}' not found: {e}") from e
 
     def semantic_search(
         self,

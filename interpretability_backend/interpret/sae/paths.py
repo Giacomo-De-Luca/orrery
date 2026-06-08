@@ -3,16 +3,19 @@
 All paths are derived from a ``GemmaScopeSAEConfig`` so there are no
 hardcoded model IDs or directory names scattered across the codebase.
 
-The resource root is ``interpretability_backend/resources/`` — two levels
-above this file's package directory.
+The default resource root is ``interpretability_backend/resources/``. Docker
+sets ``STARMAP_RESOURCE_DIR`` so downloaded SAE artifacts live in a named
+volume rather than in the image or repository.
 """
 
+import os
 from pathlib import Path
 
 from interpret.sae.sae_config import GemmaScopeSAEConfig
 from interpret.sae.source_ids import neuronpedia_source_id
 
-_RESOURCES = Path(__file__).resolve().parents[2] / "resources"
+_DEFAULT_RESOURCES = Path(__file__).resolve().parents[2] / "resources"
+_RESOURCES = Path(os.getenv("STARMAP_RESOURCE_DIR", str(_DEFAULT_RESOURCES))).expanduser()
 
 
 def labels_dir(config: GemmaScopeSAEConfig) -> Path:

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useLazyQuery, useApolloClient } from '@apollo/client/react';
 import Link from 'next/link';
@@ -74,6 +74,18 @@ function ModeToggle() {
 }
 
 export default function FeaturesPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        Loading...
+      </div>
+    }>
+      <FeaturesPageContent />
+    </Suspense>
+  );
+}
+
+function FeaturesPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const apolloClient = useApolloClient();

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Button } from '@/lib/ui-primitives/button';
 import { Input } from '@/lib/ui-primitives/input';
 import { Label } from '@/lib/ui-primitives/label';
 import { Upload } from 'lucide-react';
@@ -11,6 +10,8 @@ interface FileUploadZoneProps {
   onFilePathChange: (path: string) => void;
   disabled?: boolean;
 }
+
+type BrowserFileWithPath = File & { path?: string };
 
 export function FileUploadZone({ filePath, onFilePathChange, disabled }: FileUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -56,8 +57,8 @@ export function FileUploadZone({ filePath, onFilePathChange, disabled }: FileUpl
       const formData = new FormData();
       formData.append('file', file);
 
-      // Determine API URL (assuming localhost:8000 if not configured)
-      const apiUrl = 'http://localhost:8000/upload';
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+      const apiUrl = `${apiBaseUrl.replace(/\/$/, '')}/upload`;
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -93,7 +94,7 @@ export function FileUploadZone({ filePath, onFilePathChange, disabled }: FileUpl
     if (files.length > 0) {
       const file = files[0];
       // Check for path (Electron/Local) or Name (Browser)
-      const path = (file as any).path;
+      const path = (file as BrowserFileWithPath).path;
 
       if (path && path.startsWith('/')) {
         // It's a real local path (Electron or specific browser config)
@@ -109,7 +110,7 @@ export function FileUploadZone({ filePath, onFilePathChange, disabled }: FileUpl
     const files = e.target.files;
     if (files && files.length > 0) {
       const file = files[0];
-      const path = (file as any).path;
+      const path = (file as BrowserFileWithPath).path;
       if (path && path.startsWith('/')) {
         handleFilePathChange(path);
       } else {

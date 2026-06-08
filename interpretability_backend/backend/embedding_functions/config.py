@@ -4,11 +4,11 @@ Configuration for embedding datasets.
 
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
+
+from ..clients.huggingface_client import PortionConfig
+from ..utils.resource_paths import CHROMA_DB_PATH as DB_PATH, DUCKDB_PATH  # noqa: F401
 
 # ========== Configuration Constants ==========
-DB_PATH = Path(__file__).parent.parent.parent / "resources" / "vector_db"
-DUCKDB_PATH = Path(__file__).parent.parent.parent / "resources" / "main.duckdb"
 TEXT_MODEL_NAME = "all-MiniLM-L6-v2"
 IMAGE_MODEL_NAME = "google/vit-base-patch16-384"
 
@@ -76,14 +76,6 @@ class EmbeddingResult:
     error: str | None = None
     embedding_provider: str | None = None
     embedding_model: str | None = None
-
-
-# Import PortionConfig for EmbeddingConfig
-# Note: PortionConfig is in huggingface_client.
-# We might need to handle this dependency or import it.
-# Ideally configs shouldn't depend on clients, but let's import for now to match original struct.
-from ..clients.huggingface_client import PortionConfig
-
 
 @dataclass(kw_only=True)
 class BaseConfig:
