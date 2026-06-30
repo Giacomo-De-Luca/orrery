@@ -174,6 +174,13 @@ class TopicConfigInput:
     # Number of clusters (required for kmeans, gmm, spectral; ignored for hdbscan)
     n_clusters: int | None = None
 
+    # Clustering space: "projection" (viz coords) | "cluster_umap" (BERTopic 5D UMAP) | "embedding"
+    cluster_on: str = "cluster_umap"
+    # BERTopic-style clustering UMAP params (used only when cluster_on == "cluster_umap")
+    cluster_n_components: int = 5
+    cluster_min_dist: float = 0.0
+    cluster_n_neighbors: int = 15
+
     # Topic reduction config
     reduction: TopicReductionInput | None = None
 
@@ -282,6 +289,9 @@ class EmbedDatasetInput:
     collection_name: str
     config: str | None = None
     split: str = "train"
+    # Embed several splits into one collection in a single pass (each item gets
+    # a `source_split` metadata value). Takes precedence over `split` when set.
+    splits: list[str] | None = None
     columns: list[str] | None = None  # Columns to embed
     text_template: str | None = None  # Template for combining columns
     id_column: str | None = None  # Column to use as document ID
@@ -388,7 +398,9 @@ class ReEmbedDatasetInput:
     source_dataset_name: str  # Existing dataset to read from
     collection_name: str  # New collection name for the re-embedded vectors
     embedding_model: EmbeddingModelInput  # Required: the new model to use
-    columns: list[str] | None = None  # Metadata fields to compose text from (None = use existing document)
+    columns: list[str] | None = (
+        None  # Metadata fields to compose text from (None = use existing document)
+    )
     text_template: str | None = None  # Template e.g. "{title}: {text}" (None = concatenate columns)
     batch_size: int | None = 100
     resume: bool = False
@@ -944,8 +956,8 @@ class ModelStatus:
     loaded: bool
     model_name: str | None = None
     device: str | None = None
-    variant: str | None = None       # "it" (instruction-tuned) or "pt" (pretrained/base)
-    model_size: str | None = None    # "4b", "12b", etc.
+    variant: str | None = None  # "it" (instruction-tuned) or "pt" (pretrained/base)
+    model_size: str | None = None  # "4b", "12b", etc.
 
 
 @strawberry.type

@@ -14,7 +14,7 @@ import { CategoryBarChart } from './charts/CategoryBarChart';
 import { TemporalFilterChart } from './charts/TemporalFilterChart';
 import { useTemporalData } from '../../lib/hooks/useTemporalData';
 import { useCategoryData } from '../../lib/hooks/useCategoryData';
-import { CATEGORY_PRESETS } from '../../lib/utils/categoryColors';
+import { getUnclusteredValues } from '../../lib/utils/categoryColors';
 import type { Point2D, Point3D, TemporalRange } from '../../lib/types/types';
 import type { ColorFieldOption } from '../../lib/utils/fieldAnalysis';
 
@@ -74,17 +74,9 @@ export function AnalyticsSidebar({
   const activeCategoryValues = isOverridden ? analysisCategoryValues : categoryValues;
   const activeCategoryCounts = isOverridden ? analysisCategoryCounts : categoryCounts;
 
-  // Filter out unclustered noise points from topic fields.
+  // Filter out unclustered noise points from topic and subtopic fields.
   const filteredCategoryValues = useMemo(() => {
-    const preset = effectiveAnalysisField ? CATEGORY_PRESETS[effectiveAnalysisField.toLowerCase()] : null;
-    if (!preset) return activeCategoryValues;
-    const noiseValues = new Set<string>();
-    for (const [key, label] of Object.entries(preset.labels ?? {})) {
-      if (label === 'Unclustered') {
-        noiseValues.add(key);
-        noiseValues.add(label);
-      }
-    }
+    const noiseValues = getUnclusteredValues(effectiveAnalysisField);
     if (noiseValues.size === 0) return activeCategoryValues;
     return activeCategoryValues.filter(v => !noiseValues.has(v));
   }, [effectiveAnalysisField, activeCategoryValues]);

@@ -56,13 +56,15 @@ from interpret.sae import paths as sae_paths  # noqa: E402
 
 logger = logging.getLogger("orrery." + __name__)
 
-# Default layers per model size — must match layers available in google/gemma-scope-2-*
-# Only layers for which SAE weights have been published are listed.
+# Default layers per model size — must match the published GemmaScope-2 residual
+# SAE layers in google/gemma-scope-2-{size}-{variant} (identical for pt and it).
+# Only layers for which SAE weights exist are listed; verified 2026-07 against the
+# repo `resid_post/layer_{N}_...` folders (and mirrored on the Neuronpedia catalog).
 _DEFAULT_LAYERS_BY_SIZE: dict[str, list[int]] = {
     "1b": [7, 13, 17, 22],
     "4b": [9, 17, 22, 29],
-    "12b": [9, 17, 29, 40],
-    "27b": [9, 17, 29, 50],
+    "12b": [12, 24, 31, 41],
+    "27b": [16, 31, 40, 53],
 }
 _DEFAULT_LAYERS = [9, 17, 22, 29]  # fallback for unknown sizes
 

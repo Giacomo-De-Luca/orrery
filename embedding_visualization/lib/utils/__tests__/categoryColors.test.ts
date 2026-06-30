@@ -11,6 +11,7 @@ import {
   buildCategoryColorMap,
   getCategoryLabel,
   getCategoryDisplayName,
+  getUnclusteredValues,
   POS_PRESET,
   CATEGORY_PRESETS,
 } from '../categoryColors';
@@ -209,6 +210,34 @@ describe('CATEGORY_PRESETS', () => {
 
   it('should map alternative names to same preset', () => {
     expect(CATEGORY_PRESETS['pos']).toBe(CATEGORY_PRESETS['part_of_speech']);
+  });
+});
+
+describe('getUnclusteredValues', () => {
+  it('returns the noise tokens for topic fields', () => {
+    for (const field of ['topic', 'topic_id', 'topic_label']) {
+      const noise = getUnclusteredValues(field);
+      expect(noise.has('-1')).toBe(true);
+      expect(noise.has('Unclustered')).toBe(true);
+    }
+  });
+
+  it('returns the noise tokens for subtopic fields too', () => {
+    for (const field of ['subtopic', 'subtopic_id', 'subtopic_label']) {
+      const noise = getUnclusteredValues(field);
+      expect(noise.has('-1')).toBe(true);
+      expect(noise.has('Unclustered')).toBe(true);
+    }
+  });
+
+  it('is case-insensitive on the field name', () => {
+    expect(getUnclusteredValues('Subtopic_Label').has('Unclustered')).toBe(true);
+  });
+
+  it('returns an empty set for non-topic fields and null', () => {
+    expect(getUnclusteredValues('pos').size).toBe(0);
+    expect(getUnclusteredValues('category').size).toBe(0);
+    expect(getUnclusteredValues(null).size).toBe(0);
   });
 });
 

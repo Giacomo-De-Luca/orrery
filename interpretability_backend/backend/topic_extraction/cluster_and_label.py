@@ -145,6 +145,7 @@ class GenerateTopics:
                 metric="euclidean",
                 cluster_selection_method="eom",
                 prediction_data=True,
+                gen_min_span_tree=True,  # required for relative_validity_ (DBCV) after fit
             )
         else:
             self.hdbscan_model = None
@@ -178,20 +179,20 @@ class GenerateTopics:
         elif self.clustering_method == "kmeans":
             from sklearn.cluster import KMeans
 
-            labels = KMeans(n_clusters=self.n_clusters, random_state=42, n_init=10).fit_predict(
+            labels = KMeans(n_clusters=self.n_clusters, random_state=7, n_init=10).fit_predict(
                 reduced_embeddings
             )
         elif self.clustering_method == "gmm":
             from sklearn.mixture import GaussianMixture
 
-            labels = GaussianMixture(n_components=self.n_clusters, random_state=42).fit_predict(
+            labels = GaussianMixture(n_components=self.n_clusters, random_state=7).fit_predict(
                 reduced_embeddings
             )
         elif self.clustering_method == "spectral":
             from sklearn.cluster import SpectralClustering
 
             labels = SpectralClustering(
-                n_clusters=self.n_clusters, random_state=42, affinity="nearest_neighbors"
+                n_clusters=self.n_clusters, random_state=7, affinity="nearest_neighbors"
             ).fit_predict(reduced_embeddings)
         else:
             raise ValueError(f"Unknown clustering method: {self.clustering_method}")

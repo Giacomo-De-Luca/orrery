@@ -36,6 +36,35 @@ from .create_embedding_function import create_embedding_function, get_device
 # Progress update frequency (every N batches)
 PROGRESS_UPDATE_FREQUENCY = 1
 
+# Reserved row key holding the source split during multi-split embedding.
+# Injected at load time (survives length-sorting), consumed when building
+# metadata, and never embedded or stored as a normal column.
+_SPLIT_KEY = "__source_split__"
+
+
+def _load_rows_for_splits(
+    splits: list[str],
+    load_fn: Callable[[str], tuple[list[dict], int]],
+) -> tuple[list[dict], int]:
+    """Load and concatenate rows for several splits, tagging each with its split.
+
+    Args:
+        splits: Split names to load, in order.
+        load_fn: Callable returning ``(rows, total_in_split)`` for one split.
+
+    Returns:
+        ``(combined_rows, combined_total)`` where every row carries ``_SPLIT_KEY``.
+    """
+    combined: list[dict] = []
+    combined_total = 0
+    for split in splits:
+        rows, split_total = load_fn(split)
+        for row in rows:
+            row[_SPLIT_KEY] = split
+        combined.extend(rows)
+        combined_total += split_total or len(rows)
+    return combined, combined_total
+
 
 def _config_to_dict(config: EmbeddingConfig) -> dict:
     """Convert EmbeddingConfig to a JSON-serializable dict for job state."""
@@ -44,6 +73,7 @@ def _config_to_dict(config: EmbeddingConfig) -> dict:
         "collection_name": config.collection_name,
         "config": config.config,
         "split": config.split,
+        "splits": config.splits,
         "columns": config.columns,
         "text_template": config.text_template,
         "id_column": config.id_column,
@@ -94,15 +124,21 @@ def embed_huggingface_dataset(
         device = get_device()
         print(f"Using device: {device}")
 
-        # Load dataset portion
-        print(f"Loading dataset: {config.dataset_id}")
-        rows, total_in_split = load_dataset_portion(
-            dataset_id=config.dataset_id,
-            config=config.config,
-            split=config.split,
-            portion=config.portion,
+        # Load dataset portion. When multiple splits are requested they are
+        # embedded into one collection in a single pass; each row is tagged with
+        # its source split so metadata and IDs stay correct after length-sorting.
+        splits = config.splits or [config.split]
+        print(f"Loading dataset: {config.dataset_id} (splits: {', '.join(splits)})")
+        rows, total_in_split = _load_rows_for_splits(
+            splits,
+            lambda s: load_dataset_portion(
+                dataset_id=config.dataset_id,
+                config=config.config,
+                split=s,
+                portion=config.portion,
+            ),
         )
-        print(f"Loaded {len(rows)} rows (total in split: {total_in_split})")
+        print(f"Loaded {len(rows)} rows (total across splits: {total_in_split})")
 
         # Get model config early for error responses
         model_config = config.embedding_model or EmbeddingModelConfig()
@@ -122,9 +158,11 @@ def embed_huggingface_dataset(
         # Determine columns to embed
         columns = config.columns
         if not columns:
-            # Auto-detect text columns
+            # Auto-detect text columns (never embed the internal split tag)
             first_row = rows[0]
-            columns = [k for k, v in first_row.items() if isinstance(v, str)]
+            columns = [
+                k for k, v in first_row.items() if isinstance(v, str) and k != _SPLIT_KEY
+            ]
             if not columns:
                 return EmbeddingResult(
                     collection_name=config.collection_name,
@@ -220,7 +258,7 @@ def embed_huggingface_dataset(
                 "description": f"Embeddings from HuggingFace dataset: {config.dataset_id}",
                 "source_dataset": config.dataset_id,
                 "source_config": config.config or "",
-                "source_split": config.split,
+                "source_split": ", ".join(splits),
                 "embedded_columns": json.dumps(columns),
                 "portion_strategy": portion_info,
                 "total_in_split": total_in_split,
@@ -255,8 +293,10 @@ def embed_huggingface_dataset(
         metadata_columns = config.metadata_columns
         if metadata_columns is None:
             first_row = rows[0]
-            # Exclude embedded columns and the id column (if used as ChromaDB id)
+            # Exclude embedded columns, the id column (if used as ChromaDB id),
+            # and the internal split tag (stored separately as source_split).
             exclude_cols = set(columns)
+            exclude_cols.add(_SPLIT_KEY)
             if config.id_column:
                 exclude_cols.add(config.id_column)
             metadata_columns = [k for k in first_row.keys() if k not in exclude_cols]
@@ -322,13 +362,14 @@ def embed_huggingface_dataset(
 
             for i, row in enumerate(batch):
                 row_idx = batch_start + i
+                row_split = row.get(_SPLIT_KEY, config.split)
 
-                # Generate ID
+                # Generate ID (per-row split keeps auto-ids unique across splits)
                 if config.id_column and config.id_column in row:
                     base_id = str(row[config.id_column])
                     doc_id = id_deduplicator.get_unique_id(base_id)
                 else:
-                    doc_id = f"{config.collection_name}_{config.split}_{row_idx}"
+                    doc_id = f"{config.collection_name}_{row_split}_{row_idx}"
 
                 # Skip if already embedded (resume mode)
                 if doc_id in existing_ids:
@@ -342,7 +383,7 @@ def embed_huggingface_dataset(
                     continue
 
                 # Extract metadata (only add source_split, no duplicated source info)
-                metadata = extract_metadata(row, metadata_columns, source_split=config.split)
+                metadata = extract_metadata(row, metadata_columns, source_split=row_split)
                 metadata = preprocess_color_metadata(metadata, row)
                 metadata["row_index"] = row_idx
 

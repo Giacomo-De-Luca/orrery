@@ -113,7 +113,7 @@ def compute_projections_for_collection(
         # ---- PCA 2D ----
         if "pca2d" in projection_type:
             print("Computing PCA 2D projections...")
-            pca_2d = PCA(n_components=2, random_state=42)
+            pca_2d = PCA(n_components=2, random_state=7)
             coords = pca_2d.fit_transform(embeddings)
             pca_2d_variance = pca_2d.explained_variance_ratio_.tolist()
 
@@ -126,7 +126,7 @@ def compute_projections_for_collection(
         # ---- PCA 3D ----
         if "pca3d" in projection_type:
             print("Computing PCA 3D projections...")
-            pca_3d = PCA(n_components=3, random_state=42)
+            pca_3d = PCA(n_components=3, random_state=7)
             coords = pca_3d.fit_transform(embeddings)
             pca_3d_variance = pca_3d.explained_variance_ratio_.tolist()
 
@@ -144,7 +144,7 @@ def compute_projections_for_collection(
                 n_neighbors=15,
                 min_dist=0.1,
                 metric="cosine",
-                random_state=42,
+                random_state=7,
                 verbose=False,
             )
             coords = reducer.fit_transform(embeddings)
@@ -163,7 +163,7 @@ def compute_projections_for_collection(
                 n_neighbors=15,
                 min_dist=0.1,
                 metric="cosine",
-                random_state=42,
+                random_state=7,
                 verbose=False,
             )
             coords = reducer.fit_transform(embeddings)

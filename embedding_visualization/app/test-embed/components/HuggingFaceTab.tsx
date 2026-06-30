@@ -181,18 +181,15 @@ export function HuggingFaceTab({
     };
 
     if (portionStrategy === 'ALL') {
-      const splits = datasetInfo?.configs[0]?.splits.map(s => s.name) || ['train'];
-      for (const split of splits) {
-        const result = await embedHFDataset({
-          ...commonInput,
-          split,
-          portion: { strategy: 'ALL' },
-        });
-        if (result?.error) {
-          console.error(`Error embedding split ${split}:`, result.error);
-          break;
-        }
-      }
+      // Embed every split into one collection in a single backend pass. The
+      // backend tags each row with `source_split` and shares one ID
+      // deduplicator across splits, so nothing gets overwritten.
+      const allSplits = datasetInfo?.configs[0]?.splits.map(s => s.name) || ['train'];
+      await embedHFDataset({
+        ...commonInput,
+        splits: allSplits,
+        portion: { strategy: 'ALL' },
+      });
     } else {
       await embedHFDataset({
         ...commonInput,
@@ -235,6 +232,7 @@ export function HuggingFaceTab({
       collectionName: job.collectionName,
       config: config.config as string | undefined,
       split: config.split as string | undefined,
+      splits: config.splits as string[] | undefined,
       columns: config.columns as string[] | undefined,
       textTemplate: config.text_template as string | undefined,
       idColumn: config.id_column as string | undefined,

@@ -1,0 +1,17 @@
+[
+  {
+    "dbcv": null,
+    "silhouette_embedding": null,
+    "silhouette_projection": 0.3098183222156145,
+    "topic_diversity": 0.925,
+    "coherence_cv": 0.29383436671354257,
+    "coherence_umass": -13.082962885816656,
+    "num_clusters_evaluated": 16,
+    "sampled": false,
+    "sample_size": 10000,
+    "cluster_space": "stored",
+    "collection_name": "emotion",
+    "projection_type": "umap_2d",
+    "num_items": 1000
+  }
+]

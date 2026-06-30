@@ -15,7 +15,6 @@ import chromadb
 import numpy as np
 from chromadb.config import Settings
 
-from ..utils.resource_paths import CHROMA_DB_PATH as DB_PATH
 from ..topic_extraction.cluster_and_label import GenerateTopics
 from ..topic_extraction.llm_labeling import (
     _create_labeler,
@@ -23,9 +22,38 @@ from ..topic_extraction.llm_labeling import (
     generate_llm_labels,
 )
 from ..utils.duckdb_sync import _get_db as _get_duckdb
+from ..utils.embedding_loader import load_embeddings_for_ids
+from ..utils.resource_paths import CHROMA_DB_PATH as DB_PATH
 from .progress_emitter import emit_progress
 
 logger = logging.getLogger("orrery." + __name__)
+
+
+def _reduce_for_clustering(embeddings, n_components, min_dist, n_neighbors):
+    """Reduce raw embeddings with a BERTopic-style UMAP for density clustering.
+
+    Unlike the stored visualization UMAP (min_dist=0.1, 2D/3D), this packs points
+    tightly (min_dist≈0) into ~5D so HDBSCAN's density estimation is sharper while
+    retaining more structure than 2D. UMAP output is euclidean-clusterable, so no
+    post-normalisation is needed. random_state matches compute_projections.py.
+    """
+    import umap  # local import: optional heavy dep, mirrors compute_projections.py guard
+
+    # UMAP requires n_neighbors < n_samples and n_components < n_samples; clamp so
+    # small collections don't raise. Tiny-N failures are still caught at the call site.
+    n_samples = len(embeddings)
+    n_neighbors = max(2, min(n_neighbors, n_samples - 1))
+    n_components = max(2, min(n_components, n_samples - 2))
+
+    reducer = umap.UMAP(
+        n_components=n_components,
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        metric="cosine",
+        random_state=7,
+        verbose=False,
+    )
+    return reducer.fit_transform(embeddings)
 
 
 @dataclass
@@ -44,6 +72,13 @@ class TopicExtractionConfig:
     # Clustering config
     clustering_method: str = "hdbscan"  # hdbscan, kmeans, gmm, spectral
     n_clusters: int | None = None  # Required for kmeans, gmm, spectral
+    # "projection" (stored UMAP/PCA coords) | "cluster_umap" (BERTopic-style 5D UMAP)
+    # | "embedding" (raw L2-normalised vectors)
+    cluster_on: str = "cluster_umap"
+    # BERTopic-style clustering UMAP params (used only when cluster_on == "cluster_umap")
+    cluster_n_components: int = 5
+    cluster_min_dist: float = 0.0
+    cluster_n_neighbors: int = 15
 
     # Reduction config
     reduce_topics: bool = False
@@ -124,6 +159,10 @@ def _sync_topics_to_duckdb(
                 "used_llm": getattr(config, "use_llm_labels", None),
                 "clustering_method": getattr(config, "clustering_method", None),
                 "n_clusters": getattr(config, "n_clusters", None),
+                "cluster_on": getattr(config, "cluster_on", None),
+                "cluster_n_components": getattr(config, "cluster_n_components", None),
+                "cluster_min_dist": getattr(config, "cluster_min_dist", None),
+                "cluster_n_neighbors": getattr(config, "cluster_n_neighbors", None),
             }
 
         ext_id = db.create_topic_extraction(
@@ -279,6 +318,54 @@ def extract_topics(config: TopicExtractionConfig) -> TopicExtractionResult:
             f"Clustering with method={config.clustering_method}, min_topic_size={config.min_topic_size}, n_clusters={config.n_clusters}"
         )
 
+        # Select the space to cluster on:
+        #   "projection"   — stored UMAP/PCA viz coords (fast, but tuned for looks)
+        #   "cluster_umap" — BERTopic-style fresh UMAP (5D, min_dist=0) for sharper density (default)
+        #   "embedding"    — raw L2-normalised vectors (euclidean ≈ cosine for HDBSCAN)
+        # Both raw-vector modes share the loader + None-guard; on a load failure we
+        # degrade gracefully to projection coords rather than hard-fail (cluster_umap
+        # is the default path).
+        if config.cluster_on in ("embedding", "cluster_umap"):
+            logger.info("Clustering on %s space for %s", config.cluster_on, config.collection_name)
+            raw = load_embeddings_for_ids(config.collection_name, ids)
+            if raw is None:
+                logger.warning(
+                    "Could not load embeddings for %s; falling back to projection coords.",
+                    config.collection_name,
+                )
+                cluster_input = reduced_embeddings
+            elif config.cluster_on == "cluster_umap":
+                emit_progress(
+                    job_id=job_id,
+                    status="running",
+                    items_processed=0,
+                    total_items=total_items,
+                    current_batch=1,
+                    total_batches=5,
+                    message="Reducing vectors for clustering (UMAP)...",
+                )
+                try:
+                    cluster_input = _reduce_for_clustering(
+                        raw,
+                        n_components=config.cluster_n_components,
+                        min_dist=config.cluster_min_dist,
+                        n_neighbors=config.cluster_n_neighbors,
+                    )
+                except Exception as exc:
+                    # Small-N or any UMAP failure → degrade to projection coords
+                    # rather than hard-failing the whole extraction.
+                    logger.warning(
+                        "Clustering UMAP failed for %s (%s); falling back to projection coords.",
+                        config.collection_name,
+                        exc,
+                    )
+                    cluster_input = reduced_embeddings
+            else:  # "embedding": L2-normalise so HDBSCAN euclidean approximates cosine
+                norms = np.linalg.norm(raw, axis=1, keepdims=True)
+                cluster_input = raw / np.where(norms == 0, 1.0, norms)
+        else:  # "projection"
+            cluster_input = reduced_embeddings
+
         generator = GenerateTopics(
             documents=documents,
             min_topic_size=config.min_topic_size,
@@ -286,7 +373,7 @@ def extract_topics(config: TopicExtractionConfig) -> TopicExtractionResult:
             clustering_method=config.clustering_method,
             n_clusters=config.n_clusters,
         )
-        documents_df = generator.generate_clusters(reduced_embeddings)
+        documents_df = generator.generate_clusters(cluster_input)
 
         # Count topics and noise
         topic_counts = documents_df["Topic"].value_counts().to_dict()
@@ -632,9 +719,7 @@ def reduce_existing_topics(
         documents = [r[1] or "" for r in items_rows]
 
         # Load topic assignments
-        assign_rows = duckdb.get_topic_assignments_raw(
-            extraction_id, ["item_id", "topic_id"]
-        )
+        assign_rows = duckdb.get_topic_assignments_raw(extraction_id, ["item_id", "topic_id"])
         assign_map = {r[0]: r[1] for r in assign_rows}
 
         total_items = len(ids)

@@ -98,6 +98,10 @@ class EmbeddingConfig(BaseConfig):
     dataset_id: str
     config: str | None = None
     split: str = "train"
+    # When set (multiple splits), all listed splits are embedded into one
+    # collection in a single pass, each row tagged with its `source_split`.
+    # Falls back to `[split]` when None.
+    splits: list[str] | None = None
     portion: PortionConfig | None = None  # Portion of dataset to embed
 
 

@@ -38,11 +38,17 @@ interface GemmaModelConfig {
   labelledLayers: Set<number>;
 }
 
+// `labelledLayers` = published GemmaScope-2 residual-stream SAE layers on
+// Neuronpedia (identical for pt and it variants). These layers carry both decoder
+// vectors and explanation labels, so they gate the "labelled" badge in the Layer
+// dropdown and enable "Label embeddings" vector mode.
+// Source (retrieved 2026-07) — Neuronpedia datasets S3 catalog:
+//   https://neuronpedia-datasets.s3.us-east-1.amazonaws.com/?prefix=v1/<model_id>/&delimiter=/
 const GEMMA_MODELS: GemmaModelConfig[] = [
-  { size: '1b', label: 'Gemma 3 1B', layers: 26, dIn: 1152, labelledLayers: new Set() },
+  { size: '1b', label: 'Gemma 3 1B', layers: 26, dIn: 1152, labelledLayers: new Set([7, 13, 17, 22]) },
   { size: '4b', label: 'Gemma 3 4B', layers: 34, dIn: 2560, labelledLayers: new Set([9, 17, 22, 29]) },
-  { size: '12b', label: 'Gemma 3 12B', layers: 48, dIn: 3840, labelledLayers: new Set() },
-  { size: '27b', label: 'Gemma 3 27B', layers: 62, dIn: 5376, labelledLayers: new Set() },
+  { size: '12b', label: 'Gemma 3 12B', layers: 48, dIn: 3840, labelledLayers: new Set([12, 24, 31, 41]) },
+  { size: '27b', label: 'Gemma 3 27B', layers: 62, dIn: 5376, labelledLayers: new Set([16, 31, 40, 53]) },
 ];
 
 const VARIANT_OPTIONS = [

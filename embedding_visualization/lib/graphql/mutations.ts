@@ -317,6 +317,8 @@ export interface EmbedDatasetInput {
   collectionName: string;
   config?: string;
   split?: string;
+  /** Embed several splits into one collection in a single pass (adds `source_split` metadata). Takes precedence over `split`. */
+  splits?: string[];
   columns?: string[];
   textTemplate?: string;
   idColumn?: string;
@@ -434,6 +436,10 @@ export interface TopicConfigInput {
   projectionType?: string;
   clusteringMethod?: string;  // "hdbscan" | "kmeans" | "gmm" | "spectral"
   nClusters?: number;         // Required for kmeans, gmm, spectral
+  clusterOn?: string;         // "projection" | "cluster_umap" | "embedding"
+  clusterNComponents?: number;  // BERTopic UMAP dims (cluster_umap only)
+  clusterMinDist?: number;      // BERTopic UMAP min_dist (cluster_umap only)
+  clusterNNeighbors?: number;   // BERTopic UMAP n_neighbors (cluster_umap only)
   reduction?: TopicReductionInput;
 }
 

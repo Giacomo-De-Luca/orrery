@@ -338,6 +338,47 @@ export const CATEGORY_PRESETS: Record<string, CategoryColorPreset> = {
   topic_label: TOPIC_PRESET,
 };
 
+/**
+ * Fields whose values follow the HDBSCAN topic-clustering convention, where
+ * label -1 ("Unclustered") denotes noise points. Topics and subtopics share
+ * the same convention (see backend `topic_extraction_service`).
+ */
+const TOPIC_LIKE_FIELDS = new Set([
+  'topic', 'topic_id', 'topic_label',
+  'subtopic', 'subtopic_id', 'subtopic_label',
+]);
+
+/**
+ * Tokens that denote unclustered/noise points (HDBSCAN label -1). Derived once
+ * from {@link TOPIC_PRESET} so its labels remain the single source of truth.
+ */
+const UNCLUSTERED_TOKENS: ReadonlySet<string> = (() => {
+  const tokens = new Set<string>();
+  for (const [key, label] of Object.entries(TOPIC_PRESET.labels ?? {})) {
+    if (label === 'Unclustered') {
+      tokens.add(key);
+      tokens.add(label);
+    }
+  }
+  return tokens;
+})();
+
+const EMPTY_VALUE_SET: ReadonlySet<string> = new Set();
+
+/**
+ * Values that denote unclustered/noise points for a topic or subtopic field.
+ * Returns an empty set for any other field.
+ *
+ * Used to exclude noise from analytics distributions (it is usually the largest
+ * bucket and is not a meaningful category).
+ */
+export function getUnclusteredValues(categoryField: string | null | undefined): ReadonlySet<string> {
+  if (!categoryField || !TOPIC_LIKE_FIELDS.has(categoryField.toLowerCase())) {
+    return EMPTY_VALUE_SET;
+  }
+  return UNCLUSTERED_TOKENS;
+}
+
 // ============ Dynamic color generation ============
 
 /**

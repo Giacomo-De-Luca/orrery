@@ -1,0 +1,29 @@
+# Topic-quality evaluation config.
+# Run: uv run python -m interpretability_backend.evaluation.run_evaluation
+# Override path with the ORRERY_EVAL_CONFIG env var.
+
+# Collections (ChromaDB collection names) to evaluate. Each must have an active
+# topic extraction and projections in DuckDB.
+collections = ["emotion"]
+
+# Which projection the projection-space silhouette is computed on.
+# One of: pca_2d, pca_3d, umap_2d, umap_3d
+projection_type = "umap_2d"
+
+# Which assignment level to score:
+#   "topic"    — the active (possibly reduced) topics
+#   "subtopic" — the pre-reduction subtopics (original HDBSCAN density clusters);
+#                the more meaningful geometric evaluation when reduction was applied
+level = "topic"
+
+# Max points used for silhouette (cost guard for large collections).
+sample_size = 10000
+
+# Top-N keywords per topic used for diversity + coherence.
+n_keywords = 10
+
+# Stop-words language for the c-TF-IDF / coherence tokenizer (sklearn: "english").
+language = "english"
+
+# Where the JSON results are written.
+output_path = "interpretability_backend/evaluation/evaluation_results.json"

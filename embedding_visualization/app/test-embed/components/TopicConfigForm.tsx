@@ -21,6 +21,11 @@ export interface TopicConfigState {
   minTopicSize: number;
   nKeywords: number;
   projectionType: string;
+  // Clustering space
+  clusterOn: string;             // "projection" | "cluster_umap" | "embedding"
+  clusterNComponents: number;    // BERTopic UMAP dims (cluster_umap only)
+  clusterMinDist: number;        // BERTopic UMAP min_dist (cluster_umap only)
+  clusterNNeighbors: number;     // BERTopic UMAP n_neighbors (cluster_umap only)
   useLlmLabels: boolean;
   llmProvider: string;
   llmModel: string;
@@ -37,6 +42,10 @@ export const DEFAULT_TOPIC_CONFIG: TopicConfigState = {
   minTopicSize: 10,
   nKeywords: 10,
   projectionType: 'umap_2d',
+  clusterOn: 'cluster_umap',
+  clusterNComponents: 5,
+  clusterMinDist: 0.0,
+  clusterNNeighbors: 15,
   useLlmLabels: false,
   llmProvider: 'gemini',
   llmModel: 'gemini-3-flash-preview',
@@ -54,9 +63,15 @@ export function toTopicConfigInput(state: TopicConfigState): TopicConfigInput {
     projectionType: state.projectionType,
     useLlmLabels: state.useLlmLabels,
     clusteringMethod: state.clusteringMethod,
+    clusterOn: state.clusterOn,
   };
   if (state.clusteringMethod !== 'hdbscan') {
     config.nClusters = state.nClusters;
+  }
+  if (state.clusterOn === 'cluster_umap') {
+    config.clusterNComponents = state.clusterNComponents;
+    config.clusterMinDist = state.clusterMinDist;
+    config.clusterNNeighbors = state.clusterNNeighbors;
   }
   if (state.useLlmLabels) {
     config.llmProvider = state.llmProvider;
@@ -171,6 +186,82 @@ export function TopicConfigForm({ value, onChange }: TopicConfigFormProps) {
           <ToggleGroupItem value="pca_3d" className="text-xs">PCA 3D</ToggleGroupItem>
         </ToggleGroup>
       </div>
+
+      {/* Clustering Space */}
+      <div className="space-y-2">
+        <Label>Clustering Space</Label>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={value.clusterOn}
+          onValueChange={(v) => { if (v) update({ clusterOn: v }); }}
+        >
+          <ToggleGroupItem value="projection" className="text-xs">Visualization coords</ToggleGroupItem>
+          <ToggleGroupItem value="cluster_umap" className="text-xs">BERTopic 5D</ToggleGroupItem>
+          <ToggleGroupItem value="embedding" className="text-xs">Raw embeddings</ToggleGroupItem>
+        </ToggleGroup>
+        {value.clusterOn === 'cluster_umap' && (
+          <p className="text-xs text-muted-foreground">
+            Runs a fresh UMAP (min_dist 0) on the raw vectors before clustering — slower than
+            visualization coords, but usually sharper topics.
+          </p>
+        )}
+        {value.clusterOn === 'embedding' && (
+          <p className="text-xs text-muted-foreground">
+            Clusters on the full-dimensional vectors. Advanced; quality varies with embedding dimension.
+          </p>
+        )}
+      </div>
+
+      {/* BERTopic UMAP params */}
+      {value.clusterOn === 'cluster_umap' && (
+        <div className="space-y-4 pl-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="cluster-n-components">Dimensions</Label>
+              <span className="text-sm text-muted-foreground">{value.clusterNComponents}</span>
+            </div>
+            <Slider
+              id="cluster-n-components"
+              min={2}
+              max={15}
+              step={1}
+              value={[value.clusterNComponents]}
+              onValueChange={([v]) => update({ clusterNComponents: v })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="cluster-min-dist">Min Distance</Label>
+              <span className="text-sm text-muted-foreground">{value.clusterMinDist.toFixed(2)}</span>
+            </div>
+            <Slider
+              id="cluster-min-dist"
+              min={0}
+              max={0.5}
+              step={0.05}
+              value={[value.clusterMinDist]}
+              onValueChange={([v]) => update({ clusterMinDist: v })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="cluster-n-neighbors">N Neighbors</Label>
+              <span className="text-sm text-muted-foreground">{value.clusterNNeighbors}</span>
+            </div>
+            <Slider
+              id="cluster-n-neighbors"
+              min={5}
+              max={50}
+              step={1}
+              value={[value.clusterNNeighbors]}
+              onValueChange={([v]) => update({ clusterNNeighbors: v })}
+            />
+          </div>
+        </div>
+      )}
 
       <Separator />
 
